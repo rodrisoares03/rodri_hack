@@ -1,0 +1,1615 @@
+-- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_Eat_Bugar.client.lua
+-- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto.
+
+-- ========= Serviços =========
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
+local Lighting = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ========= Config =========
+local ESP_DEFAULT_ON = true
+local SHOW_NAME_DEFAULT = true
+local SHOW_HEALTH_DEFAULT = true
+local ESP_POSITION_DEFAULT = "Topo"      -- Topo | Baixo | Lado
+local ESP_MODE_DEFAULT = "Cheio"         -- Cheio | Bordas
+local TEAM_FILTER_DEFAULT = "Todos"      -- Todos | Só inimigos
+
+local FILL_COLOR = Color3.fromRGB(255, 0, 0)
+local OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
+
+local UI_TOGGLE_KEY = Enum.KeyCode.M
+local FREEFLY_TOGGLE_KEY = Enum.KeyCode.F
+local CANCEL_FLY_KEY = Enum.KeyCode.X
+local GRAB_TOGGLE_KEY = Enum.KeyCode.H  -- Tecla H para agarrar/soltar
+local EAT_PLAYER_KEY = Enum.KeyCode.G  -- Tecla G para comer jogador
+local UNLOCK_MOUSE_KEY = Enum.KeyCode.P  -- Tecla P para destravar mouse
+
+-- Voo até alvo
+local FLY_SPEED = 140
+local STOP_DISTANCE = 3
+local MAX_FLY_TIME = 30
+
+-- Free-Fly manual
+local FREEFLY_SPEED = 75
+local FREEFLY_SPRINT_MULT = 2
+
+-- Limites do painel
+local PANEL_MIN = Vector2.new(500, 400)
+local PANEL_MAX = Vector2.new(900, 700)
+
+-- ========= Estado =========
+local espEnabled = ESP_DEFAULT_ON
+local showName = SHOW_NAME_DEFAULT
+local showHealth = SHOW_HEALTH_DEFAULT
+local espPosition = ESP_POSITION_DEFAULT
+local espMode = ESP_MODE_DEFAULT
+local teamFilter = TEAM_FILTER_DEFAULT
+
+local highlights = {}         -- [Character] = Highlight
+local overlays = {}           -- [Character] = BillboardGui
+
+-- fly-to target
+local flightConn: RBXScriptConnection? = nil
+local flightStartTime = 0
+local cancelling = false
+local noclipActive = false
+local savedCollide = {}
+
+-- free-fly manual
+local freeflyOn = false
+local freeflyConn: RBXScriptConnection? = nil
+local inputStates = {W=false,A=false,S=false,D=false,Space=false,Shift=false,Ctrl=false}
+
+-- UI state
+local panelVisible = false
+local prevMouseBehavior, prevMouseIconEnabled
+
+-- spectate
+local spectating: Player? = nil
+local savedSubject: Instance? = nil
+local savedCamType: Enum.CameraType? = nil
+
+-- grab system
+local grabbing = false
+local grabbedPlayer: Player? = nil
+local grabConn: RBXScriptConnection? = nil
+local GRAB_DISTANCE = 3 -- Distância do lado
+local GRAB_HEIGHT = 0 -- Altura relativa
+
+-- eat system
+local eating = false
+local eatenPlayer: Player? = nil
+local eatConn: RBXScriptConnection? = nil
+
+-- bugar player system
+local buggingPlayers = {} -- Tabela para controlar players sendo bugados
+local bugConn: RBXScriptConnection? = nil
+
+-- player selection
+local selectedPlayer: Player? = nil
+
+-- ========= Função para Destravar Mouse =========
+local function unlockMouse()
+	-- Forçar o mouse a voltar ao normal
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
+	
+	-- Mostrar mensagem de confirmação
+	print("🔓 Mouse destravado! (Tecla P)")
+	
+	-- Criar notificação visual temporária
+	local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+	local notification = Instance.new("ScreenGui")
+	notification.Name = "MouseUnlockNotification"
+	notification.ResetOnSpawn = false
+	notification.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	notification.Parent = playerGui
+	
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(0, 300, 0, 80)
+	frame.Position = UDim2.new(0.5, -150, 0.1, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(0, 100, 0)
+	frame.BorderSizePixel = 0
+	frame.Parent = notification
+	Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+	
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
+	label.Text = "🔓 MOUSE DESTRAVADO!\nTecla P pressionada"
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 16
+	label.TextWrapped = true
+	label.Parent = frame
+	
+	-- Remover após 3 segundos
+	task.delay(3, function()
+		notification:Destroy()
+	end)
+end
+
+-- ========= Helpers =========
+local function getPrimaryPart(char: Model?): BasePart?
+	if not char then return nil end
+	return char.PrimaryPart
+		or char:FindFirstChild("HumanoidRootPart")
+		or char:FindFirstChild("Torso")
+		or char:FindFirstChild("UpperTorso")
+end
+
+local function getHead(char: Model?): BasePart?
+	if not char then return nil end
+	return char:FindFirstChild("Head") or getPrimaryPart(char)
+end
+
+local function forEachCharacterPart(char: Model, fn)
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("BasePart") then fn(d) end
+	end
+end
+
+local function isEnemy(p: Player): boolean
+	if not LocalPlayer.Team or not p.Team then return false end
+	return p.Team ~= LocalPlayer.Team
+end
+
+-- ========= ESP =========
+local function applyHighlightMode(h: Highlight)
+	if espMode == "Cheio" then
+		h.FillTransparency = 0.3
+		h.OutlineTransparency = 0
+	else
+		h.FillTransparency = 1
+		h.OutlineTransparency = 0
+	end
+end
+
+local function ensureHighlight(character: Model)
+	if not character or not character.Parent then return end
+	local h = highlights[character]
+	if not h or not h.Parent then
+		h = Instance.new("Highlight")
+		h.Name = "PlayerESP"
+		h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		h.Adornee = character
+		h.Parent = LocalPlayer:WaitForChild("PlayerGui")
+		highlights[character] = h
+	end
+	h.FillColor = FILL_COLOR
+	h.OutlineColor = OUTLINE_COLOR
+	applyHighlightMode(h)
+	h.Enabled = espEnabled
+end
+
+local function ensureOverlayFor(p: Player, character: Model)
+	if not character or not character.Parent then return end
+	local bb = overlays[character]
+	if not bb or not bb.Parent then
+		local head = getHead(character); if not head then return end
+		bb = Instance.new("BillboardGui")
+		bb.Name = "ESP_Overlay"
+		bb.Adornee = head
+		bb.Size = UDim2.fromOffset(220, 36)
+		bb.AlwaysOnTop = true
+		bb.MaxDistance = 10000
+		bb.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+		local holder = Instance.new("Frame")
+		holder.Name = "Holder"
+		holder.BackgroundTransparency = 1 -- Fundo transparente
+		holder.Size = UDim2.fromScale(1, 1)
+		holder.Parent = bb
+
+		local label = Instance.new("TextLabel")
+		label.Name = "Text"
+		label.BackgroundTransparency = 1 -- Fundo transparente
+		label.Size = UDim2.fromScale(1, 1)
+		label.Font = Enum.Font.GothamBold
+		label.TextSize = 14
+		label.TextColor3 = Color3.fromRGB(255,255,255)
+		label.TextStrokeTransparency = 0.8 -- Contorno para melhor visibilidade
+		label.TextStrokeColor3 = Color3.fromRGB(0,0,0)
+		label.TextWrapped = true
+		label.Text = ""
+		label.Parent = holder
+
+		overlays[character] = bb
+
+		character.AncestryChanged:Connect(function(_, parent)
+			if not parent then
+				if overlays[character] then pcall(function() overlays[character]:Destroy() end) end
+				overlays[character] = nil
+				if highlights[character] then pcall(function() highlights[character]:Destroy() end) end
+				highlights[character] = nil
+			end
+		end)
+	end
+end
+
+local function overlayOffsetFor(positionName: string): Vector3
+	if positionName == "Topo" then
+		return Vector3.new(0, 2.6, 0)
+	elseif positionName == "Baixo" then
+		return Vector3.new(0, -2.0, 0)
+	else
+		return Vector3.new(2.5, 1.2, 0) -- direita
+	end
+end
+
+local function updateOverlay(p: Player, character: Model, bb: BillboardGui)
+	if not bb then return end
+	local head = getHead(character); if not head then return end
+	bb.Adornee = head
+	bb.StudsOffsetWorldSpace = overlayOffsetFor(espPosition)
+
+	local bits = {}
+	if showName then table.insert(bits, (p.DisplayName or p.Name) .. " (@"..p.Name..")") end
+	if showHealth then
+		local hum = character:FindFirstChildOfClass("Humanoid"); if hum then table.insert(bits, ("HP: %d"):format(hum.Health + 0.5)) end
+	end
+	local label = bb:FindFirstChild("Holder") and bb.Holder:FindFirstChild("Text")
+	if label and label:IsA("TextLabel") then label.Text = table.concat(bits, " | ") end
+
+	local visibleByFilter = true
+	if teamFilter == "Só inimigos" then visibleByFilter = isEnemy(p) end
+
+	local h = highlights[character]
+	if h then
+		h.FillColor = FILL_COLOR
+		h.OutlineColor = OUTLINE_COLOR
+		applyHighlightMode(h)
+		h.Enabled = espEnabled and visibleByFilter
+	end
+	bb.Enabled = espEnabled and (showName or showHealth) and visibleByFilter
+end
+
+local function refreshESPForPlayer(p: Player)
+	if p == LocalPlayer then return end
+	local char = p.Character; if not char then return end
+	if espEnabled then
+		ensureHighlight(char)
+		ensureOverlayFor(p, char)
+		updateOverlay(p, char, overlays[char])
+	else
+		if overlays[char] then overlays[char].Enabled = false end
+		if highlights[char] then highlights[char].Enabled = false end
+	end
+end
+
+-- Inicial + eventos de players
+for _, plr in ipairs(Players:GetPlayers()) do
+	if plr ~= LocalPlayer and plr.Character then refreshESPForPlayer(plr) end
+	plr.CharacterAdded:Connect(function() task.wait(0.1); refreshESPForPlayer(plr) end)
+	plr:GetPropertyChangedSignal("Team"):Connect(function() if plr ~= LocalPlayer then refreshESPForPlayer(plr) end end)
+end
+Players.PlayerAdded:Connect(function(plr)
+	if plr ~= LocalPlayer then
+		plr.CharacterAdded:Connect(function() task.wait(0.1); refreshESPForPlayer(plr) end)
+		plr:GetPropertyChangedSignal("Team"):Connect(function() refreshESPForPlayer(plr) end)
+	end
+end)
+Players.PlayerRemoving:Connect(function(plr)
+	local char = plr.Character
+	if char then
+		if overlays[char] then pcall(function() overlays[char]:Destroy() end) end
+		overlays[char] = nil
+		if highlights[char] then pcall(function() highlights[char]:Destroy() end) end
+		highlights[char] = nil
+	end
+end)
+
+-- Atualização periódica (vida/nome/filtro)
+task.spawn(function()
+	while true do
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and p.Character then
+				local bb = overlays[p.Character]
+				if bb then updateOverlay(p, p.Character, bb) end
+			end
+		end
+		task.wait(0.1)
+	end
+end)
+
+-- ========= Noclip melhorado =========
+local function setNoclip(char: Model, on: boolean)
+	if not char then return end
+	forEachCharacterPart(char, function(part: BasePart)
+		if on then
+			if savedCollide[part] == nil then savedCollide[part] = part.CanCollide end
+			part.CanCollide = false
+		else
+			if savedCollide[part] ~= nil then
+				part.CanCollide = savedCollide[part]
+				savedCollide[part] = nil
+			else
+				part.CanCollide = true
+			end
+		end
+	end)
+end
+
+local function enforceNoclip(char: Model)
+	forEachCharacterPart(char, function(part: BasePart)
+		part.CanCollide = false
+	end)
+end
+
+-- ========= Sistema de Agarrar (Grab) - Lado aleatório =========
+local function stopGrab()
+	if grabConn then 
+		grabConn:Disconnect() 
+		grabConn = nil 
+	end
+	grabbing = false
+	
+	if grabbedPlayer then
+		local char = grabbedPlayer.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum.PlatformStand = false
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+			end
+			setNoclip(char, false)
+		end
+		grabbedPlayer = nil
+	end
+end
+
+local function startGrab(targetPlayer: Player)
+	stopGrab()
+	stopEat() -- Para comer se estiver ativo
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	
+	local targetChar = targetPlayer.Character
+	local myChar = LocalPlayer.Character
+	if not targetChar or not myChar then return end
+	
+	local targetRoot = getPrimaryPart(targetChar)
+	local myRoot = getPrimaryPart(myChar)
+	if not targetRoot or not myRoot then return end
+	
+	-- Lado aleatório (direita ou esquerda)
+	local randomSide = math.random(1, 2) == 1 and "Right" or "Left"
+	
+	-- Ativar noclip no player agarrado
+	local targetHum = targetChar:FindFirstChildOfClass("Humanoid")
+	if targetHum then
+		targetHum.PlatformStand = true
+		pcall(function() targetHum:ChangeState(Enum.HumanoidStateType.Physics) end)
+	end
+	
+	-- Ativar noclip no player agarrado e no próprio player
+	setNoclip(targetChar, true)
+	setNoclip(myChar, true)
+	
+	grabbing = true
+	grabbedPlayer = targetPlayer
+	
+	grabConn = RunService.Heartbeat:Connect(function(dt)
+		if not grabbing or not targetPlayer.Parent then 
+			stopGrab()
+			return 
+		end
+		
+		targetChar = targetPlayer.Character
+		myChar = LocalPlayer.Character
+		if not targetChar or not myChar then 
+			stopGrab()
+			return 
+		end
+		
+		targetRoot = getPrimaryPart(targetChar) or targetRoot
+		myRoot = getPrimaryPart(myChar) or myRoot
+		if not targetRoot or not myRoot then 
+			stopGrab()
+			return 
+		end
+		
+		-- Manter noclip ativo
+		enforceNoclip(myChar)
+		enforceNoclip(targetChar)
+		
+		-- Calcular posição ao lado do personagem
+		local myCFrame = myRoot.CFrame
+		local sideOffset = randomSide == "Right" and myCFrame.RightVector * GRAB_DISTANCE or myCFrame.RightVector * -GRAB_DISTANCE
+		local grabPos = myCFrame.Position + sideOffset + Vector3.new(0, GRAB_HEIGHT, 0)
+		
+		-- Mover player agarrado colado ao lado
+		targetChar:PivotTo(CFrame.new(grabPos))
+	end)
+end
+
+-- ========= Sistema de Comer Jogador =========
+local function stopEat()
+	if eatConn then 
+		eatConn:Disconnect() 
+		eatConn = nil 
+	end
+	eating = false
+	
+	if eatenPlayer then
+		local char = eatenPlayer.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then
+				hum.PlatformStand = false
+				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
+			end
+			setNoclip(char, false)
+		end
+		eatenPlayer = nil
+	end
+end
+
+local function startEat(targetPlayer: Player)
+	stopEat()
+	stopGrab() -- Para agarrar se estiver ativo
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	
+	local targetChar = targetPlayer.Character
+	local myChar = LocalPlayer.Character
+	if not targetChar or not myChar then return end
+	
+	local targetRoot = getPrimaryPart(targetChar)
+	local myRoot = getPrimaryPart(myChar)
+	if not targetRoot or not myRoot then return end
+	
+	-- Ativar noclip no player comido
+	local targetHum = targetChar:FindFirstChildOfClass("Humanoid")
+	if targetHum then
+		targetHum.PlatformStand = true
+		pcall(function() targetHum:ChangeState(Enum.HumanoidStateType.Physics) end)
+	end
+	
+	-- Ativar noclip no player comido e no próprio player
+	setNoclip(targetChar, true)
+	setNoclip(myChar, true)
+	
+	eating = true
+	eatenPlayer = targetPlayer
+	
+	eatConn = RunService.Heartbeat:Connect(function(dt)
+		if not eating or not targetPlayer.Parent then 
+			stopEat()
+			return 
+		end
+		
+		targetChar = targetPlayer.Character
+		myChar = LocalPlayer.Character
+		if not targetChar or not myChar then 
+			stopEat()
+			return 
+		end
+		
+		targetRoot = getPrimaryPart(targetChar) or targetRoot
+		myRoot = getPrimaryPart(myChar) or myRoot
+		if not targetRoot or not myRoot then 
+			stopEat()
+			return 
+		end
+		
+		-- Manter noclip ativo
+		enforceNoclip(myChar)
+		enforceNoclip(targetChar)
+		
+		-- Calcular posição de "comer": de frente com cabeça na cintura
+		local myCFrame = myRoot.CFrame
+		local myLook = myCFrame.LookVector
+		
+		-- Posição na frente do jogador
+		local frontOffset = myLook * 1.5
+		-- Altura da cintura (mais baixo que o normal)
+		local waistHeight = Vector3.new(0, -1.5, 0)
+		
+		local eatPos = myCFrame.Position + frontOffset + waistHeight
+		
+		-- Rotação: de frente para o jogador (oposto à direção do look)
+		local eatCFrame = CFrame.new(eatPos, eatPos - myLook)
+		
+		-- Mover player comido para posição de "comer"
+		targetChar:PivotTo(eatCFrame)
+	end)
+end
+
+-- ========= Sistema de Bugar Player =========
+local function stopBugPlayer(targetPlayer: Player)
+	if buggingPlayers[targetPlayer] then
+		buggingPlayers[targetPlayer] = nil
+	end
+	
+	-- Parar conexão se não há mais players sendo bugados
+	local hasBuggingPlayers = false
+	for _ in pairs(buggingPlayers) do
+		hasBuggingPlayers = true
+		break
+	end
+	
+	if not hasBuggingPlayers and bugConn then
+		bugConn:Disconnect()
+		bugConn = nil
+	end
+end
+
+local function stopAllBugging()
+	buggingPlayers = {}
+	if bugConn then
+		bugConn:Disconnect()
+		bugConn = nil
+	end
+end
+
+local function createExplosion(position)
+	-- Criar partícula de explosão
+	local explosion = Instance.new("Part")
+	explosion.Name = "ExplosionEffect"
+	explosion.Size = Vector3.new(5, 5, 5)
+	explosion.Position = position
+	explosion.Anchored = true
+	explosion.CanCollide = false
+	explosion.Material = Enum.Material.Neon
+	explosion.BrickColor = BrickColor.new("Bright orange")
+	explosion.Parent = workspace
+	
+	-- Luz da explosão
+	local light = Instance.new("PointLight")
+	light.Brightness = 10
+	light.Range = 20
+	light.Color = Color3.new(1, 0.3, 0)
+	light.Parent = explosion
+	
+	-- Efeito de fumaça
+	local smoke = Instance.new("Smoke")
+	smoke.Size = 0.5
+	smoke.Opacity = 0.8
+	smoke.RiseVelocity = 10
+	smoke.Color = Color3.new(0.3, 0.3, 0.3)
+	smoke.Parent = explosion
+	
+	-- Remover após 2 segundos
+	task.delay(2, function()
+		if explosion and explosion.Parent then
+			explosion:Destroy()
+		end
+	end)
+	
+	return explosion
+end
+
+local function startBugPlayer(targetPlayer: Player)
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	
+	-- Adicionar à lista de players sendo bugados
+	buggingPlayers[targetPlayer] = true
+	
+	-- Iniciar loop de bug se não estiver ativo
+	if not bugConn then
+		bugConn = RunService.Heartbeat:Connect(function(dt)
+			for player, _ in pairs(buggingPlayers) do
+				if player and player.Parent then
+					local targetChar = player.Character
+					if targetChar then
+						local targetRoot = getPrimaryPart(targetChar)
+						if targetRoot then
+							-- Criar explosões ao redor do player
+							for i = 1, 3 do
+								local explosionPos = targetRoot.Position + Vector3.new(
+									math.random(-10, 10),
+									math.random(0, 5),
+									math.random(-10, 10)
+								)
+								createExplosion(explosionPos)
+							end
+							
+							-- Bugar veículos também (para Driv Empire)
+							local vehicles = workspace:FindFirstChild("Vehicles")
+							if vehicles then
+								for _, vehicle in ipairs(vehicles:GetDescendants()) do
+									if vehicle:IsA("Model") and vehicle:FindFirstChild("DriveSeat") then
+										-- Criar explosões perto de veículos
+										local vehicleRoot = getPrimaryPart(vehicle)
+										if vehicleRoot and (vehicleRoot.Position - targetRoot.Position).Magnitude < 50 then
+											local explosionPos = vehicleRoot.Position + Vector3.new(
+												math.random(-8, 8),
+												math.random(0, 3),
+												math.random(-8, 8)
+											)
+											createExplosion(explosionPos)
+										end
+									end
+								end
+							end
+							
+							-- TP instantâneo para posições aleatórias (mais agressivo)
+							local randomPos = targetRoot.Position + Vector3.new(
+								math.random(-15, 15),
+								math.random(0, 10),
+								math.random(-15, 15)
+							)
+							targetChar:PivotTo(CFrame.new(randomPos))
+							
+							-- Efeito de tela tremendo para o player local
+							if player == LocalPlayer then
+								Camera.CFrame = Camera.CFrame * CFrame.Angles(
+									math.rad(math.random(-5, 5)),
+									math.rad(math.random(-5, 5)),
+									math.rad(math.random(-5, 5))
+								)
+							end
+						end
+					end
+				else
+					-- Remover player se não existir mais
+					buggingPlayers[player] = nil
+				end
+			end
+			
+			-- Parar conexão se não há mais players
+			local hasPlayers = false
+			for _ in pairs(buggingPlayers) do
+				hasPlayers = true
+				break
+			end
+			
+			if not hasPlayers then
+				bugConn:Disconnect()
+				bugConn = nil
+			end
+		end)
+	end
+end
+
+-- Função para agarrar player mais próximo com tecla H
+local function grabNearestPlayer()
+	if grabbing then
+		stopGrab()
+		return
+	end
+	
+	local myChar = LocalPlayer.Character
+	if not myChar then return end
+	
+	local myRoot = getPrimaryPart(myChar)
+	if not myRoot then return end
+	
+	local nearestPlayer = nil
+	local nearestDistance = 15 -- Distância máxima para agarrar
+	
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local targetRoot = getPrimaryPart(player.Character)
+			if targetRoot then
+				local distance = (targetRoot.Position - myRoot.Position).Magnitude
+				if distance <= nearestDistance then
+					nearestDistance = distance
+					nearestPlayer = player
+				end
+			end
+		end
+	end
+	
+	if nearestPlayer then
+		startGrab(nearestPlayer)
+	end
+end
+
+-- Função para comer player mais próximo com tecla G
+local function eatNearestPlayer()
+	if eating then
+		stopEat()
+		return
+	end
+	
+	local myChar = LocalPlayer.Character
+	if not myChar then return end
+	
+	local myRoot = getPrimaryPart(myChar)
+	if not myRoot then return end
+	
+	local nearestPlayer = nil
+	local nearestDistance = 15 -- Distância máxima para comer
+	
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local targetRoot = getPrimaryPart(player.Character)
+			if targetRoot then
+				local distance = (targetRoot.Position - myRoot.Position).Magnitude
+				if distance <= nearestDistance then
+					nearestDistance = distance
+					nearestPlayer = player
+				end
+			end
+		end
+	end
+	
+	if nearestPlayer then
+		startEat(nearestPlayer)
+	end
+end
+
+-- ========= Voo noclip até alvo =========
+local function stopFlight()
+	if flightConn then flightConn:Disconnect() flightConn = nil end
+	cancelling = false
+	if noclipActive then
+		local char = LocalPlayer.Character
+		if char then
+			setNoclip(char, false)
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.PlatformStand = false pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end) end
+		end
+		noclipActive = false
+	end
+end
+
+local function startFlyNoclipTo(targetPlayer: Player)
+	stopFlight()
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	local char = LocalPlayer.Character
+	local targetChar = targetPlayer.Character
+	if not char or not targetChar then return end
+
+	local srcPart = getPrimaryPart(char)
+	local dstPart = getPrimaryPart(targetChar)
+	if not srcPart or not dstPart then return end
+
+	setNoclip(char, true); noclipActive = true
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.PlatformStand = true
+		pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
+	end
+
+	flightStartTime = time()
+	flightConn = RunService.Heartbeat:Connect(function(dt)
+		if cancelling then stopFlight() return end
+		if not targetPlayer.Parent then stopFlight() return end
+		targetChar = targetPlayer.Character; char = LocalPlayer.Character
+		if not targetChar or not char then stopFlight() return end
+		srcPart = getPrimaryPart(char) or srcPart
+		dstPart = getPrimaryPart(targetChar) or dstPart
+		if not srcPart or not dstPart then stopFlight() return end
+
+		enforceNoclip(char)
+
+		local src = srcPart.Position
+		local dst = dstPart.Position + Vector3.new(0,3,0)
+		local dir = (dst - src)
+		local dist = dir.Magnitude
+		if dist <= STOP_DISTANCE then stopFlight() return end
+		if time() - flightStartTime > MAX_FLY_TIME then stopFlight() return end
+
+		local step = math.min(FLY_SPEED * dt, dist)
+		local newPos = src + dir.Unit * step
+		char:PivotTo(CFrame.new(newPos, dst))
+	end)
+end
+
+local function instantTPTo(targetPlayer: Player)
+	stopFlight()
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	local char = LocalPlayer.Character
+	local targetChar = targetPlayer.Character
+	if not char or not targetChar then return end
+	local srcPart = getPrimaryPart(char)
+	local dstPart = getPrimaryPart(targetChar)
+	if not srcPart or not dstPart then return end
+	setNoclip(char, true)
+	local offset = Vector3.new(0,3,0)
+	char:PivotTo(CFrame.new(dstPart.Position + offset, dstPart.Position + offset + dstPart.CFrame.LookVector))
+	task.defer(function() setNoclip(char, false) end)
+end
+
+-- ========= Free-Fly manual (noclip) =========
+local function setFreeFly(on: boolean)
+	if freeflyOn == on then return end
+	freeflyOn = on
+	local char = LocalPlayer.Character
+	if not char then return end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+
+	if on then
+		stopFlight()
+		stopGrab()
+		stopEat()
+		stopAllBugging()
+		setNoclip(char, true)
+		if hum then hum.PlatformStand = true end
+		freeflyConn = RunService.Heartbeat:Connect(function(dt)
+			char = LocalPlayer.Character; if not char then return end
+			local root = getPrimaryPart(char); if not root then return end
+			enforceNoclip(char)
+
+			local speed = FREEFLY_SPEED * (inputStates.Shift and FREEFLY_SPRINT_MULT or 1)
+			local move = Vector3.new(0,0,0)
+			local look = Camera.CFrame
+			local forward = look.LookVector
+			local right = look.RightVector
+
+			if inputStates.W then move += forward end
+			if inputStates.S then move -= forward end
+			if inputStates.D then move += right end
+			if inputStates.A then move -= right end
+			if inputStates.Space then move += Vector3.new(0,1,0) end
+			if inputStates.Ctrl then move += Vector3.new(0,-1,0) end
+
+			if move.Magnitude > 0 then
+				move = move.Unit * speed * dt
+				local newPos = root.Position + move
+				char:PivotTo(CFrame.new(newPos, newPos + forward))
+			end
+		end)
+	else
+		if freeflyConn then freeflyConn:Disconnect() freeflyConn = nil end
+		if hum then hum.PlatformStand = false end
+		setNoclip(char, false)
+	end
+end
+
+-- ========= Spectate (câmara) =========
+local function startSpectate(p: Player)
+	if not p or p == LocalPlayer then return end
+	local targetChar = p.Character
+	if not targetChar then return end
+	local hum = targetChar:FindFirstChildOfClass("Humanoid")
+	if not hum then return end
+
+	if not savedSubject then savedSubject = Camera.CameraSubject end
+	if not savedCamType then savedCamType = Camera.CameraType end
+
+	Camera.CameraType = Enum.CameraType.Custom
+	Camera.CameraSubject = hum
+	spectating = p
+end
+
+local function stopSpectate()
+	if savedSubject then Camera.CameraSubject = savedSubject end
+	if savedCamType then Camera.CameraType = savedCamType end
+	spectating = nil
+end
+
+-- Se o espectado respawnar, mantém
+Players.PlayerAdded:Connect(function(p)
+	if p == spectating then
+		p.CharacterAdded:Connect(function(char)
+			task.wait(0.1)
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum and spectating == p then
+				Camera.CameraSubject = hum
+			end
+		end)
+	end
+end)
+
+-- ========= UI =========
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local gui = Instance.new("ScreenGui")
+gui.Name = "ESP_TP_UI_Pro"
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+-- Guardar/ler tamanho do painel
+local function getSavedSize(): Vector2
+	local w = gui:GetAttribute("PanelW")
+	local h = gui:GetAttribute("PanelH")
+	if typeof(w) == "number" and typeof(h) == "number" then
+		return Vector2.new(math.clamp(w, PANEL_MIN.X, PANEL_MAX.X), math.clamp(h, PANEL_MIN.Y, PANEL_MAX.Y))
+	end
+	return Vector2.new(500, 400)
+end
+local function saveSize(v2: Vector2)
+	gui:SetAttribute("PanelW", math.floor(v2.X))
+	gui:SetAttribute("PanelH", math.floor(v2.Y))
+end
+
+local frame = Instance.new("Frame")
+frame.Name = "Main"
+local startSize = getSavedSize()
+frame.Size = UDim2.fromOffset(startSize.X, startSize.Y)
+frame.Position = UDim2.new(0, 24, 0, 80)
+frame.BackgroundColor3 = Color3.fromRGB(22,22,26)
+frame.Active = true
+frame.Draggable = true
+frame.Visible = false -- Inicia fechado
+frame.Parent = gui
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.BackgroundTransparency = 1
+title.Size = UDim2.new(1, -42, 0, 24)
+title.Position = UDim2.new(0, 8, 0, 6)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.TextColor3 = Color3.new(1,1,1)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Painel Admin (M abre/fecha • P destrava mouse • F FreeFly • H Agarrar • G Comer • X cancela)"
+title.Parent = frame
+
+-- Botão fechar
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.fromOffset(24, 24)
+closeBtn.Position = UDim2.new(1, -28, 0, 6)
+closeBtn.Text = "×"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 18
+closeBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
+closeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+closeBtn.Parent = frame
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(1, 0)
+closeBtn.MouseButton1Click:Connect(function() 
+	frame.Visible = false; 
+	panelVisible = false 
+	-- Restaurar mouse quando fechar
+	if prevMouseBehavior then UserInputService.MouseBehavior = prevMouseBehavior end
+	if prevMouseIconEnabled ~= nil then UserInputService.MouseIconEnabled = prevMouseIconEnabled end
+end)
+
+-- Grip de redimensionar (↘)
+local resize = Instance.new("Frame")
+resize.Name = "ResizeGrip"
+resize.Size = UDim2.fromOffset(18, 18)
+resize.AnchorPoint = Vector2.new(1, 1)
+resize.Position = UDim2.new(1, -4, 1, -4)
+resize.BackgroundColor3 = Color3.fromRGB(50,50,60)
+resize.Parent = frame
+Instance.new("UICorner", resize).CornerRadius = UDim.new(0, 4)
+
+local resizing = false
+local resizeStartPos, resizeStartSize
+resize.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		resizing = true
+		resizeStartPos = UserInputService:GetMouseLocation()
+		resizeStartSize = frame.AbsoluteSize
+	end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if resizing then
+			resizing = false
+			saveSize(frame.AbsoluteSize)
+		end
+	end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local now = UserInputService:GetMouseLocation()
+		local delta = now - resizeStartPos
+		local newW = math.clamp(resizeStartSize.X + delta.X, PANEL_MIN.X, PANEL_MAX.X)
+		local newH = math.clamp(resizeStartSize.Y + delta.Y, PANEL_MIN.Y, PANEL_MAX.Y)
+		frame.Size = UDim2.fromOffset(newW, newH)
+	end
+end)
+
+-- Tabs
+local tabs = Instance.new("Frame")
+tabs.Size = UDim2.new(1, -16, 0, 28)
+tabs.Position = UDim2.new(0, 8, 0, 32)
+tabs.BackgroundTransparency = 1
+tabs.Parent = frame
+
+local function makeTab(text, x)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.fromOffset(120, 28)
+	b.Position = UDim2.new(0, x, 0, 0)
+	b.Text = text
+	b.Font = Enum.Font.GothamBold
+	b.TextSize = 14
+	b.BackgroundColor3 = Color3.fromRGB(40,40,48)
+	b.TextColor3 = Color3.fromRGB(255,255,255)
+	b.Parent = tabs
+	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+	return b
+end
+
+local tabPlayers = makeTab("Jogadores", 0)
+local tabESP = makeTab("ESP", 122)
+local tabUtil= makeTab("Util", 244)
+
+local pages = Instance.new("Frame")
+pages.Size = UDim2.new(1, -16, 1, -74)
+pages.Position = UDim2.new(0, 8, 0, 64)
+pages.BackgroundTransparency = 1
+pages.Parent = frame
+
+local function makePage()
+	local p=Instance.new("Frame")
+	p.Size=UDim2.fromScale(1,1)
+	p.BackgroundTransparency=1
+	p.Visible=false
+	p.Parent=pages
+	return p
+end
+
+-- Página Jogadores (Biblioteca)
+local playersPage = makePage(); playersPage.Visible = true
+
+-- Lista de jogadores (lado esquerdo)
+local playersListFrame = Instance.new("Frame")
+playersListFrame.Size = UDim2.new(0.4, 0, 1, 0)
+playersListFrame.BackgroundColor3 = Color3.fromRGB(28,28,34)
+playersListFrame.Parent = playersPage
+Instance.new("UICorner", playersListFrame).CornerRadius = UDim.new(0, 6)
+
+local playersListTitle = Instance.new("TextLabel")
+playersListTitle.BackgroundTransparency = 1
+playersListTitle.Size = UDim2.new(1, 0, 0, 30)
+playersListTitle.Position = UDim2.new(0, 0, 0, 0)
+playersListTitle.Font = Enum.Font.GothamBold
+playersListTitle.TextSize = 14
+playersListTitle.TextColor3 = Color3.fromRGB(255,255,255)
+playersListTitle.Text = "JOGADORES ONLINE"
+playersListTitle.Parent = playersListFrame
+
+local playersList = Instance.new("ScrollingFrame")
+playersList.Size = UDim2.new(1, -8, 1, -38)
+playersList.Position = UDim2.new(0, 4, 0, 34)
+playersList.CanvasSize = UDim2.new(0,0,0,0)
+playersList.ScrollBarThickness = 6
+playersList.BackgroundColor3 = Color3.fromRGB(32,32,38)
+playersList.BorderSizePixel = 0
+playersList.Parent = playersListFrame
+Instance.new("UICorner", playersList).CornerRadius = UDim.new(0,4)
+local playersLayout = Instance.new("UIListLayout", playersList); playersLayout.Padding = UDim.new(0,4); playersLayout.SortOrder = Enum.SortOrder.Name
+
+-- Painel de ações (lado direito)
+local actionsFrame = Instance.new("Frame")
+actionsFrame.Size = UDim2.new(0.58, 0, 1, 0)
+actionsFrame.Position = UDim2.new(0.42, 0, 0, 0)
+actionsFrame.BackgroundColor3 = Color3.fromRGB(28,28,34)
+actionsFrame.Parent = playersPage
+Instance.new("UICorner", actionsFrame).CornerRadius = UDim.new(0, 6)
+
+local selectedPlayerTitle = Instance.new("TextLabel")
+selectedPlayerTitle.BackgroundTransparency = 1
+selectedPlayerTitle.Size = UDim2.new(1, 0, 0, 40)
+selectedPlayerTitle.Position = UDim2.new(0, 0, 0, 0)
+selectedPlayerTitle.Font = Enum.Font.GothamBold
+selectedPlayerTitle.TextSize = 16
+selectedPlayerTitle.TextColor3 = Color3.fromRGB(255,255,255)
+selectedPlayerTitle.Text = "SELECIONE UM JOGADOR"
+selectedPlayerTitle.Parent = actionsFrame
+
+local actionsContainer = Instance.new("Frame")
+actionsContainer.Size = UDim2.new(1, -16, 1, -50)
+actionsContainer.Position = UDim2.new(0, 8, 0, 44)
+actionsContainer.BackgroundTransparency = 1
+actionsContainer.Parent = actionsFrame
+
+-- Função para criar botões de ação
+local function createActionButton(text, color, yPosition, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, 0, 0, 36)
+	btn.Position = UDim2.new(0, 0, 0, yPosition)
+	btn.Text = text
+	btn.Font = Enum.Font.GothamBold
+	btn.TextSize = 14
+	btn.BackgroundColor3 = color
+	btn.TextColor3 = Color3.fromRGB(255,255,255)
+	btn.Parent = actionsContainer
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	
+	btn.MouseButton1Click:Connect(function()
+		if selectedPlayer then
+			callback(selectedPlayer)
+		end
+	end)
+	
+	return btn
+end
+
+-- Criar botões de ação (inicialmente invisíveis)
+local tpBtn = createActionButton("TELEPORTAR", Color3.fromRGB(0,160,90), 0, instantTPTo)
+local flyBtn = createActionButton("VOAR ATÉ (NOCLIP)", Color3.fromRGB(0,140,200), 42, startFlyNoclipTo)
+local spectateBtn = createActionButton("ESPECTAR", Color3.fromRGB(160,120,0), 84, startSpectate)
+local grabBtn = createActionButton("AGARRAR", Color3.fromRGB(180,60,180), 126, startGrab)
+local eatBtn = createActionButton("COMER", Color3.fromRGB(220,40,40), 168, startEat)
+local bugBtn = createActionButton("BUGAR PLAYER", Color3.fromRGB(200,40,40), 210, function(player)
+	if buggingPlayers[player] then
+		stopBugPlayer(player)
+		bugBtn.Text = "BUGAR PLAYER"
+		bugBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+	else
+		startBugPlayer(player)
+		bugBtn.Text = "PARAR BUG"
+		bugBtn.BackgroundColor3 = Color3.fromRGB(40,200,40)
+	end
+end)
+
+-- Inicialmente esconder os botões de ação
+local function hideActionButtons()
+	tpBtn.Visible = false
+	flyBtn.Visible = false
+	spectateBtn.Visible = false
+	grabBtn.Visible = false
+	eatBtn.Visible = false
+	bugBtn.Visible = false
+	selectedPlayerTitle.Text = "SELECIONE UM JOGADOR"
+end
+
+-- Mostrar botões de ação quando um player é selecionado
+local function showActionButtons(player)
+	tpBtn.Visible = true
+	flyBtn.Visible = true
+	spectateBtn.Visible = true
+	grabBtn.Visible = true
+	eatBtn.Visible = true
+	bugBtn.Visible = true
+	
+	-- Atualizar texto do botão de bugar
+	if buggingPlayers[player] then
+		bugBtn.Text = "PARAR BUG"
+		bugBtn.BackgroundColor3 = Color3.fromRGB(40,200,40)
+	else
+		bugBtn.Text = "BUGAR PLAYER"
+		bugBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+	end
+	
+	selectedPlayerTitle.Text = "AÇÕES: " .. (player.DisplayName or player.Name)
+end
+
+hideActionButtons()
+
+-- Página ESP
+local espPage = makePage()
+
+local espToggle = Instance.new("TextButton")
+espToggle.Size = UDim2.fromOffset(150, 30)
+espToggle.Position = UDim2.new(0, 0, 0, 0)
+espToggle.Text = espEnabled and "ESP: LIGADO" or "ESP: DESLIGADO"
+espToggle.Font = Enum.Font.GothamBold
+espToggle.TextSize = 14
+espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(0,160,90) or Color3.fromRGB(120,30,30)
+espToggle.TextColor3 = Color3.fromRGB(255,255,255)
+espToggle.Parent = espPage
+Instance.new("UICorner", espToggle).CornerRadius = UDim.new(0, 6)
+
+local chkName = Instance.new("TextButton")
+chkName.Size = UDim2.fromOffset(110, 24)
+chkName.Position = UDim2.new(0, 0, 0, 36)
+chkName.Text = showName and "Nome: ON" or "Nome: OFF"
+chkName.Font = Enum.Font.GothamBold
+chkName.TextSize = 12
+chkName.BackgroundColor3 = showName and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+chkName.TextColor3 = Color3.fromRGB(255,255,255)
+chkName.Parent = espPage
+Instance.new("UICorner", chkName).CornerRadius = UDim.new(0, 6)
+
+local chkHealth = Instance.new("TextButton")
+chkHealth.Size = UDim2.fromOffset(110, 24)
+chkHealth.Position = UDim2.new(0, 118, 0, 36)
+chkHealth.Text = showHealth and "Vida: ON" or "Vida: OFF"
+chkHealth.Font = Enum.Font.GothamBold
+chkHealth.TextSize = 12
+chkHealth.BackgroundColor3 = showHealth and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+chkHealth.TextColor3 = Color3.fromRGB(255,255,255)
+chkHealth.Parent = espPage
+Instance.new("UICorner", chkHealth).CornerRadius = UDim.new(0, 6)
+
+local posLabel = Instance.new("TextLabel")
+posLabel.BackgroundTransparency = 1
+posLabel.Size = UDim2.fromOffset(120, 18)
+posLabel.Position = UDim2.new(0, 0, 0, 66)
+posLabel.Font = Enum.Font.Gotham
+posLabel.TextSize = 12
+posLabel.TextColor3 = Color3.fromRGB(220,220,230)
+posLabel.Text = "Posição overlay"
+posLabel.Parent = espPage
+
+local function makePosButton(text, x)
+	local b = Instance.new("TextButton"); b.Size=UDim2.fromOffset(80,24); b.Position=UDim2.new(0,x,0,90)
+	b.Text=text; b.Font=Enum.Font.GothamBold; b.TextSize=12
+	b.BackgroundColor3=Color3.fromRGB(40,40,48); b.TextColor3=Color3.fromRGB(255,255,255)
+	b.Parent=espPage; Instance.new("UICorner", b).CornerRadius=UDim.new(0,6); return b
+end
+local btnTopo = makePosButton("Topo",0)
+local btnBaixo= makePosButton("Baixo",84)
+local btnLado = makePosButton("Lado",168)
+
+local modeBtn = Instance.new("TextButton")
+modeBtn.Size = UDim2.fromOffset(150, 24)
+modeBtn.Position = UDim2.new(0, 0, 0, 122)
+modeBtn.Text = "Modo: "..espMode
+modeBtn.Font = Enum.Font.GothamBold
+modeBtn.TextSize = 12
+modeBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
+modeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+modeBtn.Parent = espPage
+Instance.new("UICorner", modeBtn).CornerRadius = UDim.new(0,6)
+
+local filterBtn = Instance.new("TextButton")
+filterBtn.Size = UDim2.fromOffset(150, 24)
+filterBtn.Position = UDim2.new(0, 170, 0, 122)
+filterBtn.Text = "Filtro: "..teamFilter
+filterBtn.Font = Enum.Font.GothamBold
+filterBtn.TextSize = 12
+filterBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
+filterBtn.TextColor3 = Color3.fromRGB(255,255,255)
+filterBtn.Parent = espPage
+Instance.new("UICorner", filterBtn).CornerRadius = UDim.new(0,6)
+
+-- Página Util
+local utilPage = makePage()
+local invisToggle = Instance.new("TextButton")
+invisToggle.Size = UDim2.fromOffset(160, 28)
+invisToggle.Position = UDim2.new(0, 0, 0, 0)
+invisToggle.Text = "Invisível (local): OFF"
+invisToggle.Font = Enum.Font.GothamBold
+invisToggle.TextSize = 14
+invisToggle.BackgroundColor3 = Color3.fromRGB(60,60,70)
+invisToggle.TextColor3 = Color3.fromRGB(255,255,255)
+invisToggle.Parent = utilPage
+Instance.new("UICorner", invisToggle).CornerRadius = UDim.new(0,6)
+
+local freeflyToggleBtn = Instance.new("TextButton")
+freeflyToggleBtn.Size = UDim2.fromOffset(160, 28)
+freeflyToggleBtn.Position = UDim2.new(0, 0, 0, 36)
+freeflyToggleBtn.Text = "Free-Fly: OFF (F)"
+freeflyToggleBtn.Font = Enum.Font.GothamBold
+freeflyToggleBtn.TextSize = 14
+freeflyToggleBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
+freeflyToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+freeflyToggleBtn.Parent = utilPage
+Instance.new("UICorner", freeflyToggleBtn).CornerRadius = UDim.new(0,6)
+
+local grabToggleBtn = Instance.new("TextButton")
+grabToggleBtn.Size = UDim2.fromOffset(160, 28)
+grabToggleBtn.Position = UDim2.new(0, 0, 0, 72)
+grabToggleBtn.Text = "Agarrar Próximo: OFF (H)"
+grabToggleBtn.Font = Enum.Font.GothamBold
+grabToggleBtn.TextSize = 14
+grabToggleBtn.BackgroundColor3 = Color3.fromRGB(120,40,120)
+grabToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+grabToggleBtn.Parent = utilPage
+Instance.new("UICorner", grabToggleBtn).CornerRadius = UDim.new(0,6)
+grabToggleBtn.MouseButton1Click:Connect(grabNearestPlayer)
+
+local eatToggleBtn = Instance.new("TextButton")
+eatToggleBtn.Size = UDim2.fromOffset(160, 28)
+eatToggleBtn.Position = UDim2.new(0, 0, 0, 108)
+eatToggleBtn.Text = "Comer Próximo: OFF (G)"
+eatToggleBtn.Font = Enum.Font.GothamBold
+eatToggleBtn.TextSize = 14
+eatToggleBtn.BackgroundColor3 = Color3.fromRGB(180,40,40)
+eatToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+eatToggleBtn.Parent = utilPage
+Instance.new("UICorner", eatToggleBtn).CornerRadius = UDim.new(0,6)
+eatToggleBtn.MouseButton1Click:Connect(eatNearestPlayer)
+
+local stopAllBtn = Instance.new("TextButton")
+stopAllBtn.Size = UDim2.fromOffset(160, 28)
+stopAllBtn.Position = UDim2.new(0, 0, 0, 144)
+stopAllBtn.Text = "PARAR TUDO"
+stopAllBtn.Font = Enum.Font.GothamBold
+stopAllBtn.TextSize = 14
+stopAllBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+stopAllBtn.TextColor3 = Color3.fromRGB(255,255,255)
+stopAllBtn.Parent = utilPage
+Instance.new("UICorner", stopAllBtn).CornerRadius = UDim.new(0,6)
+stopAllBtn.MouseButton1Click:Connect(function()
+	stopFlight()
+	stopGrab()
+	stopEat()
+	stopAllBugging()
+	stopSpectate()
+end)
+
+local unlockMouseBtn = Instance.new("TextButton")
+unlockMouseBtn.Size = UDim2.fromOffset(160, 28)
+unlockMouseBtn.Position = UDim2.new(0, 0, 0, 180)
+unlockMouseBtn.Text = "DESTRAVAR MOUSE (P)"
+unlockMouseBtn.Font = Enum.Font.GothamBold
+unlockMouseBtn.TextSize = 14
+unlockMouseBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+unlockMouseBtn.TextColor3 = Color3.fromRGB(255,255,255)
+unlockMouseBtn.Parent = utilPage
+Instance.new("UICorner", unlockMouseBtn).CornerRadius = UDim.new(0,6)
+unlockMouseBtn.MouseButton1Click:Connect(unlockMouse)
+
+local ffHint = Instance.new("TextLabel")
+ffHint.BackgroundTransparency = 1
+ffHint.Size = UDim2.new(1, -10, 0, 100)
+ffHint.Position = UDim2.new(0, 0, 0, 220)
+ffHint.Font = Enum.Font.Gotham
+ffHint.TextSize = 12
+ffHint.TextColor3 = Color3.fromRGB(220,220,230)
+ffHint.TextXAlignment = Enum.TextXAlignment.Left
+ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Free-Fly\n• H: Agarrar/Soltar próximo\n• G: Comer/Parar de comer\n• X: Cancelar voo\n\nSelecione um jogador na aba 'Jogadores' para acessar todas as ações."
+ffHint.Parent = utilPage
+
+-- Troca de tabs
+local function setTab(which)
+	tabPlayers.BackgroundColor3 = Color3.fromRGB(30,30,36)
+	tabESP.BackgroundColor3  = Color3.fromRGB(30,30,36)
+	tabUtil.BackgroundColor3= Color3.fromRGB(30,30,36)
+	playersPage.Visible=false; espPage.Visible=false; utilPage.Visible=false
+	if which=="PLAYERS" then tabPlayers.BackgroundColor3=Color3.fromRGB(40,40,48); playersPage.Visible=true
+	elseif which=="ESP" then tabESP.BackgroundColor3=Color3.fromRGB(40,40,48); espPage.Visible=true
+	else tabUtil.BackgroundColor3=Color3.fromRGB(40,40,48); utilPage.Visible=true end
+end
+tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
+tabESP.MouseButton1Click:Connect(function() setTab("ESP") end)
+tabUtil.MouseButton1Click:Connect(function() setTab("UTIL") end)
+
+-- Handlers ESP
+espToggle.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	espToggle.Text = espEnabled and "ESP: LIGADO" or "ESP: DESLIGADO"
+	espToggle.BackgroundColor3 = espEnabled and Color3.fromRGB(0,160,90) or Color3.fromRGB(120,30,30)
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+chkName.MouseButton1Click:Connect(function()
+	showName = not showName
+	chkName.Text = showName and "Nome: ON" or "Nome: OFF"
+	chkName.BackgroundColor3 = showName and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+end)
+chkHealth.MouseButton1Click:Connect(function()
+	showHealth = not showHealth
+	chkHealth.Text = showHealth and "Vida: ON" or "Vida: OFF"
+	chkHealth.BackgroundColor3 = showHealth and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+end)
+btnTopo.MouseButton1Click:Connect(function() espPosition = "Topo" end)
+btnBaixo.MouseButton1Click:Connect(function() espPosition = "Baixo" end)
+btnLado.MouseButton1Click:Connect(function() espPosition = "Lado" end)
+modeBtn.MouseButton1Click:Connect(function()
+	espMode = (espMode=="Cheio") and "Bordas" or "Cheio"
+	modeBtn.Text = "Modo: "..espMode
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+filterBtn.MouseButton1Click:Connect(function()
+	teamFilter = (teamFilter=="Todos") and "Só inimigos" or "Todos"
+	filterBtn.Text = "Filtro: "..teamFilter
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- Invisível (local)
+local function setInvisible(on: boolean)
+	local char = LocalPlayer.Character; if not char then return end
+	forEachCharacterPart(char, function(part: BasePart)
+		part.LocalTransparencyModifier = on and 1 or 0
+	end)
+	for _, inst in ipairs(char:GetDescendants()) do
+		if inst:IsA("Decal") or inst:IsA("Texture") then
+			inst.Transparency = on and 1 or 0
+		elseif inst:IsA("Accessory") then
+			local handle = inst:FindFirstChild("Handle")
+			if handle and handle:IsA("BasePart") then
+				handle.LocalTransparencyModifier = on and 1 or 0
+			end
+		end
+	end
+end
+invisToggle.MouseButton1Click:Connect(function()
+	local new = not (ffHint:GetAttribute("inv") == true)
+	ffHint:SetAttribute("inv", new)
+	invisToggle.Text = "Invisível (local): " .. (new and "ON" or "OFF")
+	invisToggle.BackgroundColor3 = new and Color3.fromRGB(90,90,120) or Color3.fromRGB(60,60,70)
+	setInvisible(new)
+end)
+
+-- Free-Fly (menu e tecla F)
+freeflyToggleBtn.MouseButton1Click:Connect(function()
+	setFreeFly(not freeflyOn)
+	freeflyToggleBtn.Text = "Free-Fly: " .. (freeflyOn and "ON (F)" or "OFF (F)")
+end)
+
+-- Lista de jogadores
+local function clearPlayersList()
+	for _, c in ipairs(playersList:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+end
+
+local function addPlayerToRow(p: Player)
+	if p == LocalPlayer then return end
+	
+	local playerBtn = Instance.new("TextButton")
+	playerBtn.Name = p.Name
+	playerBtn.Size = UDim2.new(1, -8, 0, 40)
+	playerBtn.BackgroundColor3 = Color3.fromRGB(36,36,44)
+	playerBtn.Text = ""
+	playerBtn.Parent = playersList
+	Instance.new("UICorner", playerBtn).CornerRadius = UDim.new(0, 6)
+
+	local nameLbl = Instance.new("TextLabel")
+	nameLbl.BackgroundTransparency = 1
+	nameLbl.Size = UDim2.new(1, -8, 1, 0)
+	nameLbl.Position = UDim2.new(0, 8, 0, 0)
+	nameLbl.Font = Enum.Font.GothamSemibold
+	nameLbl.TextSize = 14
+	nameLbl.TextColor3 = Color3.fromRGB(255,255,255)
+	nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+	
+	local tag = ""
+	if LocalPlayer.Team and p.Team then 
+		tag = (p.Team == LocalPlayer.Team) and " [Aliado]" or " [Inimigo]" 
+	end
+	
+	nameLbl.Text = (p.DisplayName or p.Name) .. " (@"..p.Name..")"..tag
+	nameLbl.Parent = playerBtn
+
+	local selectionIndicator = Instance.new("Frame")
+	selectionIndicator.Size = UDim2.new(0, 4, 1, -8)
+	selectionIndicator.Position = UDim2.new(0, 2, 0, 4)
+	selectionIndicator.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+	selectionIndicator.Visible = false
+	selectionIndicator.Parent = playerBtn
+	Instance.new("UICorner", selectionIndicator).CornerRadius = UDim.new(0, 2)
+
+	playerBtn.MouseButton1Click:Connect(function()
+		-- Desselecionar anterior
+		for _, btn in ipairs(playersList:GetChildren()) do
+			if btn:IsA("TextButton") and btn:FindFirstChildOfClass("Frame") then
+				btn:FindFirstChildOfClass("Frame").Visible = false
+				btn.BackgroundColor3 = Color3.fromRGB(36,36,44)
+			end
+		end
+		
+		-- Selecionar atual
+		selectionIndicator.Visible = true
+		playerBtn.BackgroundColor3 = Color3.fromRGB(50,50,60)
+		selectedPlayer = p
+		showActionButtons(p)
+	end)
+
+	return playerBtn
+end
+
+local function rebuildPlayersList()
+	clearPlayersList()
+	for _, p in ipairs(Players:GetPlayers()) do 
+		addPlayerToRow(p) 
+	end
+	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y + 8)
+	
+	-- Se havia um player selecionado, manter a seleção
+	if selectedPlayer and selectedPlayer.Parent then
+		local btn = playersList:FindFirstChild(selectedPlayer.Name)
+		if btn then
+			btn:FindFirstChildOfClass("Frame").Visible = true
+			btn.BackgroundColor3 = Color3.fromRGB(50,50,60)
+			showActionButtons(selectedPlayer)
+		else
+			selectedPlayer = nil
+			hideActionButtons()
+		end
+	else
+		selectedPlayer = nil
+		hideActionButtons()
+	end
+end
+
+playersLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y + 8)
+end)
+
+Players.PlayerAdded:Connect(function(p) 
+	addPlayerToRow(p)
+	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y + 8)
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+	local btn = playersList:FindFirstChild(p.Name)
+	if btn then btn:Destroy() end
+	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y + 8)
+	
+	if selectedPlayer == p then
+		selectedPlayer = nil
+		hideActionButtons()
+	end
+	
+	if spectating == p then stopSpectate() end
+	if grabbedPlayer == p then stopGrab() end
+	if eatenPlayer == p then stopEat() end
+	if buggingPlayers[p] then stopBugPlayer(p) end
+end)
+
+-- Atualizar lista automaticamente
+task.spawn(function()
+	while true do
+		task.wait(3) -- Atualiza a cada 3 segundos
+		if panelVisible and playersPage.Visible then
+			rebuildPlayersList()
+		end
+	end
+end)
+
+-- Mostrar/ocultar painel
+local function showPanel(show: boolean)
+	if panelVisible == show then return end
+	panelVisible = show
+	frame.Visible = show
+	
+	if show then
+		-- Salvar estado atual do mouse
+		prevMouseBehavior = UserInputService.MouseBehavior
+		prevMouseIconEnabled = UserInputService.MouseIconEnabled
+		
+		-- Liberar mouse para usar a interface
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+		
+		-- Atualizar lista de players quando abrir o painel
+		rebuildPlayersList()
+	else
+		-- Restaurar estado do mouse quando fechar
+		if prevMouseBehavior then 
+			UserInputService.MouseBehavior = prevMouseBehavior 
+		end
+		if prevMouseIconEnabled ~= nil then 
+			UserInputService.MouseIconEnabled = prevMouseIconEnabled 
+		end
+	end
+end
+
+local function toggleAction(_, state, _)
+	if state == Enum.UserInputState.Begin then
+		showPanel(not panelVisible)
+	end
+	return Enum.ContextActionResult.Sink
+end
+ContextActionService:BindActionAtPriority("TogglePanel", toggleAction, false, 2000, UI_TOGGLE_KEY)
+
+-- Input geral
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == FREEFLY_TOGGLE_KEY then
+		setFreeFly(not freeflyOn)
+		freeflyToggleBtn.Text = "Free-Fly: " .. (freeflyOn and "ON (F)" or "OFF (F)")
+	elseif input.KeyCode == CANCEL_FLY_KEY then
+		cancelling = true
+	elseif input.KeyCode == GRAB_TOGGLE_KEY then
+		grabNearestPlayer()
+	elseif input.KeyCode == EAT_PLAYER_KEY then
+		eatNearestPlayer()
+	elseif input.KeyCode == UNLOCK_MOUSE_KEY then
+		unlockMouse()
+	elseif input.KeyCode == Enum.KeyCode.W then inputStates.W = true
+	elseif input.KeyCode == Enum.KeyCode.A then inputStates.A = true
+	elseif input.KeyCode == Enum.KeyCode.S then inputStates.S = true
+	elseif input.KeyCode == Enum.KeyCode.D then inputStates.D = true
+	elseif input.KeyCode == Enum.KeyCode.Space then inputStates.Space = true
+	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then inputStates.Shift = true
+	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then inputStates.Ctrl = true
+	elseif input.KeyCode == UI_TOGGLE_KEY then
+		showPanel(not panelVisible)
+	end
+end)
+UserInputService.InputEnded:Connect(function(input, _)
+	if input.KeyCode == Enum.KeyCode.W then inputStates.W = false
+	elseif input.KeyCode == Enum.KeyCode.A then inputStates.A = false
+	elseif input.KeyCode == Enum.KeyCode.S then inputStates.S = false
+	elseif input.KeyCode == Enum.KeyCode.D then inputStates.D = false
+	elseif input.KeyCode == Enum.KeyCode.Space then inputStates.Space = false
+	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then inputStates.Shift = false
+	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then inputStates.Ctrl = false
+	end
+end)
+
+-- Atualizar estado dos botões
+RunService.Heartbeat:Connect(function()
+	if grabToggleBtn then
+		grabToggleBtn.Text = "Agarrar Próximo: " .. (grabbing and "ON (H)" or "OFF (H)")
+		grabToggleBtn.BackgroundColor3 = grabbing and Color3.fromRGB(180,80,180) or Color3.fromRGB(120,40,120)
+	end
+	if eatToggleBtn then
+		eatToggleBtn.Text = "Comer Próximo: " .. (eating and "ON (G)" or "OFF (G)")
+		eatToggleBtn.BackgroundColor3 = eating and Color3.fromRGB(220,80,80) or Color3.fromRGB(180,40,40)
+	end
+end)
+
+-- Boot
+rebuildPlayersList()
+for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then refreshESPForPlayer(p) end end
+print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
+print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Free-Fly) | H (Agarrar) | G (Comer) | X (Cancelar)")
