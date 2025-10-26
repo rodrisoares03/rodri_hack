@@ -1,4 +1,4 @@
--- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_Eat_Bugar.client.lua
+-- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_BugarCarro.client.lua
 -- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto.
 
 -- ========= Serviços =========
@@ -28,7 +28,6 @@ local UI_TOGGLE_KEY = Enum.KeyCode.M
 local FREEFLY_TOGGLE_KEY = Enum.KeyCode.F
 local CANCEL_FLY_KEY = Enum.KeyCode.X
 local GRAB_TOGGLE_KEY = Enum.KeyCode.H  -- Tecla H para agarrar/soltar
-local EAT_PLAYER_KEY = Enum.KeyCode.G  -- Tecla G para comer jogador
 local UNLOCK_MOUSE_KEY = Enum.KeyCode.P  -- Tecla P para destravar mouse
 
 -- Voo até alvo
@@ -37,8 +36,9 @@ local STOP_DISTANCE = 3
 local MAX_FLY_TIME = 30
 
 -- Free-Fly manual
-local FREEFLY_SPEED = 75
+local FREEFLY_SPEED = 50
 local FREEFLY_SPRINT_MULT = 2
+local FREEFLY_VERTICAL_SPEED = 30
 
 -- Limites do painel
 local PANEL_MIN = Vector2.new(500, 400)
@@ -66,6 +66,7 @@ local savedCollide = {}
 local freeflyOn = false
 local freeflyConn: RBXScriptConnection? = nil
 local inputStates = {W=false,A=false,S=false,D=false,Space=false,Shift=false,Ctrl=false}
+local freeflyStartCFrame = nil
 
 -- UI state
 local panelVisible = false
@@ -83,14 +84,13 @@ local grabConn: RBXScriptConnection? = nil
 local GRAB_DISTANCE = 3 -- Distância do lado
 local GRAB_HEIGHT = 0 -- Altura relativa
 
--- eat system
-local eating = false
-local eatenPlayer: Player? = nil
-local eatConn: RBXScriptConnection? = nil
-
 -- bugar player system
 local buggingPlayers = {} -- Tabela para controlar players sendo bugados
 local bugConn: RBXScriptConnection? = nil
+
+-- bugar carro system
+local buggingCars = {} -- Tabela para controlar carros sendo bugados
+local bugCarConn: RBXScriptConnection? = nil
 
 -- player selection
 local selectedPlayer: Player? = nil
@@ -287,12 +287,18 @@ end
 -- Inicial + eventos de players
 for _, plr in ipairs(Players:GetPlayers()) do
 	if plr ~= LocalPlayer and plr.Character then refreshESPForPlayer(plr) end
-	plr.CharacterAdded:Connect(function() task.wait(0.1); refreshESPForPlayer(plr) end)
+	plr.CharacterAdded:Connect(function() 
+		task.wait(0.5) -- Esperar mais tempo para garantir que o personagem está totalmente carregado
+		refreshESPForPlayer(plr) 
+	end)
 	plr:GetPropertyChangedSignal("Team"):Connect(function() if plr ~= LocalPlayer then refreshESPForPlayer(plr) end end)
 end
 Players.PlayerAdded:Connect(function(plr)
 	if plr ~= LocalPlayer then
-		plr.CharacterAdded:Connect(function() task.wait(0.1); refreshESPForPlayer(plr) end)
+		plr.CharacterAdded:Connect(function() 
+			task.wait(0.5)
+			refreshESPForPlayer(plr) 
+		end)
 		plr:GetPropertyChangedSignal("Team"):Connect(function() refreshESPForPlayer(plr) end)
 	end
 end)
@@ -367,7 +373,6 @@ end
 
 local function startGrab(targetPlayer: Player)
 	stopGrab()
-	stopEat() -- Para comer se estiver ativo
 	if not targetPlayer or targetPlayer == LocalPlayer then return end
 	
 	local targetChar = targetPlayer.Character
@@ -426,98 +431,6 @@ local function startGrab(targetPlayer: Player)
 		
 		-- Mover player agarrado colado ao lado
 		targetChar:PivotTo(CFrame.new(grabPos))
-	end)
-end
-
--- ========= Sistema de Comer Jogador =========
-local function stopEat()
-	if eatConn then 
-		eatConn:Disconnect() 
-		eatConn = nil 
-	end
-	eating = false
-	
-	if eatenPlayer then
-		local char = eatenPlayer.Character
-		if char then
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if hum then
-				hum.PlatformStand = false
-				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
-			end
-			setNoclip(char, false)
-		end
-		eatenPlayer = nil
-	end
-end
-
-local function startEat(targetPlayer: Player)
-	stopEat()
-	stopGrab() -- Para agarrar se estiver ativo
-	if not targetPlayer or targetPlayer == LocalPlayer then return end
-	
-	local targetChar = targetPlayer.Character
-	local myChar = LocalPlayer.Character
-	if not targetChar or not myChar then return end
-	
-	local targetRoot = getPrimaryPart(targetChar)
-	local myRoot = getPrimaryPart(myChar)
-	if not targetRoot or not myRoot then return end
-	
-	-- Ativar noclip no player comido
-	local targetHum = targetChar:FindFirstChildOfClass("Humanoid")
-	if targetHum then
-		targetHum.PlatformStand = true
-		pcall(function() targetHum:ChangeState(Enum.HumanoidStateType.Physics) end)
-	end
-	
-	-- Ativar noclip no player comido e no próprio player
-	setNoclip(targetChar, true)
-	setNoclip(myChar, true)
-	
-	eating = true
-	eatenPlayer = targetPlayer
-	
-	eatConn = RunService.Heartbeat:Connect(function(dt)
-		if not eating or not targetPlayer.Parent then 
-			stopEat()
-			return 
-		end
-		
-		targetChar = targetPlayer.Character
-		myChar = LocalPlayer.Character
-		if not targetChar or not myChar then 
-			stopEat()
-			return 
-		end
-		
-		targetRoot = getPrimaryPart(targetChar) or targetRoot
-		myRoot = getPrimaryPart(myChar) or myRoot
-		if not targetRoot or not myRoot then 
-			stopEat()
-			return 
-		end
-		
-		-- Manter noclip ativo
-		enforceNoclip(myChar)
-		enforceNoclip(targetChar)
-		
-		-- Calcular posição de "comer": de frente com cabeça na cintura
-		local myCFrame = myRoot.CFrame
-		local myLook = myCFrame.LookVector
-		
-		-- Posição na frente do jogador
-		local frontOffset = myLook * 1.5
-		-- Altura da cintura (mais baixo que o normal)
-		local waistHeight = Vector3.new(0, -1.5, 0)
-		
-		local eatPos = myCFrame.Position + frontOffset + waistHeight
-		
-		-- Rotação: de frente para o jogador (oposto à direção do look)
-		local eatCFrame = CFrame.new(eatPos, eatPos - myLook)
-		
-		-- Mover player comido para posição de "comer"
-		targetChar:PivotTo(eatCFrame)
 	end)
 end
 
@@ -610,25 +523,6 @@ local function startBugPlayer(targetPlayer: Player)
 								createExplosion(explosionPos)
 							end
 							
-							-- Bugar veículos também (para Driv Empire)
-							local vehicles = workspace:FindFirstChild("Vehicles")
-							if vehicles then
-								for _, vehicle in ipairs(vehicles:GetDescendants()) do
-									if vehicle:IsA("Model") and vehicle:FindFirstChild("DriveSeat") then
-										-- Criar explosões perto de veículos
-										local vehicleRoot = getPrimaryPart(vehicle)
-										if vehicleRoot and (vehicleRoot.Position - targetRoot.Position).Magnitude < 50 then
-											local explosionPos = vehicleRoot.Position + Vector3.new(
-												math.random(-8, 8),
-												math.random(0, 3),
-												math.random(-8, 8)
-											)
-											createExplosion(explosionPos)
-										end
-									end
-								end
-							end
-							
 							-- TP instantâneo para posições aleatórias (mais agressivo)
 							local randomPos = targetRoot.Position + Vector3.new(
 								math.random(-15, 15),
@@ -668,6 +562,137 @@ local function startBugPlayer(targetPlayer: Player)
 	end
 end
 
+-- ========= Sistema de Bugar Carro =========
+local function stopBugCar(vehicle)
+	if buggingCars[vehicle] then
+		buggingCars[vehicle] = nil
+	end
+	
+	-- Parar conexão se não há mais carros sendo bugados
+	local hasBuggingCars = false
+	for _ in pairs(buggingCars) do
+		hasBuggingCars = true
+		break
+	end
+	
+	if not hasBuggingCars and bugCarConn then
+		bugCarConn:Disconnect()
+		bugCarConn = nil
+	end
+end
+
+local function stopAllBugCars()
+	buggingCars = {}
+	if bugCarConn then
+		bugCarConn:Disconnect()
+		bugCarConn = nil
+	end
+end
+
+local function startBugCar(vehicle)
+	if not vehicle then return end
+	
+	-- Adicionar à lista de carros sendo bugados
+	buggingCars[vehicle] = true
+	
+	-- Ativar noclip no carro
+	forEachCharacterPart(vehicle, function(part)
+		part.CanCollide = false
+	end)
+	
+	-- Iniciar loop de bug de carro se não estiver ativo
+	if not bugCarConn then
+		bugCarConn = RunService.Heartbeat:Connect(function(dt)
+			for car, _ in pairs(buggingCars) do
+				if car and car.Parent then
+					local carRoot = getPrimaryPart(car)
+					if carRoot then
+						-- Criar explosões ao redor do carro
+						for i = 1, 2 do
+							local explosionPos = carRoot.Position + Vector3.new(
+								math.random(-8, 8),
+								math.random(0, 3),
+								math.random(-8, 8)
+							)
+							createExplosion(explosionPos)
+						end
+						
+						-- Aplicar forças aleatórias no carro
+						local bodyVelocity = Instance.new("BodyVelocity")
+						bodyVelocity.Velocity = Vector3.new(
+							math.random(-100, 100),
+							math.random(50, 150),
+							math.random(-100, 100)
+						)
+						bodyVelocity.MaxForce = Vector3.new(10000, 10000, 10000)
+						bodyVelocity.Parent = carRoot
+						
+						-- TP instantâneo para posições aleatórias
+						local randomPos = carRoot.Position + Vector3.new(
+							math.random(-20, 20),
+							math.random(5, 15),
+							math.random(-20, 20)
+						)
+						car:PivotTo(CFrame.new(randomPos))
+						
+						-- Girar o carro aleatoriamente
+						local randomRotation = CFrame.Angles(
+							math.rad(math.random(0, 360)),
+							math.rad(math.random(0, 360)),
+							math.rad(math.random(0, 360))
+						)
+						car:PivotTo(carRoot.CFrame * randomRotation)
+						
+						-- Remover a força após um tempo
+						task.delay(0.5, function()
+							if bodyVelocity and bodyVelocity.Parent then
+								bodyVelocity:Destroy()
+							end
+						end)
+					end
+				else
+					-- Remover carro se não existir mais
+					buggingCars[car] = nil
+				end
+			end
+			
+			-- Parar conexão se não há mais carros
+			local hasCars = false
+			for _ in pairs(buggingCars) do
+				hasCars = true
+				break
+			end
+			
+			if not hasCars then
+				bugCarConn:Disconnect()
+				bugCarConn = nil
+			end
+		end)
+	end
+end
+
+-- Função para encontrar carros próximos
+local function findNearbyCars()
+	local cars = {}
+	local myChar = LocalPlayer.Character
+	if not myChar then return cars end
+	
+	local myRoot = getPrimaryPart(myChar)
+	if not myRoot then return cars end
+	
+	-- Procurar por veículos no workspace
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if obj:IsA("Model") and (obj:FindFirstChild("DriveSeat") or obj:FindFirstChild("Seat") or obj.Name:lower():find("car") or obj.Name:lower():find("vehicle")) then
+			local carRoot = getPrimaryPart(obj)
+			if carRoot and (carRoot.Position - myRoot.Position).Magnitude < 50 then
+				table.insert(cars, obj)
+			end
+		end
+	end
+	
+	return cars
+end
+
 -- Função para agarrar player mais próximo com tecla H
 local function grabNearestPlayer()
 	if grabbing then
@@ -699,40 +724,6 @@ local function grabNearestPlayer()
 	
 	if nearestPlayer then
 		startGrab(nearestPlayer)
-	end
-end
-
--- Função para comer player mais próximo com tecla G
-local function eatNearestPlayer()
-	if eating then
-		stopEat()
-		return
-	end
-	
-	local myChar = LocalPlayer.Character
-	if not myChar then return end
-	
-	local myRoot = getPrimaryPart(myChar)
-	if not myRoot then return end
-	
-	local nearestPlayer = nil
-	local nearestDistance = 15 -- Distância máxima para comer
-	
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			local targetRoot = getPrimaryPart(player.Character)
-			if targetRoot then
-				local distance = (targetRoot.Position - myRoot.Position).Magnitude
-				if distance <= nearestDistance then
-					nearestDistance = distance
-					nearestPlayer = player
-				end
-			end
-		end
-	end
-	
-	if nearestPlayer then
-		startEat(nearestPlayer)
 	end
 end
 
@@ -809,7 +800,7 @@ local function instantTPTo(targetPlayer: Player)
 	task.defer(function() setNoclip(char, false) end)
 end
 
--- ========= Free-Fly manual (noclip) =========
+-- ========= Free-Fly manual (noclip) MELHORADO =========
 local function setFreeFly(on: boolean)
 	if freeflyOn == on then return end
 	freeflyOn = on
@@ -820,38 +811,55 @@ local function setFreeFly(on: boolean)
 	if on then
 		stopFlight()
 		stopGrab()
-		stopEat()
 		stopAllBugging()
+		stopAllBugCars()
 		setNoclip(char, true)
-		if hum then hum.PlatformStand = true end
+		if hum then 
+			hum.PlatformStand = true 
+		end
+		
+		-- Salvar a posição inicial atual
+		local root = getPrimaryPart(char)
+		if root then
+			freeflyStartCFrame = root.CFrame
+		end
+		
 		freeflyConn = RunService.Heartbeat:Connect(function(dt)
 			char = LocalPlayer.Character; if not char then return end
 			local root = getPrimaryPart(char); if not root then return end
 			enforceNoclip(char)
 
 			local speed = FREEFLY_SPEED * (inputStates.Shift and FREEFLY_SPRINT_MULT or 1)
+			local verticalSpeed = FREEFLY_VERTICAL_SPEED
 			local move = Vector3.new(0,0,0)
+			
+			-- Usar a direção da câmera para movimento
 			local look = Camera.CFrame
-			local forward = look.LookVector
-			local right = look.RightVector
+			local forward = Vector3.new(look.LookVector.X, 0, look.LookVector.Z).Unit
+			local right = Vector3.new(look.RightVector.X, 0, look.RightVector.Z).Unit
+			local up = Vector3.new(0, 1, 0)
 
 			if inputStates.W then move += forward end
 			if inputStates.S then move -= forward end
 			if inputStates.D then move += right end
 			if inputStates.A then move -= right end
-			if inputStates.Space then move += Vector3.new(0,1,0) end
-			if inputStates.Ctrl then move += Vector3.new(0,-1,0) end
+			if inputStates.Space then move += up * verticalSpeed * dt end
+			if inputStates.Ctrl then move -= up * verticalSpeed * dt end
 
 			if move.Magnitude > 0 then
 				move = move.Unit * speed * dt
 				local newPos = root.Position + move
-				char:PivotTo(CFrame.new(newPos, newPos + forward))
+				char:PivotTo(CFrame.new(newPos))
+			else
+				-- Manter no mesmo lugar se não estiver se movendo
+				char:PivotTo(root.CFrame)
 			end
 		end)
 	else
 		if freeflyConn then freeflyConn:Disconnect() freeflyConn = nil end
 		if hum then hum.PlatformStand = false end
 		setNoclip(char, false)
+		freeflyStartCFrame = nil
 	end
 end
 
@@ -932,7 +940,7 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 16
 title.TextColor3 = Color3.new(1,1,1)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Painel Admin (M abre/fecha • P destrava mouse • F FreeFly • H Agarrar • G Comer • X cancela)"
+title.Text = "Painel Admin (M abre/fecha • P destrava mouse • F FreeFly • H Agarrar • X cancela)"
 title.Parent = frame
 
 -- Botão fechar
@@ -1113,8 +1121,7 @@ local tpBtn = createActionButton("TELEPORTAR", Color3.fromRGB(0,160,90), 0, inst
 local flyBtn = createActionButton("VOAR ATÉ (NOCLIP)", Color3.fromRGB(0,140,200), 42, startFlyNoclipTo)
 local spectateBtn = createActionButton("ESPECTAR", Color3.fromRGB(160,120,0), 84, startSpectate)
 local grabBtn = createActionButton("AGARRAR", Color3.fromRGB(180,60,180), 126, startGrab)
-local eatBtn = createActionButton("COMER", Color3.fromRGB(220,40,40), 168, startEat)
-local bugBtn = createActionButton("BUGAR PLAYER", Color3.fromRGB(200,40,40), 210, function(player)
+local bugBtn = createActionButton("BUGAR PLAYER", Color3.fromRGB(200,40,40), 168, function(player)
 	if buggingPlayers[player] then
 		stopBugPlayer(player)
 		bugBtn.Text = "BUGAR PLAYER"
@@ -1132,7 +1139,6 @@ local function hideActionButtons()
 	flyBtn.Visible = false
 	spectateBtn.Visible = false
 	grabBtn.Visible = false
-	eatBtn.Visible = false
 	bugBtn.Visible = false
 	selectedPlayerTitle.Text = "SELECIONE UM JOGADOR"
 end
@@ -1143,7 +1149,6 @@ local function showActionButtons(player)
 	flyBtn.Visible = true
 	spectateBtn.Visible = true
 	grabBtn.Visible = true
-	eatBtn.Visible = true
 	bugBtn.Visible = true
 	
 	-- Atualizar texto do botão de bugar
@@ -1274,17 +1279,30 @@ grabToggleBtn.Parent = utilPage
 Instance.new("UICorner", grabToggleBtn).CornerRadius = UDim.new(0,6)
 grabToggleBtn.MouseButton1Click:Connect(grabNearestPlayer)
 
-local eatToggleBtn = Instance.new("TextButton")
-eatToggleBtn.Size = UDim2.fromOffset(160, 28)
-eatToggleBtn.Position = UDim2.new(0, 0, 0, 108)
-eatToggleBtn.Text = "Comer Próximo: OFF (G)"
-eatToggleBtn.Font = Enum.Font.GothamBold
-eatToggleBtn.TextSize = 14
-eatToggleBtn.BackgroundColor3 = Color3.fromRGB(180,40,40)
-eatToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-eatToggleBtn.Parent = utilPage
-Instance.new("UICorner", eatToggleBtn).CornerRadius = UDim.new(0,6)
-eatToggleBtn.MouseButton1Click:Connect(eatNearestPlayer)
+local bugCarBtn = Instance.new("TextButton")
+bugCarBtn.Size = UDim2.fromOffset(160, 28)
+bugCarBtn.Position = UDim2.new(0, 0, 0, 108)
+bugCarBtn.Text = "BUGAR CARROS PRÓXIMOS"
+bugCarBtn.Font = Enum.Font.GothamBold
+bugCarBtn.TextSize = 14
+bugCarBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+bugCarBtn.TextColor3 = Color3.fromRGB(255,255,255)
+bugCarBtn.Parent = utilPage
+Instance.new("UICorner", bugCarBtn).CornerRadius = UDim.new(0,6)
+bugCarBtn.MouseButton1Click:Connect(function()
+	local cars = findNearbyCars()
+	if #cars > 0 then
+		for _, car in ipairs(cars) do
+			startBugCar(car)
+		end
+		bugCarBtn.Text = "PARAR BUG CARROS"
+		bugCarBtn.BackgroundColor3 = Color3.fromRGB(40,200,40)
+	else
+		stopAllBugCars()
+		bugCarBtn.Text = "BUGAR CARROS PRÓXIMOS"
+		bugCarBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+	end
+end)
 
 local stopAllBtn = Instance.new("TextButton")
 stopAllBtn.Size = UDim2.fromOffset(160, 28)
@@ -1299,8 +1317,8 @@ Instance.new("UICorner", stopAllBtn).CornerRadius = UDim.new(0,6)
 stopAllBtn.MouseButton1Click:Connect(function()
 	stopFlight()
 	stopGrab()
-	stopEat()
 	stopAllBugging()
+	stopAllBugCars()
 	stopSpectate()
 end)
 
@@ -1318,13 +1336,13 @@ unlockMouseBtn.MouseButton1Click:Connect(unlockMouse)
 
 local ffHint = Instance.new("TextLabel")
 ffHint.BackgroundTransparency = 1
-ffHint.Size = UDim2.new(1, -10, 0, 100)
+ffHint.Size = UDim2.new(1, -10, 0, 120)
 ffHint.Position = UDim2.new(0, 0, 0, 220)
 ffHint.Font = Enum.Font.Gotham
 ffHint.TextSize = 12
 ffHint.TextColor3 = Color3.fromRGB(220,220,230)
 ffHint.TextXAlignment = Enum.TextXAlignment.Left
-ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Free-Fly\n• H: Agarrar/Soltar próximo\n• G: Comer/Parar de comer\n• X: Cancelar voo\n\nSelecione um jogador na aba 'Jogadores' para acessar todas as ações."
+ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Free-Fly (fica parado no ar)\n• H: Agarrar/Soltar próximo\n• X: Cancelar voo\n\nFREE-FLY:\n• W/S: Frente/Trás\n• A/D: Esquerda/Direita\n• Espaço: Subir\n• Ctrl: Descer\n• Shift: Acelerar"
 ffHint.Parent = utilPage
 
 -- Troca de tabs
@@ -1510,7 +1528,6 @@ Players.PlayerRemoving:Connect(function(p)
 	
 	if spectating == p then stopSpectate() end
 	if grabbedPlayer == p then stopGrab() end
-	if eatenPlayer == p then stopEat() end
 	if buggingPlayers[p] then stopBugPlayer(p) end
 end)
 
@@ -1570,8 +1587,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		cancelling = true
 	elseif input.KeyCode == GRAB_TOGGLE_KEY then
 		grabNearestPlayer()
-	elseif input.KeyCode == EAT_PLAYER_KEY then
-		eatNearestPlayer()
 	elseif input.KeyCode == UNLOCK_MOUSE_KEY then
 		unlockMouse()
 	elseif input.KeyCode == Enum.KeyCode.W then inputStates.W = true
@@ -1602,9 +1617,30 @@ RunService.Heartbeat:Connect(function()
 		grabToggleBtn.Text = "Agarrar Próximo: " .. (grabbing and "ON (H)" or "OFF (H)")
 		grabToggleBtn.BackgroundColor3 = grabbing and Color3.fromRGB(180,80,180) or Color3.fromRGB(120,40,120)
 	end
-	if eatToggleBtn then
-		eatToggleBtn.Text = "Comer Próximo: " .. (eating and "ON (G)" or "OFF (G)")
-		eatToggleBtn.BackgroundColor3 = eating and Color3.fromRGB(220,80,80) or Color3.fromRGB(180,40,40)
+	if bugCarBtn then
+		local hasBuggingCars = false
+		for _ in pairs(buggingCars) do
+			hasBuggingCars = true
+			break
+		end
+		if hasBuggingCars then
+			bugCarBtn.Text = "PARAR BUG CARROS"
+			bugCarBtn.BackgroundColor3 = Color3.fromRGB(40,200,40)
+		else
+			bugCarBtn.Text = "BUGAR CARROS PRÓXIMOS"
+			bugCarBtn.BackgroundColor3 = Color3.fromRGB(200,40,40)
+		end
+	end
+end)
+
+-- Sistema de ESP quando morrer - reativar automaticamente
+LocalPlayer.CharacterAdded:Connect(function()
+	task.wait(1) -- Esperar o personagem spawnar completamente
+	-- Reativar ESP para todos os players
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then
+			refreshESPForPlayer(p)
+		end
 	end
 end)
 
@@ -1612,4 +1648,5 @@ end)
 rebuildPlayersList()
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then refreshESPForPlayer(p) end end
 print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
-print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Free-Fly) | H (Agarrar) | G (Comer) | X (Cancelar)")
+print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Free-Fly) | H (Agarrar) | X (Cancelar)")
+print("🚗 NOVO: Sistema de Bugar Carros ativado!")
