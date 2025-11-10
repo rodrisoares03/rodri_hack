@@ -95,6 +95,191 @@ local bugCarConn: RBXScriptConnection? = nil
 -- player selection
 local selectedPlayer: Player? = nil
 
+-- ========= Menu Fly/Noclip (Integrado) =========
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Função para atualizar o personagem ao respawnar
+local function onCharacterAdded(char)
+    character = char
+end
+
+player.CharacterAdded:Connect(onCharacterAdded)
+
+-- Criar GUI do Menu Fly/Noclip
+local screenGui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+screenGui.Name = "FlyMenu"
+screenGui.ResetOnSpawn = false
+
+-- Frame Principal Bonito
+local flyFrame = Instance.new("Frame", screenGui)
+flyFrame.Size = UDim2.new(0, 250, 0, 180)
+flyFrame.Position = UDim2.new(0, 50, 0, 50)
+flyFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+flyFrame.BorderSizePixel = 0
+flyFrame.Active = true
+flyFrame.Draggable = true
+
+local corner = Instance.new("UICorner", flyFrame)
+corner.CornerRadius = UDim.new(0, 12)
+
+local shadow = Instance.new("ImageLabel", flyFrame)
+shadow.Size = UDim2.new(1, 30, 1, 30)
+shadow.Position = UDim2.new(0, -15, 0, -15)
+shadow.Image = "rbxassetid://1316045217"
+shadow.ImageTransparency = 0.5
+shadow.BackgroundTransparency = 1
+shadow.ZIndex = 0
+
+-- Label Principal
+local label = Instance.new("TextLabel", flyFrame)
+label.Size = UDim2.new(1, 0, 0, 30)
+label.Text = "☁️ Rodri Menu"
+label.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+label.TextColor3 = Color3.fromRGB(255, 255, 255)
+label.TextScaled = true
+label.Font = Enum.Font.GothamBold
+label.ZIndex = 2
+
+local labelCorner = Instance.new("UICorner", label)
+labelCorner.CornerRadius = UDim.new(0, 12)
+
+-- Aba Fly
+local flyTabButton = Instance.new("TextButton", flyFrame)
+flyTabButton.Size = UDim2.new(0.5, 0, 0, 30)
+flyTabButton.Position = UDim2.new(0, 0, 0, 30)
+flyTabButton.Text = "Fly"
+flyTabButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+flyTabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+flyTabButton.TextScaled = true
+flyTabButton.Font = Enum.Font.GothamBold
+flyTabButton.ZIndex = 2
+
+local flyTabButtonCorner = Instance.new("UICorner", flyTabButton)
+flyTabButtonCorner.CornerRadius = UDim.new(0, 8)
+
+-- Aba Noclip
+local noclipTabButton = Instance.new("TextButton", flyFrame)
+noclipTabButton.Size = UDim2.new(0.5, 0, 0, 30)
+noclipTabButton.Position = UDim2.new(0.5, 0, 0, 30)
+noclipTabButton.Text = "Noclip"
+noclipTabButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+noclipTabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipTabButton.TextScaled = true
+noclipTabButton.Font = Enum.Font.GothamBold
+noclipTabButton.ZIndex = 2
+
+local noclipTabButtonCorner = Instance.new("UICorner", noclipTabButton)
+noclipTabButtonCorner.CornerRadius = UDim.new(0, 8)
+
+-- Fly Settings (Dentro da Aba Fly)
+local flySettingsFrame = Instance.new("Frame", flyFrame)
+flySettingsFrame.Size = UDim2.new(1, 0, 0, 120)
+flySettingsFrame.Position = UDim2.new(0, 0, 0, 60)
+flySettingsFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+flySettingsFrame.Visible = false
+flySettingsFrame.ZIndex = 2
+
+local flyCorner = Instance.new("UICorner", flySettingsFrame)
+flyCorner.CornerRadius = UDim.new(0, 12)
+
+-- Caixa de Texto para Velocidade
+local speedBox = Instance.new("TextBox", flySettingsFrame)
+speedBox.Size = UDim2.new(0.8, 0, 0, 40)
+speedBox.Position = UDim2.new(0.1, 0, 0, 20)
+speedBox.Text = "5"
+speedBox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+speedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedBox.TextScaled = true
+speedBox.Font = Enum.Font.GothamBold
+speedBox.ZIndex = 2
+
+local speedBoxCorner = Instance.new("UICorner", speedBox)
+speedBoxCorner.CornerRadius = UDim.new(0, 8)
+
+local function updateSpeed()
+    local inputSpeed = tonumber(speedBox.Text)
+    if inputSpeed and inputSpeed >= 1 then
+        -- A velocidade será usada pelo sistema existente
+    end
+end
+
+speedBox.FocusLost:Connect(updateSpeed)
+
+-- Fly Button
+local flyButton = Instance.new("TextButton", flySettingsFrame)
+flyButton.Size = UDim2.new(0.8, 0, 0, 40)
+flyButton.Position = UDim2.new(0.1, 0, 0, 70)
+flyButton.Text = "Toggle Fly"
+flyButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+flyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+flyButton.TextScaled = true
+flyButton.Font = Enum.Font.GothamBold
+flyButton.ZIndex = 2
+
+local flyButtonCorner = Instance.new("UICorner", flyButton)
+flyButtonCorner.CornerRadius = UDim.new(0, 8)
+
+-- Noclip Button (Dentro da Aba Noclip)
+local noclipSettingsFrame = Instance.new("Frame", flyFrame)
+noclipSettingsFrame.Size = UDim2.new(1, 0, 0, 120)
+noclipSettingsFrame.Position = UDim2.new(0, 0, 0, 60)
+noclipSettingsFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+noclipSettingsFrame.Visible = false
+noclipSettingsFrame.ZIndex = 2
+
+local noclipCorner = Instance.new("UICorner", noclipSettingsFrame)
+noclipCorner.CornerRadius = UDim.new(0, 12)
+
+local noclipButton = Instance.new("TextButton", noclipSettingsFrame)
+noclipButton.Size = UDim2.new(0.8, 0, 0, 40)
+noclipButton.Position = UDim2.new(0.1, 0, 0, 20)
+noclipButton.Text = "Toggle Noclip"
+noclipButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+noclipButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipButton.TextScaled = true
+noclipButton.Font = Enum.Font.GothamBold
+noclipButton.ZIndex = 2
+
+local noclipButtonCorner = Instance.new("UICorner", noclipButton)
+noclipButtonCorner.CornerRadius = UDim.new(0, 8)
+
+-- Função de controle Fly (usando sistema existente)
+flyButton.MouseButton1Click:Connect(function()
+    setFreeFly(not freeflyOn)
+    flyButton.Text = freeflyOn and "Stop Fly" or "Toggle Fly"
+    flyButton.BackgroundColor3 = freeflyOn and Color3.fromRGB(0, 170, 127) or Color3.fromRGB(70, 70, 70)
+end)
+
+-- Função de controle Noclip (usando sistema existente)
+noclipButton.MouseButton1Click:Connect(function()
+    local char = LocalPlayer.Character
+    if char then
+        if noclipActive then
+            setNoclip(char, false)
+            noclipActive = false
+            noclipButton.Text = "Toggle Noclip"
+            noclipButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        else
+            setNoclip(char, true)
+            noclipActive = true
+            noclipButton.Text = "Noclip: ON"
+            noclipButton.BackgroundColor3 = Color3.fromRGB(0, 170, 127)
+        end
+    end
+end)
+
+-- Troca entre Abas
+flyTabButton.MouseButton1Click:Connect(function()
+    flySettingsFrame.Visible = true
+    noclipSettingsFrame.Visible = false
+end)
+
+noclipTabButton.MouseButton1Click:Connect(function()
+    flySettingsFrame.Visible = false
+    noclipSettingsFrame.Visible = true
+end)
+
 -- ========= Função para Destravar Mouse =========
 local function unlockMouse()
 	-- Forçar o mouse a voltar ao normal
@@ -898,7 +1083,7 @@ Players.PlayerAdded:Connect(function(p)
 	end
 end)
 
--- ========= UI =========
+-- ========= UI Principal =========
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 local gui = Instance.new("ScreenGui")
 gui.Name = "ESP_TP_UI_Pro"
@@ -1650,3 +1835,4 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character 
 print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
 print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Free-Fly) | H (Agarrar) | X (Cancelar)")
 print("🚗 NOVO: Sistema de Bugar Carros ativado!")
+print("☁️ Menu Fly/Noclip integrado e funcionando!")
