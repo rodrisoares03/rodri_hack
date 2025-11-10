@@ -95,6 +95,139 @@ local bugCarConn: RBXScriptConnection? = nil
 -- player selection
 local selectedPlayer: Player? = nil
 
+-- ========= SISTEMA DE FLY/NOCLIP DO PRIMEIRO MENU =========
+local flying = false
+local noclip = false
+local speed = 50
+local bodyGyro, bodyVelocity
+
+-- Função para atualizar o personagem ao respawnar
+local function onCharacterAdded(char)
+    character = char
+    humanoidRootPart = char:WaitForChild("HumanoidRootPart")
+    humanoid = char:WaitForChild("Humanoid")
+
+    -- Resetar fly e noclip ao respawnar
+    flying = false
+    noclip = false
+
+    -- Atualizar botões se existirem
+    if flyToggleBtn then
+        flyToggleBtn.Text = "Fly: OFF"
+        flyToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end
+    if noclipToggleBtn then
+        noclipToggleBtn.Text = "Noclip: OFF"
+        noclipToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end
+end
+
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+-- Função de controle Fly
+local function toggleFly()
+    flying = not flying
+    
+    if flyToggleBtn then
+        flyToggleBtn.Text = flying and "Fly: ON" or "Fly: OFF"
+        flyToggleBtn.BackgroundColor3 = flying and Color3.fromRGB(0, 170, 127) or Color3.fromRGB(70, 70, 70)
+    end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChild("Humanoid")
+    if not humanoidRootPart or not humanoid then return end
+    
+    -- Criar e remover o BodyGyro e BodyVelocity para manter o personagem no ar
+    if flying then
+        bodyGyro = Instance.new("BodyGyro", humanoidRootPart)
+        bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+        bodyGyro.D = 1000
+        bodyGyro.CFrame = humanoidRootPart.CFrame
+
+        bodyVelocity = Instance.new("BodyVelocity", humanoidRootPart)
+        bodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0) -- Garante que ele não cai
+
+    else
+        if bodyGyro then bodyGyro:Destroy() end
+        if bodyVelocity then bodyVelocity:Destroy() end
+    end
+end
+
+-- Função de controle Noclip
+local function toggleNoclip()
+    noclip = not noclip
+    
+    if noclipToggleBtn then
+        noclipToggleBtn.Text = noclip and "Noclip: ON" or "Noclip: OFF"
+        noclipToggleBtn.BackgroundColor3 = noclip and Color3.fromRGB(0, 170, 127) or Color3.fromRGB(70, 70, 70)
+    end
+end
+
+-- Controles de movimento do sistema fly
+local control = {F = 0, B = 0, L = 0, R = 0, U = 0, D = 0}
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.W then control.F = 1 end
+    if input.KeyCode == Enum.KeyCode.S then control.B = 1 end
+    if input.KeyCode == Enum.KeyCode.A then control.L = 1 end
+    if input.KeyCode == Enum.KeyCode.D then control.R = 1 end
+    if input.KeyCode == Enum.KeyCode.Space then control.U = 1 end
+    if input.KeyCode == Enum.KeyCode.LeftControl then control.D = 1 end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.W then control.F = 0 end
+    if input.KeyCode == Enum.KeyCode.S then control.B = 0 end
+    if input.KeyCode == Enum.KeyCode.A then control.L = 0 end
+    if input.KeyCode == Enum.KeyCode.D then control.R = 0 end
+    if input.KeyCode == Enum.KeyCode.Space then control.U = 0 end
+    if input.KeyCode == Enum.KeyCode.LeftControl then control.D = 0 end
+end)
+
+-- Loop principal do sistema fly/noclip
+RunService.RenderStepped:Connect(function()
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoidRootPart then return end
+
+    -- Noclip
+    if noclip then
+        for _, v in pairs(character:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide == true then
+                v.CanCollide = false
+            end
+        end
+    end
+
+    -- Fly
+    if flying then
+        local cam = workspace.CurrentCamera
+        local moveVec = Vector3.zero
+
+        local forward = cam.CFrame.LookVector
+        local right = cam.CFrame.RightVector
+        local up = Vector3.new(0, 1, 0)
+
+        moveVec = moveVec 
+            + forward * (control.F - control.B)
+            + right * (control.R - control.L)
+            + up * (control.U - control.D)
+
+        if moveVec.Magnitude > 0 then
+            moveVec = moveVec.Unit * speed
+            humanoidRootPart.CFrame = humanoidRootPart.CFrame + moveVec
+        end
+    end
+end)
+
 -- ========= Função para Destravar Mouse =========
 local function unlockMouse()
 	-- Forçar o mouse a voltar ao normal
@@ -325,30 +458,6 @@ task.spawn(function()
 	end
 end)
 
--- ========= Noclip melhorado =========
-local function setNoclip(char: Model, on: boolean)
-	if not char then return end
-	forEachCharacterPart(char, function(part: BasePart)
-		if on then
-			if savedCollide[part] == nil then savedCollide[part] = part.CanCollide end
-			part.CanCollide = false
-		else
-			if savedCollide[part] ~= nil then
-				part.CanCollide = savedCollide[part]
-				savedCollide[part] = nil
-			else
-				part.CanCollide = true
-			end
-		end
-	end)
-end
-
-local function enforceNoclip(char: Model)
-	forEachCharacterPart(char, function(part: BasePart)
-		part.CanCollide = false
-	end)
-end
-
 -- ========= Sistema de Agarrar (Grab) - Lado aleatório =========
 local function stopGrab()
 	if grabConn then 
@@ -365,7 +474,6 @@ local function stopGrab()
 				hum.PlatformStand = false
 				pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end)
 			end
-			setNoclip(char, false)
 		end
 		grabbedPlayer = nil
 	end
@@ -393,10 +501,6 @@ local function startGrab(targetPlayer: Player)
 		pcall(function() targetHum:ChangeState(Enum.HumanoidStateType.Physics) end)
 	end
 	
-	-- Ativar noclip no player agarrado e no próprio player
-	setNoclip(targetChar, true)
-	setNoclip(myChar, true)
-	
 	grabbing = true
 	grabbedPlayer = targetPlayer
 	
@@ -419,10 +523,6 @@ local function startGrab(targetPlayer: Player)
 			stopGrab()
 			return 
 		end
-		
-		-- Manter noclip ativo
-		enforceNoclip(myChar)
-		enforceNoclip(targetChar)
 		
 		-- Calcular posição ao lado do personagem
 		local myCFrame = myRoot.CFrame
@@ -731,15 +831,6 @@ end
 local function stopFlight()
 	if flightConn then flightConn:Disconnect() flightConn = nil end
 	cancelling = false
-	if noclipActive then
-		local char = LocalPlayer.Character
-		if char then
-			setNoclip(char, false)
-			local hum = char:FindFirstChildOfClass("Humanoid")
-			if hum then hum.PlatformStand = false pcall(function() hum:ChangeState(Enum.HumanoidStateType.Running) end) end
-		end
-		noclipActive = false
-	end
 end
 
 local function startFlyNoclipTo(targetPlayer: Player)
@@ -753,13 +844,6 @@ local function startFlyNoclipTo(targetPlayer: Player)
 	local dstPart = getPrimaryPart(targetChar)
 	if not srcPart or not dstPart then return end
 
-	setNoclip(char, true); noclipActive = true
-	local hum = char:FindFirstChildOfClass("Humanoid")
-	if hum then
-		hum.PlatformStand = true
-		pcall(function() hum:ChangeState(Enum.HumanoidStateType.Physics) end)
-	end
-
 	flightStartTime = time()
 	flightConn = RunService.Heartbeat:Connect(function(dt)
 		if cancelling then stopFlight() return end
@@ -769,8 +853,6 @@ local function startFlyNoclipTo(targetPlayer: Player)
 		srcPart = getPrimaryPart(char) or srcPart
 		dstPart = getPrimaryPart(targetChar) or dstPart
 		if not srcPart or not dstPart then stopFlight() return end
-
-		enforceNoclip(char)
 
 		local src = srcPart.Position
 		local dst = dstPart.Position + Vector3.new(0,3,0)
@@ -794,73 +876,8 @@ local function instantTPTo(targetPlayer: Player)
 	local srcPart = getPrimaryPart(char)
 	local dstPart = getPrimaryPart(targetChar)
 	if not srcPart or not dstPart then return end
-	setNoclip(char, true)
 	local offset = Vector3.new(0,3,0)
 	char:PivotTo(CFrame.new(dstPart.Position + offset, dstPart.Position + offset + dstPart.CFrame.LookVector))
-	task.defer(function() setNoclip(char, false) end)
-end
-
--- ========= Free-Fly manual (noclip) MELHORADO =========
-local function setFreeFly(on: boolean)
-	if freeflyOn == on then return end
-	freeflyOn = on
-	local char = LocalPlayer.Character
-	if not char then return end
-	local hum = char:FindFirstChildOfClass("Humanoid")
-
-	if on then
-		stopFlight()
-		stopGrab()
-		stopAllBugging()
-		stopAllBugCars()
-		setNoclip(char, true)
-		if hum then 
-			hum.PlatformStand = true 
-		end
-		
-		-- Salvar a posição inicial atual
-		local root = getPrimaryPart(char)
-		if root then
-			freeflyStartCFrame = root.CFrame
-		end
-		
-		freeflyConn = RunService.Heartbeat:Connect(function(dt)
-			char = LocalPlayer.Character; if not char then return end
-			local root = getPrimaryPart(char); if not root then return end
-			enforceNoclip(char)
-
-			local speed = FREEFLY_SPEED * (inputStates.Shift and FREEFLY_SPRINT_MULT or 1)
-			local verticalSpeed = FREEFLY_VERTICAL_SPEED
-			local move = Vector3.new(0,0,0)
-			
-			-- Usar a direção da câmera para movimento
-			local look = Camera.CFrame
-			local forward = Vector3.new(look.LookVector.X, 0, look.LookVector.Z).Unit
-			local right = Vector3.new(look.RightVector.X, 0, look.RightVector.Z).Unit
-			local up = Vector3.new(0, 1, 0)
-
-			if inputStates.W then move += forward end
-			if inputStates.S then move -= forward end
-			if inputStates.D then move += right end
-			if inputStates.A then move -= right end
-			if inputStates.Space then move += up * verticalSpeed * dt end
-			if inputStates.Ctrl then move -= up * verticalSpeed * dt end
-
-			if move.Magnitude > 0 then
-				move = move.Unit * speed * dt
-				local newPos = root.Position + move
-				char:PivotTo(CFrame.new(newPos))
-			else
-				-- Manter no mesmo lugar se não estiver se movendo
-				char:PivotTo(root.CFrame)
-			end
-		end)
-	else
-		if freeflyConn then freeflyConn:Disconnect() freeflyConn = nil end
-		if hum then hum.PlatformStand = false end
-		setNoclip(char, false)
-		freeflyStartCFrame = nil
-	end
 end
 
 -- ========= Spectate (câmara) =========
@@ -940,7 +957,7 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 16
 title.TextColor3 = Color3.new(1,1,1)
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Text = "Painel Admin (M abre/fecha • P destrava mouse • F FreeFly • H Agarrar • X cancela)"
+title.Text = "Painel Admin (M abre/fecha • P destrava mouse • F Fly • H Agarrar • X cancela)"
 title.Parent = frame
 
 -- Botão fechar
@@ -1245,9 +1262,66 @@ Instance.new("UICorner", filterBtn).CornerRadius = UDim.new(0,6)
 
 -- Página Util
 local utilPage = makePage()
+
+-- ========= SISTEMA FLY/NOCLIP DO PRIMEIRO MENU INTEGRADO =========
+local flyToggleBtn = Instance.new("TextButton")
+flyToggleBtn.Size = UDim2.fromOffset(160, 28)
+flyToggleBtn.Position = UDim2.new(0, 0, 0, 0)
+flyToggleBtn.Text = "Fly: OFF (F)"
+flyToggleBtn.Font = Enum.Font.GothamBold
+flyToggleBtn.TextSize = 14
+flyToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+flyToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+flyToggleBtn.Parent = utilPage
+Instance.new("UICorner", flyToggleBtn).CornerRadius = UDim.new(0,6)
+flyToggleBtn.MouseButton1Click:Connect(toggleFly)
+
+local noclipToggleBtn = Instance.new("TextButton")
+noclipToggleBtn.Size = UDim2.fromOffset(160, 28)
+noclipToggleBtn.Position = UDim2.new(0, 170, 0, 0)
+noclipToggleBtn.Text = "Noclip: OFF"
+noclipToggleBtn.Font = Enum.Font.GothamBold
+noclipToggleBtn.TextSize = 14
+noclipToggleBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+noclipToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
+noclipToggleBtn.Parent = utilPage
+Instance.new("UICorner", noclipToggleBtn).CornerRadius = UDim.new(0,6)
+noclipToggleBtn.MouseButton1Click:Connect(toggleNoclip)
+
+-- Caixa de velocidade para fly
+local speedLabel = Instance.new("TextLabel")
+speedLabel.BackgroundTransparency = 1
+speedLabel.Size = UDim2.fromOffset(120, 20)
+speedLabel.Position = UDim2.new(0, 0, 0, 36)
+speedLabel.Font = Enum.Font.Gotham
+speedLabel.TextSize = 12
+speedLabel.TextColor3 = Color3.fromRGB(220,220,230)
+speedLabel.Text = "Velocidade Fly:"
+speedLabel.Parent = utilPage
+
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.fromOffset(80, 28)
+speedBox.Position = UDim2.new(0, 130, 0, 36)
+speedBox.Text = tostring(speed)
+speedBox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+speedBox.TextColor3 = Color3.fromRGB(255,255,255)
+speedBox.TextSize = 14
+speedBox.Font = Enum.Font.GothamBold
+speedBox.Parent = utilPage
+Instance.new("UICorner", speedBox).CornerRadius = UDim.new(0,6)
+
+speedBox.FocusLost:Connect(function()
+    local inputSpeed = tonumber(speedBox.Text)
+    if inputSpeed and inputSpeed >= 1 then
+        speed = inputSpeed
+    else
+        speedBox.Text = tostring(speed)
+    end
+end)
+
 local invisToggle = Instance.new("TextButton")
 invisToggle.Size = UDim2.fromOffset(160, 28)
-invisToggle.Position = UDim2.new(0, 0, 0, 0)
+invisToggle.Position = UDim2.new(0, 0, 0, 72)
 invisToggle.Text = "Invisível (local): OFF"
 invisToggle.Font = Enum.Font.GothamBold
 invisToggle.TextSize = 14
@@ -1256,20 +1330,9 @@ invisToggle.TextColor3 = Color3.fromRGB(255,255,255)
 invisToggle.Parent = utilPage
 Instance.new("UICorner", invisToggle).CornerRadius = UDim.new(0,6)
 
-local freeflyToggleBtn = Instance.new("TextButton")
-freeflyToggleBtn.Size = UDim2.fromOffset(160, 28)
-freeflyToggleBtn.Position = UDim2.new(0, 0, 0, 36)
-freeflyToggleBtn.Text = "Free-Fly: OFF (F)"
-freeflyToggleBtn.Font = Enum.Font.GothamBold
-freeflyToggleBtn.TextSize = 14
-freeflyToggleBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
-freeflyToggleBtn.TextColor3 = Color3.fromRGB(255,255,255)
-freeflyToggleBtn.Parent = utilPage
-Instance.new("UICorner", freeflyToggleBtn).CornerRadius = UDim.new(0,6)
-
 local grabToggleBtn = Instance.new("TextButton")
 grabToggleBtn.Size = UDim2.fromOffset(160, 28)
-grabToggleBtn.Position = UDim2.new(0, 0, 0, 72)
+grabToggleBtn.Position = UDim2.new(0, 0, 0, 108)
 grabToggleBtn.Text = "Agarrar Próximo: OFF (H)"
 grabToggleBtn.Font = Enum.Font.GothamBold
 grabToggleBtn.TextSize = 14
@@ -1281,7 +1344,7 @@ grabToggleBtn.MouseButton1Click:Connect(grabNearestPlayer)
 
 local bugCarBtn = Instance.new("TextButton")
 bugCarBtn.Size = UDim2.fromOffset(160, 28)
-bugCarBtn.Position = UDim2.new(0, 0, 0, 108)
+bugCarBtn.Position = UDim2.new(0, 0, 0, 144)
 bugCarBtn.Text = "BUGAR CARROS PRÓXIMOS"
 bugCarBtn.Font = Enum.Font.GothamBold
 bugCarBtn.TextSize = 14
@@ -1306,7 +1369,7 @@ end)
 
 local stopAllBtn = Instance.new("TextButton")
 stopAllBtn.Size = UDim2.fromOffset(160, 28)
-stopAllBtn.Position = UDim2.new(0, 0, 0, 144)
+stopAllBtn.Position = UDim2.new(0, 0, 0, 180)
 stopAllBtn.Text = "PARAR TUDO"
 stopAllBtn.Font = Enum.Font.GothamBold
 stopAllBtn.TextSize = 14
@@ -1320,11 +1383,14 @@ stopAllBtn.MouseButton1Click:Connect(function()
 	stopAllBugging()
 	stopAllBugCars()
 	stopSpectate()
+    -- Parar fly e noclip do sistema integrado
+    if flying then toggleFly() end
+    if noclip then toggleNoclip() end
 end)
 
 local unlockMouseBtn = Instance.new("TextButton")
 unlockMouseBtn.Size = UDim2.fromOffset(160, 28)
-unlockMouseBtn.Position = UDim2.new(0, 0, 0, 180)
+unlockMouseBtn.Position = UDim2.new(0, 0, 0, 216)
 unlockMouseBtn.Text = "DESTRAVAR MOUSE (P)"
 unlockMouseBtn.Font = Enum.Font.GothamBold
 unlockMouseBtn.TextSize = 14
@@ -1337,12 +1403,12 @@ unlockMouseBtn.MouseButton1Click:Connect(unlockMouse)
 local ffHint = Instance.new("TextLabel")
 ffHint.BackgroundTransparency = 1
 ffHint.Size = UDim2.new(1, -10, 0, 120)
-ffHint.Position = UDim2.new(0, 0, 0, 220)
+ffHint.Position = UDim2.new(0, 0, 0, 252)
 ffHint.Font = Enum.Font.Gotham
 ffHint.TextSize = 12
 ffHint.TextColor3 = Color3.fromRGB(220,220,230)
 ffHint.TextXAlignment = Enum.TextXAlignment.Left
-ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Free-Fly (fica parado no ar)\n• H: Agarrar/Soltar próximo\n• X: Cancelar voo\n\nFREE-FLY:\n• W/S: Frente/Trás\n• A/D: Esquerda/Direita\n• Espaço: Subir\n• Ctrl: Descer\n• Shift: Acelerar"
+ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Fly (BodyGyro/BodyVelocity)\n• H: Agarrar/Soltar próximo\n• X: Cancelar voo\n\nFLY CONTROLS:\n• W/S: Frente/Trás\n• A/D: Esquerda/Direita\n• Espaço: Subir\n• Ctrl: Descer"
 ffHint.Parent = utilPage
 
 -- Troca de tabs
@@ -1413,12 +1479,6 @@ invisToggle.MouseButton1Click:Connect(function()
 	invisToggle.Text = "Invisível (local): " .. (new and "ON" or "OFF")
 	invisToggle.BackgroundColor3 = new and Color3.fromRGB(90,90,120) or Color3.fromRGB(60,60,70)
 	setInvisible(new)
-end)
-
--- Free-Fly (menu e tecla F)
-freeflyToggleBtn.MouseButton1Click:Connect(function()
-	setFreeFly(not freeflyOn)
-	freeflyToggleBtn.Text = "Free-Fly: " .. (freeflyOn and "ON (F)" or "OFF (F)")
 end)
 
 -- Lista de jogadores
@@ -1581,33 +1641,15 @@ ContextActionService:BindActionAtPriority("TogglePanel", toggleAction, false, 20
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == FREEFLY_TOGGLE_KEY then
-		setFreeFly(not freeflyOn)
-		freeflyToggleBtn.Text = "Free-Fly: " .. (freeflyOn and "ON (F)" or "OFF (F)")
+		toggleFly()
 	elseif input.KeyCode == CANCEL_FLY_KEY then
 		cancelling = true
 	elseif input.KeyCode == GRAB_TOGGLE_KEY then
 		grabNearestPlayer()
 	elseif input.KeyCode == UNLOCK_MOUSE_KEY then
 		unlockMouse()
-	elseif input.KeyCode == Enum.KeyCode.W then inputStates.W = true
-	elseif input.KeyCode == Enum.KeyCode.A then inputStates.A = true
-	elseif input.KeyCode == Enum.KeyCode.S then inputStates.S = true
-	elseif input.KeyCode == Enum.KeyCode.D then inputStates.D = true
-	elseif input.KeyCode == Enum.KeyCode.Space then inputStates.Space = true
-	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then inputStates.Shift = true
-	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then inputStates.Ctrl = true
 	elseif input.KeyCode == UI_TOGGLE_KEY then
 		showPanel(not panelVisible)
-	end
-end)
-UserInputService.InputEnded:Connect(function(input, _)
-	if input.KeyCode == Enum.KeyCode.W then inputStates.W = false
-	elseif input.KeyCode == Enum.KeyCode.A then inputStates.A = false
-	elseif input.KeyCode == Enum.KeyCode.S then inputStates.S = false
-	elseif input.KeyCode == Enum.KeyCode.D then inputStates.D = false
-	elseif input.KeyCode == Enum.KeyCode.Space then inputStates.Space = false
-	elseif input.KeyCode == Enum.KeyCode.LeftShift or input.KeyCode == Enum.KeyCode.RightShift then inputStates.Shift = false
-	elseif input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.RightControl then inputStates.Ctrl = false
 	end
 end)
 
@@ -1648,5 +1690,6 @@ end)
 rebuildPlayersList()
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then refreshESPForPlayer(p) end end
 print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
-print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Free-Fly) | H (Agarrar) | X (Cancelar)")
+print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
 print("🚗 NOVO: Sistema de Bugar Carros ativado!")
+print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO!")
