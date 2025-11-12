@@ -1,4 +1,6 @@
--- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_BugarCarro.client.lua
+coloca uma aba de aimbot npc e outra e player e se a pessoa clicar com o botão direito do mause em cima dessa função vai pedir para colocar uma bind o aimbot deve dar pra controlar o smoth ate 20 e o fov deve dar pra ativar e ver na tela
+
+-- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_BugarCarro_Aimbot.client.lua
 -- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto.
 
 -- ========= Serviços =========
@@ -94,6 +96,20 @@ local bugCarConn: RBXScriptConnection? = nil
 
 -- player selection
 local selectedPlayer: Player? = nil
+
+-- ========= SISTEMA AIMBOT =========
+local aimbotEnabled = false
+local aimbotTarget = nil
+local aimbotSmoothness = 5
+local aimbotFOV = 30
+local aimbotShowFOV = false
+local aimbotTeamCheck = true
+local aimbotKeybind = Enum.KeyCode.Q
+local aimbotType = "Player" -- "Player" ou "NPC"
+local aimbotConn = nil
+
+-- Circle para mostrar FOV
+local fovCircle = nil
 
 -- ========= SISTEMA DE FLY/NOCLIP DO PRIMEIRO MENU =========
 local flying = false
@@ -292,6 +308,151 @@ end
 local function isEnemy(p: Player): boolean
 	if not LocalPlayer.Team or not p.Team then return false end
 	return p.Team ~= LocalPlayer.Team
+end
+
+-- ========= SISTEMA AIMBOT =========
+local function createFOVCircle()
+    if fovCircle then fovCircle:Destroy() end
+    
+    local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+    fovCircle = Instance.new("ScreenGui")
+    fovCircle.Name = "AimbotFOVCircle"
+    fovCircle.ResetOnSpawn = false
+    fovCircle.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    fovCircle.Parent = playerGui
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, aimbotFOV * 10, 0, aimbotFOV * 10)
+    frame.Position = UDim2.new(0.5, -aimbotFOV * 5, 0.5, -aimbotFOV * 5)
+    frame.BackgroundTransparency = 1
+    frame.BorderSizePixel = 0
+    frame.Parent = fovCircle
+    
+    local circle = Instance.new("ImageLabel")
+    circle.Size = UDim2.new(1, 0, 1, 0)
+    circle.BackgroundTransparency = 1
+    circle.Image = "rbxassetid://3570695787"
+    circle.ImageColor3 = Color3.fromRGB(255, 0, 0)
+    circle.ImageTransparency = 0.7
+    circle.ScaleType = Enum.ScaleType.Slice
+    circle.SliceCenter = Rect.new(100, 100, 100, 100)
+    circle.Parent = frame
+    
+    return fovCircle
+end
+
+local function updateFOVCircle()
+    if fovCircle and fovCircle:FindFirstChildOfClass("Frame") then
+        local frame = fovCircle:FindFirstChildOfClass("Frame")
+        frame.Size = UDim2.new(0, aimbotFOV * 10, 0, aimbotFOV * 10)
+        frame.Position = UDim2.new(0.5, -aimbotFOV * 5, 0.5, -aimbotFOV * 5)
+    end
+end
+
+local function findAimbotTarget()
+    local closestTarget = nil
+    local closestDistance = aimbotFOV
+    local camera = workspace.CurrentCamera
+    local mousePos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2) -- Centro da tela
+    
+    if aimbotType == "Player" then
+        -- Procurar por players
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                if aimbotTeamCheck and not isEnemy(player) then continue end
+                
+                local character = player.Character
+                local head = getHead(character)
+                if head then
+                    local screenPoint, onScreen = camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - mousePos).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestTarget = character
+                        end
+                    end
+                end
+            end
+        end
+    else
+        -- Procurar por NPCs (Modelos sem player)
+        for _, model in ipairs(workspace:GetDescendants()) do
+            if model:IsA("Model") and model:FindFirstChild("Humanoid") and not Players:GetPlayerFromCharacter(model) then
+                local head = getHead(model)
+                if head then
+                    local screenPoint, onScreen = camera:WorldToViewportPoint(head.Position)
+                    if onScreen then
+                        local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - mousePos).Magnitude
+                        if distance < closestDistance then
+                            closestDistance = distance
+                            closestTarget = model
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestTarget
+end
+
+local function aimAtTarget(target)
+    if not target then return end
+    
+    local camera = workspace.CurrentCamera
+    local head = getHead(target)
+    if not head then return end
+    
+    local currentCFrame = camera.CFrame
+    local targetPosition = head.Position
+    
+    -- Calcular a direção para o alvo
+    local direction = (targetPosition - currentCFrame.Position).Unit
+    
+    -- Aplicar suavidade
+    local smoothFactor = math.max(1, aimbotSmoothness)
+    local newLookVector = currentCFrame.LookVector:Lerp(direction, 1 / smoothFactor)
+    
+    -- Criar novo CFrame
+    local newCFrame = CFrame.lookAt(currentCFrame.Position, currentCFrame.Position + newLookVector)
+    camera.CFrame = newCFrame
+end
+
+local function toggleAimbot()
+    aimbotEnabled = not aimbotEnabled
+    
+    if aimbotEnabled then
+        -- Criar círculo FOV se necessário
+        if aimbotShowFOV then
+            createFOVCircle()
+        end
+        
+        -- Iniciar loop do aimbot
+        aimbotConn = RunService.RenderStepped:Connect(function()
+            if aimbotEnabled then
+                local target = findAimbotTarget()
+                if target then
+                    aimAtTarget(target)
+                    aimbotTarget = target
+                else
+                    aimbotTarget = nil
+                end
+            end
+        end)
+    else
+        -- Parar loop do aimbot
+        if aimbotConn then
+            aimbotConn:Disconnect()
+            aimbotConn = nil
+        end
+        aimbotTarget = nil
+    end
+end
+
+local function setAimbotKeybind(newKey)
+    aimbotKeybind = newKey
+    -- Atualizar bind na ContextActionService se necessário
 end
 
 -- ========= ESP =========
@@ -1039,7 +1200,8 @@ end
 
 local tabPlayers = makeTab("Jogadores", 0)
 local tabESP = makeTab("ESP", 122)
-local tabUtil= makeTab("Util", 244)
+local tabAimbot = makeTab("Aimbot", 244)
+local tabUtil= makeTab("Util", 366)
 
 local pages = Instance.new("Frame")
 pages.Size = UDim2.new(1, -16, 1, -74)
@@ -1260,6 +1422,143 @@ filterBtn.TextColor3 = Color3.fromRGB(255,255,255)
 filterBtn.Parent = espPage
 Instance.new("UICorner", filterBtn).CornerRadius = UDim.new(0,6)
 
+-- Página Aimbot
+local aimbotPage = makePage()
+
+-- Toggle Aimbot
+local aimbotToggle = Instance.new("TextButton")
+aimbotToggle.Size = UDim2.fromOffset(150, 30)
+aimbotToggle.Position = UDim2.new(0, 0, 0, 0)
+aimbotToggle.Text = aimbotEnabled and "AIMBOT: LIGADO" or "AIMBOT: DESLIGADO"
+aimbotToggle.Font = Enum.Font.GothamBold
+aimbotToggle.TextSize = 14
+aimbotToggle.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(0,160,90) or Color3.fromRGB(120,30,30)
+aimbotToggle.TextColor3 = Color3.fromRGB(255,255,255)
+aimbotToggle.Parent = aimbotPage
+Instance.new("UICorner", aimbotToggle).CornerRadius = UDim.new(0, 6)
+
+-- Tipo de Aimbot (Player/NPC)
+local aimbotTypeBtn = Instance.new("TextButton")
+aimbotTypeBtn.Size = UDim2.fromOffset(150, 24)
+aimbotTypeBtn.Position = UDim2.new(0, 160, 0, 0)
+aimbotTypeBtn.Text = "Tipo: " .. aimbotType
+aimbotTypeBtn.Font = Enum.Font.GothamBold
+aimbotTypeBtn.TextSize = 12
+aimbotTypeBtn.BackgroundColor3 = Color3.fromRGB(40,40,48)
+aimbotTypeBtn.TextColor3 = Color3.fromRGB(255,255,255)
+aimbotTypeBtn.Parent = aimbotPage
+Instance.new("UICorner", aimbotTypeBtn).CornerRadius = UDim.new(0,6)
+
+-- Suavidade
+local smoothLabel = Instance.new("TextLabel")
+smoothLabel.BackgroundTransparency = 1
+smoothLabel.Size = UDim2.fromOffset(120, 20)
+smoothLabel.Position = UDim2.new(0, 0, 0, 36)
+smoothLabel.Font = Enum.Font.Gotham
+smoothLabel.TextSize = 12
+smoothLabel.TextColor3 = Color3.fromRGB(220,220,230)
+smoothLabel.Text = "Suavidade: " .. aimbotSmoothness
+smoothLabel.Parent = aimbotPage
+
+local smoothSlider = Instance.new("TextButton")
+smoothSlider.Size = UDim2.fromOffset(200, 20)
+smoothSlider.Position = UDim2.new(0, 0, 0, 60)
+smoothSlider.Text = ""
+smoothSlider.BackgroundColor3 = Color3.fromRGB(60,60,70)
+smoothSlider.Parent = aimbotPage
+Instance.new("UICorner", smoothSlider).CornerRadius = UDim.new(0,4)
+
+local smoothFill = Instance.new("Frame")
+smoothFill.Size = UDim2.new((aimbotSmoothness - 1) / 19, 0, 1, 0)
+smoothFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+smoothFill.BorderSizePixel = 0
+smoothFill.Parent = smoothSlider
+Instance.new("UICorner", smoothFill).CornerRadius = UDim.new(0,4)
+
+-- FOV
+local fovLabel = Instance.new("TextLabel")
+fovLabel.BackgroundTransparency = 1
+fovLabel.Size = UDim2.fromOffset(120, 20)
+fovLabel.Position = UDim2.new(0, 0, 0, 90)
+fovLabel.Font = Enum.Font.Gotham
+fovLabel.TextSize = 12
+fovLabel.TextColor3 = Color3.fromRGB(220,220,230)
+fovLabel.Text = "FOV: " .. aimbotFOV
+fovLabel.Parent = aimbotPage
+
+local fovSlider = Instance.new("TextButton")
+fovSlider.Size = UDim2.fromOffset(200, 20)
+fovSlider.Position = UDim2.new(0, 0, 0, 114)
+fovSlider.Text = ""
+fovSlider.BackgroundColor3 = Color3.fromRGB(60,60,70)
+fovSlider.Parent = aimbotPage
+Instance.new("UICorner", fovSlider).CornerRadius = UDim.new(0,4)
+
+local fovFill = Instance.new("Frame")
+fovFill.Size = UDim2.new(aimbotFOV / 100, 0, 1, 0)
+fovFill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+fovFill.BorderSizePixel = 0
+fovFill.Parent = fovSlider
+Instance.new("UICorner", fovFill).CornerRadius = UDim.new(0,4)
+
+-- Mostrar FOV
+local showFOVBtn = Instance.new("TextButton")
+showFOVBtn.Size = UDim2.fromOffset(150, 24)
+showFOVBtn.Position = UDim2.new(0, 0, 0, 144)
+showFOVBtn.Text = aimbotShowFOV and "Mostrar FOV: ON" or "Mostrar FOV: OFF"
+showFOVBtn.Font = Enum.Font.GothamBold
+showFOVBtn.TextSize = 12
+showFOVBtn.BackgroundColor3 = aimbotShowFOV and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+showFOVBtn.TextColor3 = Color3.fromRGB(255,255,255)
+showFOVBtn.Parent = aimbotPage
+Instance.new("UICorner", showFOVBtn).CornerRadius = UDim.new(0,6)
+
+-- Check de Time
+local teamCheckBtn = Instance.new("TextButton")
+teamCheckBtn.Size = UDim2.fromOffset(150, 24)
+teamCheckBtn.Position = UDim2.new(0, 160, 0, 144)
+teamCheckBtn.Text = aimbotTeamCheck and "Check Time: ON" or "Check Time: OFF"
+teamCheckBtn.Font = Enum.Font.GothamBold
+teamCheckBtn.TextSize = 12
+teamCheckBtn.BackgroundColor3 = aimbotTeamCheck and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+teamCheckBtn.TextColor3 = Color3.fromRGB(255,255,255)
+teamCheckBtn.Parent = aimbotPage
+Instance.new("UICorner", teamCheckBtn).CornerRadius = UDim.new(0,6)
+
+-- Keybind
+local keybindLabel = Instance.new("TextLabel")
+keybindLabel.BackgroundTransparency = 1
+keybindLabel.Size = UDim2.fromOffset(120, 20)
+keybindLabel.Position = UDim2.new(0, 0, 0, 180)
+keybindLabel.Font = Enum.Font.Gotham
+keybindLabel.TextSize = 12
+keybindLabel.TextColor3 = Color3.fromRGB(220,220,230)
+keybindLabel.Text = "Tecla: " .. tostring(aimbotKeybind)
+keybindLabel.Parent = aimbotPage
+
+local keybindBtn = Instance.new("TextButton")
+keybindBtn.Size = UDim2.fromOffset(120, 28)
+keybindBtn.Position = UDim2.new(0, 0, 0, 204)
+keybindBtn.Text = "ALTERAR TECLA"
+keybindBtn.Font = Enum.Font.GothamBold
+keybindBtn.TextSize = 12
+keybindBtn.BackgroundColor3 = Color3.fromRGB(60,60,70)
+keybindBtn.TextColor3 = Color3.fromRGB(255,255,255)
+keybindBtn.Parent = aimbotPage
+Instance.new("UICorner", keybindBtn).CornerRadius = UDim.new(0,6)
+
+-- Instruções
+local aimbotHint = Instance.new("TextLabel")
+aimbotHint.BackgroundTransparency = 1
+aimbotHint.Size = UDim2.new(1, -10, 0, 80)
+aimbotHint.Position = UDim2.new(0, 0, 0, 240)
+aimbotHint.Font = Enum.Font.Gotham
+aimbotHint.TextSize = 11
+aimbotHint.TextColor3 = Color3.fromRGB(180,180,200)
+aimbotHint.TextXAlignment = Enum.TextXAlignment.Left
+aimbotHint.Text = "INSTRUÇÕES:\n• Clique direito em qualquer botão para alterar a tecla\n• Suavidade: 1-20 (maior = mais suave)\n• FOV: Campo de visão do aimbot\n• Check Time: Só mira em inimigos"
+aimbotHint.Parent = aimbotPage
+
 -- Página Util
 local utilPage = makePage()
 
@@ -1386,6 +1685,8 @@ stopAllBtn.MouseButton1Click:Connect(function()
     -- Parar fly e noclip do sistema integrado
     if flying then toggleFly() end
     if noclip then toggleNoclip() end
+    -- Parar aimbot
+    if aimbotEnabled then toggleAimbot() end
 end)
 
 local unlockMouseBtn = Instance.new("TextButton")
@@ -1411,18 +1712,196 @@ ffHint.TextXAlignment = Enum.TextXAlignment.Left
 ffHint.Text = "CONTROLES:\n• M: Abrir/Fechar painel\n• P: Destravar mouse (emergência)\n• F: Fly (BodyGyro/BodyVelocity)\n• H: Agarrar/Soltar próximo\n• X: Cancelar voo\n\nFLY CONTROLS:\n• W/S: Frente/Trás\n• A/D: Esquerda/Direita\n• Espaço: Subir\n• Ctrl: Descer"
 ffHint.Parent = utilPage
 
+-- ========= HANDLERS AIMBOT =========
+aimbotToggle.MouseButton1Click:Connect(function()
+    toggleAimbot()
+    aimbotToggle.Text = aimbotEnabled and "AIMBOT: LIGADO" or "AIMBOT: DESLIGADO"
+    aimbotToggle.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(0,160,90) or Color3.fromRGB(120,30,30)
+end)
+
+aimbotTypeBtn.MouseButton1Click:Connect(function()
+    aimbotType = aimbotType == "Player" and "NPC" or "Player"
+    aimbotTypeBtn.Text = "Tipo: " .. aimbotType
+end)
+
+showFOVBtn.MouseButton1Click:Connect(function()
+    aimbotShowFOV = not aimbotShowFOV
+    showFOVBtn.Text = aimbotShowFOV and "Mostrar FOV: ON" or "Mostrar FOV: OFF"
+    showFOVBtn.BackgroundColor3 = aimbotShowFOV and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+    
+    if aimbotShowFOV then
+        createFOVCircle()
+    else
+        if fovCircle then
+            fovCircle:Destroy()
+            fovCircle = nil
+        end
+    end
+end)
+
+teamCheckBtn.MouseButton1Click:Connect(function()
+    aimbotTeamCheck = not aimbotTeamCheck
+    teamCheckBtn.Text = aimbotTeamCheck and "Check Time: ON" or "Check Time: OFF"
+    teamCheckBtn.BackgroundColor3 = aimbotTeamCheck and Color3.fromRGB(0,120,70) or Color3.fromRGB(70,30,30)
+end)
+
+-- Sistema de slider para suavidade
+local function updateSmoothSlider()
+    smoothFill.Size = UDim2.new((aimbotSmoothness - 1) / 19, 0, 1, 0)
+    smoothLabel.Text = "Suavidade: " .. aimbotSmoothness
+end
+
+smoothSlider.MouseButton1Down:Connect(function()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local mouse = UserInputService:GetMouseLocation()
+        local sliderAbsolutePos = smoothSlider.AbsolutePosition
+        local sliderAbsoluteSize = smoothSlider.AbsoluteSize
+        
+        local relativeX = math.clamp((mouse.X - sliderAbsolutePos.X) / sliderAbsoluteSize.X, 0, 1)
+        aimbotSmoothness = math.floor(1 + relativeX * 19) -- 1 a 20
+        updateSmoothSlider()
+    end)
+    
+    local function disconnect()
+        connection:Disconnect()
+    end
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            disconnect()
+        end
+    end)
+end)
+
+-- Sistema de slider para FOV
+local function updateFOVSlider()
+    fovFill.Size = UDim2.new(aimbotFOV / 100, 0, 1, 0)
+    fovLabel.Text = "FOV: " .. aimbotFOV
+    updateFOVCircle()
+end
+
+fovSlider.MouseButton1Down:Connect(function()
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local mouse = UserInputService:GetMouseLocation()
+        local sliderAbsolutePos = fovSlider.AbsolutePosition
+        local sliderAbsoluteSize = fovSlider.AbsoluteSize
+        
+        local relativeX = math.clamp((mouse.X - sliderAbsolutePos.X) / sliderAbsoluteSize.X, 0, 1)
+        aimbotFOV = math.floor(relativeX * 100) -- 0 a 100
+        updateFOVSlider()
+    end)
+    
+    local function disconnect()
+        connection:Disconnect()
+    end
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            disconnect()
+        end
+    end)
+end)
+
+-- Sistema de keybind com clique direito
+local function setKeybindForButton(button, keybindVariable)
+    local waitingForInput = false
+    
+    local function onRightClick()
+        if waitingForInput then return end
+        
+        waitingForInput = true
+        local originalText = button.Text
+        button.Text = "CLIQUE UMA TECLA..."
+        button.BackgroundColor3 = Color3.fromRGB(200, 150, 0)
+        
+        local connection
+        connection = UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if gameProcessed then return end
+            
+            if input.UserInputType == Enum.UserInputType.Keyboard then
+                keybindVariable = input.KeyCode
+                button.Text = "Tecla: " .. tostring(input.KeyCode)
+                waitingForInput = false
+                connection:Disconnect()
+                
+                -- Restaurar cor após um breve momento
+                task.wait(0.5)
+                button.BackgroundColor3 = Color3.fromRGB(60,60,70)
+            end
+        end)
+    end
+    
+    button.MouseButton2Click:Connect(onRightClick)
+end
+
+-- Aplicar sistema de keybind para o botão do aimbot
+setKeybindForButton(keybindBtn, aimbotKeybind)
+
+-- Aplicar sistema de keybind para outros botões importantes
+local function setupKeybindForAllButtons()
+    -- Botão Fly
+    setKeybindForButton(flyToggleBtn, FREEFLY_TOGGLE_KEY)
+    
+    -- Botão Agarrar
+    setKeybindForButton(grabToggleBtn, GRAB_TOGGLE_KEY)
+    
+    -- Botão Aimbot
+    setKeybindForButton(aimbotToggle, aimbotKeybind)
+end
+
+-- Chamar setup após a UI ser criada
+task.defer(setupKeybindForAllButtons)
+
+-- Input para o aimbot
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    
+    if input.KeyCode == aimbotKeybind then
+        if not aimbotEnabled then
+            toggleAimbot()
+            aimbotToggle.Text = "AIMBOT: LIGADO"
+            aimbotToggle.BackgroundColor3 = Color3.fromRGB(0,160,90)
+        end
+    end
+    
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        -- Se o aimbot estiver desligado, ligar temporariamente enquanto segura o botão direito
+        if not aimbotEnabled then
+            toggleAimbot()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, processed)
+    if processed then return end
+    
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        -- Se o aimbot foi ligado pelo botão direito, desligar ao soltar
+        if aimbotEnabled then
+            toggleAimbot()
+            aimbotToggle.Text = "AIMBOT: DESLIGADO"
+            aimbotToggle.BackgroundColor3 = Color3.fromRGB(120,30,30)
+        end
+    end
+end)
+
 -- Troca de tabs
 local function setTab(which)
 	tabPlayers.BackgroundColor3 = Color3.fromRGB(30,30,36)
 	tabESP.BackgroundColor3  = Color3.fromRGB(30,30,36)
+	tabAimbot.BackgroundColor3 = Color3.fromRGB(30,30,36)
 	tabUtil.BackgroundColor3= Color3.fromRGB(30,30,36)
-	playersPage.Visible=false; espPage.Visible=false; utilPage.Visible=false
+	playersPage.Visible=false; espPage.Visible=false; aimbotPage.Visible=false; utilPage.Visible=false
 	if which=="PLAYERS" then tabPlayers.BackgroundColor3=Color3.fromRGB(40,40,48); playersPage.Visible=true
 	elseif which=="ESP" then tabESP.BackgroundColor3=Color3.fromRGB(40,40,48); espPage.Visible=true
+	elseif which=="AIMBOT" then tabAimbot.BackgroundColor3=Color3.fromRGB(40,40,48); aimbotPage.Visible=true
 	else tabUtil.BackgroundColor3=Color3.fromRGB(40,40,48); utilPage.Visible=true end
 end
 tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
 tabESP.MouseButton1Click:Connect(function() setTab("ESP") end)
+tabAimbot.MouseButton1Click:Connect(function() setTab("AIMBOT") end)
 tabUtil.MouseButton1Click:Connect(function() setTab("UTIL") end)
 
 -- Handlers ESP
@@ -1691,5 +2170,6 @@ rebuildPlayersList()
 for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character then refreshESPForPlayer(p) end end
 print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
 print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
-print("🚗 NOVO: Sistema de Bugar Carros ativado!")
+print("🎯 NOVO: Sistema de Aimbot adicionado! (Player/NPC)")
+print("🚗 Sistema de Bugar Carros ativado!")
 print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO!")
