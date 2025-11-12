@@ -1,6 +1,6 @@
-
 -- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_BugarCarro.client.lua
--- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto
+-- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto.
+
 -- ========= Serviços =========
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
