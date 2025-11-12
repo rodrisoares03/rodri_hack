@@ -1,8 +1,6 @@
-coloca uma aba de aimbot npc e outra e player e se a pessoa clicar com o botão direito do mause em cima dessa função vai pedir para colocar uma bind o aimbot deve dar pra controlar o smoth ate 20 e o fov deve dar pra ativar e ver na tela
 
 -- OneFile_ESP_TP_PRO_Resize_Spectate_Grab_BugarCarro.client.lua
--- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto.
-
+-- Ferramentas locais para o TEU jogo (admin/debug). Sem código remoto
 -- ========= Serviços =========
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
