@@ -98,7 +98,7 @@ local selectedPlayer: Player? = nil
 -- ========= SISTEMA DE FLY/NOCLIP DO PRIMEIRO MENU =========
 local flying = false
 local noclip = false
-local speed = 50
+local speed = 1  -- COMEÇA COM VELOCIDADE 1
 local bodyGyro, bodyVelocity
 
 -- Função para atualizar o personagem ao respawnar
@@ -198,7 +198,7 @@ RunService.RenderStepped:Connect(function()
     local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     if not humanoidRootPart then return end
 
-    -- Noclip
+    -- Noclip - COMEÇA AQUI NO 1
     if noclip then
         for _, v in pairs(character:GetDescendants()) do
             if v:IsA("BasePart") and v.CanCollide == true then
@@ -1302,7 +1302,7 @@ speedLabel.Parent = utilPage
 local speedBox = Instance.new("TextBox")
 speedBox.Size = UDim2.fromOffset(80, 28)
 speedBox.Position = UDim2.new(0, 130, 0, 36)
-speedBox.Text = tostring(speed)
+speedBox.Text = "1"  -- COMEÇA COM 1
 speedBox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
 speedBox.TextColor3 = Color3.fromRGB(255,255,255)
 speedBox.TextSize = 14
@@ -1621,10 +1621,10 @@ local function showPanel(show: boolean)
 	else
 		-- Restaurar estado do mouse quando fechar
 		if prevMouseBehavior then 
-			UserInputService.MouseBehavior = prevMouseBehavior 
+				UserInputService.MouseBehavior = prevMouseBehavior 
 		end
 		if prevMouseIconEnabled ~= nil then 
-			UserInputService.MouseIconEnabled = prevMouseIconEnabled 
+				UserInputService.MouseIconEnabled = prevMouseIconEnabled 
 		end
 	end
 end
@@ -1692,4 +1692,4 @@ for _, p in ipairs(Players:GetPlayers()) do if p ~= LocalPlayer and p.Character 
 print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
 print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
 print("🚗 NOVO: Sistema de Bugar Carros ativado!")
-print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO!")
+print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO! VELOCIDADE INICIAL: 1")
