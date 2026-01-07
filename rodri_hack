@@ -22,13 +22,13 @@ TEAM_FILTER_DEFAULT = "Todos"
 
 
 -- Aimbot Config Global
-aimbotEnabled = false
+aimbotEnabled = true
 aimbotFOV = 100
 aimbotFOVZero = 0
 aimbotSmooth = 5
 aimbotTarget = "Cabeça"
-aimbotBind = Enum.KeyCode.Unknown
-aimbotBindString = "None"
+aimbotBind = "MouseRight"
+aimbotBindString = "MouseRight"
 aimbotShowFOV = false
 aimbotShowFOVZero = false
 aimbotOnlyVisible = false
@@ -104,6 +104,7 @@ spectating = nil
 savedSubject = nil
 savedCamType = nil
 spectateConn = nil
+spectateTracerLine = nil
 
 -- Grab system
 grabbing = false
@@ -295,10 +296,20 @@ local function createPlayerButton(player)
 	selectionIndicator.Parent = btn
 	Instance.new("UICorner", selectionIndicator).CornerRadius = UDim.new(0, 2)
 
+	-- Avatar do jogador
+	local avatar = Instance.new("ImageLabel")
+	avatar.Size = UDim2.new(0, 50, 0, 50)
+	avatar.Position = UDim2.new(0, 5, 0, 5)
+	avatar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	avatar.BorderSizePixel = 0
+	avatar.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+	avatar.Parent = btn
+	Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
 	-- Container principal
 	local mainContainer = Instance.new("Frame")
-	mainContainer.Size = UDim2.new(1, -8, 1, 0)
-	mainContainer.Position = UDim2.new(0, 6, 0, 0)
+	mainContainer.Size = UDim2.new(1, -68, 1, 0)
+	mainContainer.Position = UDim2.new(0, 62, 0, 0)
 	mainContainer.BackgroundTransparency = 1
 	mainContainer.Parent = btn
 
@@ -537,6 +548,7 @@ function FlySystem:startLoop()
         if not character then return end
 
         local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+        local humanoid = character:FindFirstChild("Humanoid")
         if not humanoidRootPart then return end
 
         -- Sistema Noclip
@@ -550,6 +562,11 @@ function FlySystem:startLoop()
 
         -- Sistema Fly
         if self.flying and humanoidRootPart then
+            -- Desabilitar animação de queda
+            if humanoid then
+                humanoid:ChangeState(Enum.HumanoidStateType.Flying)
+            end
+
             local cam = workspace.CurrentCamera
             local moveVec = Vector3.zero
 
@@ -984,6 +1001,18 @@ local function startSpectate(p: Player)
             Camera.CameraSubject = hum
         end
     end)
+    
+    -- Criar tracer line
+    if not spectateTracerLine then
+        spectateTracerLine = Instance.new("Part")
+        spectateTracerLine.Name = "SpectateTracer"
+        spectateTracerLine.Anchored = true
+        spectateTracerLine.CanCollide = false
+        spectateTracerLine.Material = Enum.Material.Neon
+        spectateTracerLine.Color = Color3.fromRGB(0, 255, 255)
+        spectateTracerLine.Size = Vector3.new(0.1, 0.1, 1)
+        spectateTracerLine.Parent = workspace
+    end
 end
 
 local function stopSpectate()
@@ -991,6 +1020,12 @@ local function stopSpectate()
     if savedCamType then Camera.CameraType = savedCamType end
     spectating = nil
     if spectateConn then spectateConn:Disconnect() spectateConn = nil end
+    
+    -- Remover tracer line
+    if spectateTracerLine then
+        spectateTracerLine:Destroy()
+        spectateTracerLine = nil
+    end
 end
 
 -- ========= Instant TP to Player =========
@@ -1033,9 +1068,33 @@ RunService.RenderStepped:Connect(function()
 		end
 
 		-- Garantir que a câmera ainda está no modo correto
+		local hum = targetChar:FindFirstChildOfClass("Humanoid")
 		if Camera.CameraType ~= Enum.CameraType.Custom or Camera.CameraSubject ~= hum then
 			Camera.CameraType = Enum.CameraType.Custom
-			Camera.CameraSubject = hum
+			if hum then Camera.CameraSubject = hum end
+		end
+		
+		-- Atualizar tracer line
+		if spectateTracerLine then
+			local myChar = LocalPlayer.Character
+			if myChar then
+				local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+				local targetRoot = targetChar:FindFirstChild("HumanoidRootPart")
+				if myRoot and targetRoot then
+					local startPos = targetRoot.Position
+					local endPos = myRoot.Position
+					local distance = (endPos - startPos).Magnitude
+					local midPoint = (startPos + endPos) / 2
+					
+					spectateTracerLine.Size = Vector3.new(0.1, 0.1, distance)
+					spectateTracerLine.CFrame = CFrame.new(midPoint, endPos)
+					spectateTracerLine.Transparency = 0.3
+				else
+					spectateTracerLine.Transparency = 1
+				end
+			else
+				spectateTracerLine.Transparency = 1
+			end
 		end
 	else
 		-- Jogador saiu do jogo
@@ -1740,26 +1799,49 @@ local function createPlayerButton(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = player.Name .. "_Simple"
-	btn.Size = UDim2.new(1, -8, 0, 45) -- Maior para fonte maior
+	btn.Size = UDim2.new(1, -8, 0, 50)
 	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-	btn.Text = player.DisplayName .. " (@" .. player.Name .. ")"
-	btn.Font = Enum.Font.SourceSansBold -- Negrito
-	btn.TextSize = 16 -- Fonte maior
-	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	btn.TextXAlignment = Enum.TextXAlignment.Center -- CENTRALIZADO
+	btn.Text = ""
+	btn.TextXAlignment = Enum.TextXAlignment.Left
 	btn.Parent = playersList
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	-- Avatar
+	local avatar = Instance.new("ImageLabel")
+	avatar.Size = UDim2.new(0, 40, 0, 40)
+	avatar.Position = UDim2.new(0, 5, 0, 5)
+	avatar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	avatar.BorderSizePixel = 0
+	avatar.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
+	avatar.Parent = btn
+	Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+
+	-- Nome ao lado do avatar
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "NameLabel"
+	nameLabel.Size = UDim2.new(1, -55, 1, 0)
+	nameLabel.Position = UDim2.new(0, 50, 0, 0)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.SourceSansBold
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+	nameLabel.Parent = btn
 
 	btn.MouseButton1Click:Connect(function()
 		-- Desselecionar anterior (SELEÇÃO ÚNICA)
 		for _, button in pairs(playerButtons) do
 			if button:IsA("TextButton") and button ~= btn then
-				button.TextColor3 = Color3.fromRGB(255, 255, 255) -- Branco normal
+				local label = button:FindFirstChild("NameLabel")
+				if label then
+					label.TextColor3 = Color3.fromRGB(255, 255, 255) -- Branco normal
+				end
 			end
 		end
 
-		-- Selecionar atual - SÓ TEXTO AMARELO
-		btn.TextColor3 = Color3.fromRGB(255, 255, 0) -- AMARELO
+		-- Selecionar atual - NOME AMARELO
+		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- AMARELO
 		selectedPlayer = player
 
 		-- Mostrar ações
@@ -2361,16 +2443,10 @@ flySpeedInput.ClearTextOnFocus = false
 flySpeedInput.Parent = flySpeedFrame
 Instance.new("UICorner", flySpeedInput).CornerRadius = UDim.new(0, 6)
 
-flySpeedInput.FocusLost:Connect(function(enterPressed)
-	if enterPressed then
-		local newSpeed = tonumber(flySpeedInput.Text)
-		if newSpeed and newSpeed >= 1 and newSpeed <= 100 then
-			FlySystem:setSpeed(newSpeed)
-			print("⚡ Velocidade do Fly alterada para: " .. newSpeed)
-		else
-			flySpeedInput.Text = tostring(FlySystem.speed)
-			print("❌ Velocidade inválida! Use valores entre 1 e 100")
-		end
+flySpeedInput:GetPropertyChangedSignal("Text"):Connect(function()
+	local newSpeed = tonumber(flySpeedInput.Text)
+	if newSpeed and newSpeed >= 1 and newSpeed <= 100 then
+		FlySystem:setSpeed(newSpeed)
 	end
 end)
 
@@ -2858,17 +2934,11 @@ local function showPanel(show: boolean)
 	if panelVisible == show then return end
 	panelVisible = show
 	mainFrame.Visible = show
-	inputBlocker.Visible = show
+	inputBlocker.Visible = false -- SEMPRE DESATIVADO para não bloquear teclas do Roblox
 
 	if show then
-		-- BLOQUEAR CHAT E STATS IMEDIATAMENTE
-		pcall(function()
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.EmotesMenu, false)
-		end)
+		-- NÃO BLOQUEAR NADA - Deixar o jogo funcionar normalmente
+		-- Apenas mostrar o menu por cima
 		
 		-- Salvar estado atual do mouse
 		prevMouseBehavior = UserInputService.MouseBehavior
@@ -2896,22 +2966,14 @@ local function showPanel(show: boolean)
 			cursorForceLoop = nil
 		end
 		
-		-- Restaurar estado do mouse quando fechar
-		if prevMouseBehavior then
-				UserInputService.MouseBehavior = prevMouseBehavior
-		end
-		if prevMouseIconEnabled ~= nil then
-				UserInputService.MouseIconEnabled = prevMouseIconEnabled
-		end
+		-- Restaurar completamente o comportamento do mouse
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
 		
-		-- REATIVAR CHAT E STATS
-		pcall(function()
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Health, true)
-			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.EmotesMenu, true)
-		end)
+		-- Garantir que o jogo volta ao normal
+		task.wait(0.1)
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
 	end
 end
 
@@ -3112,7 +3174,8 @@ end
 local aimbotKeyHeld = false
 
 UserInputService.InputBegan:Connect(function(input, processed)
-	if processed or not aimbotEnabled then return end
+	if processed then return end
+	if not aimbotEnabled then return end
 
 	local shouldActivate = false
 	if aimbotBindString == "MouseLeft" and input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -3228,13 +3291,13 @@ end
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 
-	-- Menu toggle (M) - Prioridade máxima
+	-- Menu toggle (M) - Prioridade máxima (sempre funciona)
 	if input.KeyCode == UI_TOGGLE_KEY then
 		showPanel(not panelVisible)
-		return -- Impede outros processamentos
+		return
 	end
 
-	-- Outros controles
+	-- Fly (F) e Destravar Mouse (P) - Funcionam sempre
 	if input.KeyCode == FREEFLY_TOGGLE_KEY then
 		toggleFly()
 	elseif input.KeyCode == UNLOCK_MOUSE_KEY then
