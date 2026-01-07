@@ -19,6 +19,7 @@ SHOW_TRACERS_DEFAULT = false
 ESP_POSITION_DEFAULT = "Topo"
 ESP_MODE_DEFAULT = "Cheio"
 TEAM_FILTER_DEFAULT = "Todos"
+ESP_MAX_DISTANCE = 500
 
 
 -- Aimbot Config Global
@@ -27,17 +28,18 @@ aimbotFOV = 100
 aimbotFOVZero = 0
 aimbotSmooth = 5
 aimbotTarget = "Cabeça"
-aimbotBind = "MouseRight"
-aimbotBindString = "MouseRight"
+aimbotBind = nil
+aimbotBindString = "Nenhuma"
 aimbotShowFOV = false
 aimbotShowFOVZero = false
 aimbotOnlyVisible = false
 aimbotOnNPCs = false
 aimbotMobile = false
+aimbotTeamCheck = false
 
 -- Dropdown alvo
-local targetDropdownOpen = false
-local targetOptions = {"Cabeça", "Peito"}
+targetDropdownOpen = false
+targetOptions = {"Cabeça", "Peito"}
 
 UI_TOGGLE_KEY = Enum.KeyCode.M
 FREEFLY_TOGGLE_KEY = Enum.KeyCode.F
@@ -121,19 +123,20 @@ bugCarConn = nil
 
 -- Player selection
 selectedPlayer = nil
+playerButtons = {}
 
 -- ========= FUNÇÕES AUXILIARES PARA LISTA DE JOGADORES =========
-local function getPlayerTeam(player: Player): string
+function getPlayerTeam(player)
 	if not player.Team then return "Sem Equipe" end
 	return player.Team.Name
 end
 
-local function getPlayerTeamColor(player: Player): Color3
+function getPlayerTeamColor(player)
 	if not player.Team then return Color3.fromRGB(128, 128, 128) end
 	return player.TeamColor.Color
 end
 
-local function getPlayerHealth(player: Player): number?
+function getPlayerHealth(player)
 	local char = player.Character
 	if not char then return nil end
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -141,7 +144,7 @@ local function getPlayerHealth(player: Player): number?
 	return hum.Health
 end
 
-local function getPlayerMaxHealth(player: Player): number?
+function getPlayerMaxHealth(player)
 	local char = player.Character
 	if not char then return nil end
 	local hum = char:FindFirstChildOfClass("Humanoid")
@@ -149,7 +152,7 @@ local function getPlayerMaxHealth(player: Player): number?
 	return hum.MaxHealth
 end
 
-local function getPlayerDistance(player: Player): number?
+function getPlayerDistance(player)
 	local char = player.Character
 	local myChar = LocalPlayer.Character
 	if not char or not myChar then return nil end
@@ -161,12 +164,12 @@ local function getPlayerDistance(player: Player): number?
 	return math.floor((targetRoot.Position - myRoot.Position).Magnitude + 0.5)
 end
 
-local function isPlayerAlive(player: Player): boolean
+function isPlayerAlive(player)
 	local health = getPlayerHealth(player)
 	return health and health > 0
 end
 
-local function formatPlayerInfo(player: Player): string
+function formatPlayerInfo(player)
 	local displayName = player.DisplayName or player.Name
 	local username = player.Name
 	local team = getPlayerTeam(player)
@@ -193,7 +196,7 @@ local function formatPlayerInfo(player: Player): string
 end
 
 -- Função para atualizar um botão de jogador específico
-local function updatePlayerButton(player: Player, button: Frame)
+function updatePlayerButton(player, button)
 	if not button or not button.Parent then return end
 
 	local mainContainer = button:FindFirstChild("MainContainer")
@@ -236,7 +239,7 @@ local function updatePlayerButton(player: Player, button: Frame)
 end
 
 -- Sistema de atualização em tempo real
-local function startRealTimeUpdates()
+function startRealTimeUpdates()
 	task.spawn(function()
 		while true do
 			task.wait(0.5) -- Atualizar a cada 0.5 segundos
@@ -251,7 +254,7 @@ local function startRealTimeUpdates()
 end
 
 -- Conectar eventos de mudança de equipe
-local function setupPlayerEvents(player: Player)
+function setupPlayerEvents(player)
 	if not player then return end
 
 	player:GetPropertyChangedSignal("Team"):Connect(function()
@@ -412,7 +415,7 @@ local function createPlayerButton(player)
 	return btn
 end
 
-local function buildPlayersOnce()
+function buildPlayersOnce()
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= LocalPlayer and not playerButtons[p] then
 			createPlayerButton(p)
@@ -433,7 +436,8 @@ Players.PlayerRemoving:Connect(function(p)
 	end
 end)
 
-local function applySearch(text)
+function applySearch(text)
+	if not playerButtons then return end
 	text = text:lower()
 
 	for player, button in pairs(playerButtons) do
@@ -472,6 +476,14 @@ function FlySystem:toggleFly()
 
     -- Criar ou remover controles de voo
     if self.flying then
+        -- Tornar personagem transparente
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("MeshPart") then
+                part.Transparency = 0.7
+            elseif part:IsA("Decal") then
+                part.Transparency = 0.7
+            end
+        end
         -- Ativar Fly
         self.bodyGyro = Instance.new("BodyGyro", humanoidRootPart)
         self.bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
@@ -484,11 +496,22 @@ function FlySystem:toggleFly()
 
         print("🪽 Fly ATIVADO (Velocidade: " .. self.speed .. ")")
     else
-        -- Desativar Fly
+        -- Desativar Fly e restaurar transparência
         if self.bodyGyro then self.bodyGyro:Destroy() end
         if self.bodyVelocity then self.bodyVelocity:Destroy() end
         self.bodyGyro = nil
         self.bodyVelocity = nil
+        
+        -- Restaurar transparência original
+        for _, part in pairs(character:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("MeshPart") then
+                if part.Name ~= "HumanoidRootPart" then
+                    part.Transparency = 0
+                end
+            elseif part:IsA("Decal") then
+                part.Transparency = 0
+            end
+        end
 
         print("🦶 Fly DESATIVADO")
     end
@@ -562,6 +585,15 @@ function FlySystem:startLoop()
 
         -- Sistema Fly
         if self.flying and humanoidRootPart then
+            -- Tornar personagem transparente durante fly
+            for _, part in pairs(character:GetDescendants()) do
+                if part:IsA("BasePart") or part:IsA("MeshPart") then
+                    part.Transparency = 0.7
+                elseif part:IsA("Decal") then
+                    part.Transparency = 0.7
+                end
+            end
+            
             -- Desabilitar animação de queda
             if humanoid then
                 humanoid:ChangeState(Enum.HumanoidStateType.Flying)
@@ -650,7 +682,7 @@ function toggleNoclip()
 end
 
 -- ========= Função para Destravar Mouse =========
-local function unlockMouse()
+function unlockMouse()
 	-- Forçar o mouse a voltar ao normal
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
@@ -697,7 +729,7 @@ local function unlockMouse()
 end
 
 -- ========= Helpers =========
-local function getPrimaryPart(char: Model?): BasePart?
+function getPrimaryPart(char)
 	if not char then return nil end
 	return char.PrimaryPart
 		or char:FindFirstChild("HumanoidRootPart")
@@ -705,23 +737,23 @@ local function getPrimaryPart(char: Model?): BasePart?
 		or char:FindFirstChild("UpperTorso")
 end
 
-local function getHead(char: Model?): BasePart?
+function getHead(char)
 	if not char then return nil end
 	return char:FindFirstChild("Head") or getPrimaryPart(char)
 end
 
-local function forEachCharacterPart(char: Model, fn)
+function forEachCharacterPart(char, fn)
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("BasePart") then fn(d) end
 	end
 end
 
-local function isEnemy(p: Player): boolean
-	if not LocalPlayer.Team or not p.Team then return false end
-	return p.Team ~= LocalPlayer.Team
+function isEnemy(p)
+	-- Mostrar ESP em todos exceto você mesmo
+	return p ~= LocalPlayer
 end
 
-local function applyHighlightMode(highlight)
+function applyHighlightMode(highlight)
 	if espMode == "Cheio" then
 		highlight.FillTransparency = 0
 		highlight.OutlineTransparency = 0
@@ -731,7 +763,7 @@ local function applyHighlightMode(highlight)
 	end
 end
 
-local function ensureHighlight(character: Model)
+function ensureHighlight(character)
 	if not character or not character.Parent then return end
 	if not showSkeleton or not espEnabled then
 		if highlights[character] then
@@ -750,27 +782,52 @@ local function ensureHighlight(character: Model)
 		highlights[character] = h
 	end
 
-	local camera = workspace.CurrentCamera
-	local visible = true
-	if camera then
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
 		local targetRoot = getPrimaryPart(character)
-		local myChar = LocalPlayer.Character
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance > ESP_MAX_DISTANCE then
+				h.Enabled = false
+				return
+			end
+		end
+	end
+
+	-- Sistema: verifica se está na tela E se não tem parede
+	local camera = workspace.CurrentCamera
+	local isVisible = false
+	
+	if camera and espAutoEnabled then
+		local targetRoot = getPrimaryPart(character)
 		if targetRoot and myChar then
-			local myRoot = getPrimaryPart(myChar)
-			if myRoot then
-				local direction = (targetRoot.Position - myRoot.Position).Unit
-				local distance = (targetRoot.Position - myRoot.Position).Magnitude
-				local raycastResult = workspace:Raycast(myRoot.Position + Vector3.new(0, 2, 0), direction * distance)
-				if raycastResult and raycastResult.Instance and not raycastResult.Instance:IsDescendantOf(character) then
-					visible = false
+			-- 1. Verificar se está na tela
+			local screenPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
+			
+			if onScreen then
+				-- 2. Verificar se não tem parede no meio (raycast)
+				local myRoot = getPrimaryPart(myChar)
+				if myRoot then
+					local direction = (targetRoot.Position - camera.CFrame.Position)
+					local rayParams = RaycastParams.new()
+					rayParams.FilterDescendantsInstances = {myChar, character}
+					rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+					
+					local rayResult = workspace:Raycast(camera.CFrame.Position, direction, rayParams)
+					
+					-- Se não bateu em nada OU bateu no próprio character = visível
+					isVisible = not rayResult or rayResult.Instance:IsDescendantOf(character)
 				end
 			end
 		end
 	end
 
 	if espAutoEnabled then
-		h.FillColor = visible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-		h.OutlineColor = visible and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 0, 0)
+		-- Verde se visível na tela SEM parede, vermelho se não
+		h.FillColor = isVisible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+		h.OutlineColor = isVisible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 	else
 		h.FillColor = Color3.fromRGB(255, 0, 0)
 		h.OutlineColor = Color3.fromRGB(255, 255, 255)
@@ -779,7 +836,7 @@ local function ensureHighlight(character: Model)
 	h.Enabled = true
 end
 
-local function ensureOverlayFor(p: Player, character: Model)
+function ensureOverlayFor(p, character)
 	if not character or not character.Parent then return end
 	local bb = overlays[character]
 	if not bb or not bb.Parent then
@@ -824,7 +881,7 @@ local function ensureOverlayFor(p: Player, character: Model)
 	end
 end
 
-local function overlayOffsetFor(positionName: string): Vector3
+function overlayOffsetFor(positionName)
 	if positionName == "Topo" then
 		return Vector3.new(0, 2.6, 0)
 	elseif positionName == "Baixo" then
@@ -836,7 +893,7 @@ end
 
 
 
-local function updateOverlay(p: Player, character: Model, bb: BillboardGui)
+function updateOverlay(p, character, bb)
 	if not bb then return end
 	local head = getHead(character); if not head then return end
 	bb.Adornee = head
@@ -856,8 +913,11 @@ local function updateOverlay(p: Player, character: Model, bb: BillboardGui)
 	bb.Enabled = espEnabled and (showName or showHealth) and visibleByFilter
 end
 
-local function refreshESPForPlayer(p: Player)
+function refreshESPForPlayer(p)
 	if p == LocalPlayer then return end
+	-- Mostrar apenas inimigos
+	if not isEnemy(p) then return end
+	
 	local char = p.Character; if not char then return end
 	if espEnabled then
 		ensureHighlight(char)
@@ -870,7 +930,7 @@ local function refreshESPForPlayer(p: Player)
 end
 
 -- Sistema ESP Otimizado - Atualiza automaticamente após morte
-local function cleanupESPForCharacter(character)
+function cleanupESPForCharacter(character)
 	if overlays[character] then 
 		pcall(function() overlays[character]:Destroy() end)
 		overlays[character] = nil
@@ -889,88 +949,54 @@ local function cleanupESPForCharacter(character)
 	end
 end
 
--- Inicial + eventos de players
-for _, plr in ipairs(Players:GetPlayers()) do
-	if plr ~= LocalPlayer then
-		if plr.Character then refreshESPForPlayer(plr) end
-		
-		-- Detectar quando personagem é adicionado (spawn/respawn)
-		plr.CharacterAdded:Connect(function(char)
-			task.wait(0.5)
-			refreshESPForPlayer(plr)
-			
-			-- Detectar morte para limpar ESP
-			local hum = char:WaitForChild("Humanoid", 5)
-			if hum then
-				hum.Died:Connect(function()
-					cleanupESPForCharacter(char)
-				end)
-			end
-		end)
-		
-		-- Detectar quando personagem é removido
-		plr.CharacterRemoving:Connect(function(char)
-			cleanupESPForCharacter(char)
-		end)
-		
-		plr:GetPropertyChangedSignal("Team"):Connect(function() 
-			refreshESPForPlayer(plr) 
-		end)
-	end
-end
-
-Players.PlayerAdded:Connect(function(plr)
-	if plr ~= LocalPlayer then
-		plr.CharacterAdded:Connect(function(char)
-			task.wait(0.5)
-			refreshESPForPlayer(plr)
-			
-			local hum = char:WaitForChild("Humanoid", 5)
-			if hum then
-				hum.Died:Connect(function()
-					cleanupESPForCharacter(char)
-				end)
-			end
-		end)
-		
-		plr.CharacterRemoving:Connect(function(char)
-			cleanupESPForCharacter(char)
-		end)
-		
-		plr:GetPropertyChangedSignal("Team"):Connect(function() 
-			refreshESPForPlayer(plr) 
-		end)
-	end
-end)
-
-Players.PlayerRemoving:Connect(function(plr)
-	if plr.Character then
-		cleanupESPForCharacter(plr.Character)
-	end
-end)
-
--- Atualização periódica otimizada (vida/nome/filtro/ESP)
+-- Inicial + eventos de players (DESABILITADO - usar sistema manual)
+-- Sistema de atualização manual do ESP
 task.spawn(function()
 	while true do
-		task.wait(0.1)
+		task.wait(1) -- Atualizar ESP a cada 1 segundo
+		
+		if not espEnabled then
+			-- Limpar todos os ESPs se desativado
+			for char, highlight in pairs(highlights) do
+				if highlight then
+					pcall(function() highlight:Destroy() end)
+				end
+			end
+			for char, overlay in pairs(overlays) do
+				if overlay then
+					pcall(function() overlay:Destroy() end)
+				end
+			end
+			highlights = {}
+			overlays = {}
+			continue
+		end
+		
+		-- Limpar ESPs antigos
+		for char, highlight in pairs(highlights) do
+			if not char or not char.Parent then
+				pcall(function() highlight:Destroy() end)
+				highlights[char] = nil
+			end
+		end
+		for char, overlay in pairs(overlays) do
+			if not char or not char.Parent then
+				pcall(function() overlay:Destroy() end)
+				overlays[char] = nil
+			end
+		end
+		
+		-- Atualizar ESP para todos os jogadores
 		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LocalPlayer and p.Character then
-				local char = p.Character
-				local bb = overlays[char]
-				if bb and bb.Parent then
-					updateOverlay(p, char, bb)
-				end
-				if espEnabled then
-					if char and char.Parent then
-						if showSkeleton then
-							ensureHighlight(char)
-						end
-					end
-				end
+			if p ~= LocalPlayer and p.Character and isEnemy(p) then
+				refreshESPForPlayer(p)
 			end
 		end
 	end
 end)
+
+-- Atualização periódica otimizada (DESABILITADO - usar sistema manual acima)
+-- O ESP agora é atualizado no loop principal acima
 
 
 
@@ -979,7 +1005,7 @@ end)
 
 
 -- ========= Spectate (câmara) - VERSÃO FORNECIDA =========
-local function startSpectate(p: Player)
+function startSpectate(p)
     if not p or p == LocalPlayer then return end
     local targetChar = p.Character
     if not targetChar then return end
@@ -1015,7 +1041,7 @@ local function startSpectate(p: Player)
     end
 end
 
-local function stopSpectate()
+function stopSpectate()
     if savedSubject then Camera.CameraSubject = savedSubject end
     if savedCamType then Camera.CameraType = savedCamType end
     spectating = nil
@@ -1029,7 +1055,7 @@ local function stopSpectate()
 end
 
 -- ========= Instant TP to Player =========
-local function instantTPTo(targetPlayer: Player)
+function instantTPTo(targetPlayer)
 	if not targetPlayer or targetPlayer == LocalPlayer then return end
 	local char = LocalPlayer.Character
 	local targetChar = targetPlayer.Character
@@ -1111,7 +1137,7 @@ gui.Name = "AdminPanel"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.IgnoreGuiInset = false
-gui.DisplayOrder = 10000000
+gui.DisplayOrder = 999999999 -- ZIndex MÁXIMO para ficar na frente de tudo
 gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets -- Respeita áreas seguras
 gui.Parent = playerGui
 
@@ -1129,42 +1155,36 @@ inputBlocker.ZIndex = 10000000
 inputBlocker.AutoButtonColor = false
 inputBlocker.Parent = gui
 
--- ScreenGui separado para ESP (sempre visível)
+-- ScreenGui separado para ESP (sempre visível, mas ATRÁS do menu)
 local espGui = Instance.new("ScreenGui")
 espGui.Name = "ESPOverlay"
 espGui.ResetOnSpawn = false
 espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-espGui.Parent = playerGui
-
--- ScreenGui separado para ESP (sempre visível)
-local espGui = Instance.new("ScreenGui")
-espGui.Name = "ESPOverlay"
-espGui.ResetOnSpawn = false
-espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+espGui.DisplayOrder = 1 -- ESP fica atrás do menu
 espGui.Parent = playerGui
 
 
 
 -- Main Frame - Estilo Dark Futurista
-local MENU_WIDTH_EXPANDED = 900
-local MENU_WIDTH_MINIMIZED = 80
-local MENU_HEIGHT = 650
-local menuMinimized = false
+MENU_WIDTH_EXPANDED = 900
+MENU_WIDTH_MINIMIZED = 80
+MENU_HEIGHT = 650
+menuMinimized = false
 
 -- 🎨 PALETA DE CORES ROSA NEON
-local COLOR_BG_MAIN = Color3.fromRGB(15, 15, 20)
-local COLOR_BG_PANEL = Color3.fromRGB(23, 23, 32)
-local COLOR_BG_HOVER = Color3.fromRGB(31, 31, 42)
-local COLOR_DIVIDER = Color3.fromRGB(36, 36, 51)
-local COLOR_NEON_PINK = Color3.fromRGB(224, 76, 255)
-local COLOR_PINK_LIGHT = Color3.fromRGB(240, 108, 255)
-local COLOR_PINK_DARK = Color3.fromRGB(184, 62, 217)
-local COLOR_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255)
-local COLOR_TEXT_SECONDARY = Color3.fromRGB(181, 181, 192)
-local COLOR_TEXT_INACTIVE = Color3.fromRGB(122, 122, 136)
-local COLOR_TOGGLE_OFF_BG = Color3.fromRGB(42, 42, 54)
-local COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(138, 138, 150)
-local COLOR_SLIDER_TRACK = Color3.fromRGB(44, 44, 58)
+COLOR_BG_MAIN = Color3.fromRGB(15, 15, 20)
+COLOR_BG_PANEL = Color3.fromRGB(23, 23, 32)
+COLOR_BG_HOVER = Color3.fromRGB(31, 31, 42)
+COLOR_DIVIDER = Color3.fromRGB(36, 36, 51)
+COLOR_NEON_PINK = Color3.fromRGB(224, 76, 255)
+COLOR_PINK_LIGHT = Color3.fromRGB(240, 108, 255)
+COLOR_PINK_DARK = Color3.fromRGB(184, 62, 217)
+COLOR_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255)
+COLOR_TEXT_SECONDARY = Color3.fromRGB(181, 181, 192)
+COLOR_TEXT_INACTIVE = Color3.fromRGB(122, 122, 136)
+COLOR_TOGGLE_OFF_BG = Color3.fromRGB(42, 42, 54)
+COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(138, 138, 150)
+COLOR_SLIDER_TRACK = Color3.fromRGB(44, 44, 58)
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
@@ -1305,10 +1325,10 @@ sidebarPadding.PaddingTop = UDim.new(0, 10)
 sidebarPadding.Parent = sidebar
 
 -- Tabs
-local tabs = {}
-local currentTab = "PLAYERS"
+tabs = {}
+currentTab = "PLAYERS"
 
-local function createTab(name, text, icon, order)
+function createTab(name, text, icon, order)
 	local tab = Instance.new("TextButton")
 	tab.Name = name .. "Tab"
 	tab.Size = UDim2.new(0, 70, 0, 70)
@@ -1375,8 +1395,9 @@ end
 
 local tabPlayers = createTab("PLAYERS", "PLAYERS", "👥", 1)
 local tabESP = createTab("ESP", "VISUAL", "👁️", 2)
-local tabAimbot = createTab("AIMBOT", "RAGE", "🎯", 3)
+local tabAimbot = createTab("AIMBOT", "AIMBOT", "🎯", 3)
 local tabUtil = createTab("UTIL", "MISC", "⚙️", 4)
+local tabConfig = createTab("CONFIG", "CONFIG", "💾", 5)
 
 -- Content Area
 local content = Instance.new("Frame")
@@ -1388,9 +1409,9 @@ content.ClipsDescendants = true
 content.Parent = mainFrame
 
 -- Pages
-local pages = {}
+pages = {}
 
-local function createPage(name)
+function createPage(name)
 	local page = Instance.new("ScrollingFrame")
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
@@ -1415,9 +1436,10 @@ local playersPage = createPage("PLAYERS")
 local espPage = createPage("ESP")
 local aimbotPage = createPage("AIMBOT")
 local utilPage = createPage("UTIL")
+local configPage = createPage("CONFIG")
 
 -- Set initial tab com animação
-local function setTab(tabName)
+function setTab(tabName)
 	for name, tabData in pairs(tabs) do
 		local tab, icon, label = tabData[1], tabData[2], tabData[3]
 		local tabStroke = tab:FindFirstChildOfClass("UIStroke")
@@ -1441,7 +1463,7 @@ end
 setTab("PLAYERS")
 
 -- Create categories com visual moderno
-local function createCategory(parent, title)
+function createCategory(parent, title)
 	local category = Instance.new("Frame")
 	category.Size = UDim2.new(0.98, 0, 0, 0)
 	category.BackgroundColor3 = COLOR_BG_PANEL
@@ -1504,7 +1526,7 @@ local function createCategory(parent, title)
 	return contentFrame
 end
 
-local function createToggle(parent, text, callback)
+function createToggle(parent, text, callback)
 	local toggleFrame = Instance.new("Frame")
 	toggleFrame.Size = UDim2.new(1, 0, 0, 42)
 	toggleFrame.BackgroundColor3 = COLOR_BG_HOVER
@@ -1535,6 +1557,7 @@ local function createToggle(parent, text, callback)
 
 	-- Toggle switch moderno
 	local switchBg = Instance.new("Frame")
+	switchBg.Name = "SwitchBg"
 	switchBg.Size = UDim2.new(0, 50, 0, 26)
 	switchBg.Position = UDim2.new(1, -60, 0.5, -13)
 	switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
@@ -1546,6 +1569,7 @@ local function createToggle(parent, text, callback)
 	switchCorner.Parent = switchBg
 
 	local switchBtn = Instance.new("TextButton")
+	switchBtn.Name = "SwitchBtn"
 	switchBtn.Size = UDim2.new(0, 22, 0, 22)
 	switchBtn.Position = UDim2.new(0, 2, 0.5, -11)
 	switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
@@ -1578,13 +1602,13 @@ local function createToggle(parent, text, callback)
 		enabled = not enabled
 		if enabled then
 			switchBg.BackgroundColor3 = COLOR_NEON_PINK
-			TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+			switchBtn.Position = UDim2.new(1, -24, 0.5, -11)
 			switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 			toggleStroke.Color = COLOR_NEON_PINK
 			toggleStroke.Transparency = 0.3
 		else
 			switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-			TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+			switchBtn.Position = UDim2.new(0, 2, 0.5, -11)
 			switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
 			toggleStroke.Color = COLOR_DIVIDER
 			toggleStroke.Transparency = 0.5
@@ -1599,7 +1623,7 @@ local function createToggle(parent, text, callback)
 		toggleFrame.BackgroundTransparency = 0.3
 	end)
 
-	return toggleFrame
+	return toggleFrame, switchBg, switchBtn
 end
 
 -- 🔧 VERSÃO MELHORADA: Players Page com melhorias visuais e sistema de toggles
@@ -1697,10 +1721,10 @@ actionsLayout.Padding = UDim.new(0, 8)
 actionsLayout.Parent = actionsContainer
 
 -- Estados dos toggles
-local spectateActive = false
+spectateActive = false
 
 -- Função para criar toggle com checkbox tradicional
-local function createActionToggle(text, callback)
+function createActionToggle(text, callback)
 	local toggleFrame = Instance.new("Frame")
 	toggleFrame.Size = UDim2.new(1, 0, 0, 40)
 	toggleFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
@@ -1794,19 +1818,29 @@ tpBtn.Visible = false
 spectateToggle.Visible = false
 
 -- Função simples para criar botão de jogador
-local function createPlayerButton(player)
+function createPlayerButton(player)
 	if not player or player == LocalPlayer then return end
+	if not playersList or not playersList.Parent then return end
+	
+	-- Verificar se já existe botão para este jogador
+	if playerButtons[player] then
+		return playerButtons[player]
+	end
+	
+	-- Remover botão antigo se existir (por nome)
+	local existingBtn = playersList:FindFirstChild(player.Name .. "_Simple")
+	if existingBtn then
+		existingBtn:Destroy()
+	end
 
 	local btn = Instance.new("TextButton")
 	btn.Name = player.Name .. "_Simple"
 	btn.Size = UDim2.new(1, -8, 0, 50)
 	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
 	btn.Text = ""
-	btn.TextXAlignment = Enum.TextXAlignment.Left
 	btn.Parent = playersList
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
-	-- Avatar
 	local avatar = Instance.new("ImageLabel")
 	avatar.Size = UDim2.new(0, 40, 0, 40)
 	avatar.Position = UDim2.new(0, 5, 0, 5)
@@ -1816,7 +1850,6 @@ local function createPlayerButton(player)
 	avatar.Parent = btn
 	Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
 
-	-- Nome ao lado do avatar
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
 	nameLabel.Size = UDim2.new(1, -55, 1, 0)
@@ -1830,85 +1863,52 @@ local function createPlayerButton(player)
 	nameLabel.Parent = btn
 
 	btn.MouseButton1Click:Connect(function()
-		-- Desselecionar anterior (SELEÇÃO ÚNICA)
 		for _, button in pairs(playerButtons) do
 			if button:IsA("TextButton") and button ~= btn then
 				local label = button:FindFirstChild("NameLabel")
-				if label then
-					label.TextColor3 = Color3.fromRGB(255, 255, 255) -- Branco normal
-				end
+				if label then label.TextColor3 = Color3.fromRGB(255, 255, 255) end
 			end
 		end
-
-		-- Selecionar atual - NOME AMARELO
-		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- AMARELO
+		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
 		selectedPlayer = player
-
-		-- Mostrar ações
-		tpBtn.Visible = true
-		spectateToggle.Visible = true
-
-
-		-- Resetar estados dos toggles quando selecionar novo jogador
+		if tpBtn then tpBtn.Visible = true end
+		if spectateToggle then spectateToggle.Visible = true end
 		if spectateActive then
 			spectateActive = false
 			stopSpectate()
 		end
-
 	end)
 
 	playerButtons[player] = btn
 	return btn
 end
 
--- Função simples para atualizar lista
-local function updatePlayersList()
-	-- Limpar lista
-	for _, child in ipairs(playersList:GetChildren()) do
-		if child:IsA("TextButton") then
-			child:Destroy()
-		end
-	end
-	playerButtons = {}
-
-	-- Criar botões para todos os players
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer then
-			createPlayerButton(player)
-		end
-	end
-
-	-- Aplicar pesquisa se existir
-	if searchBox and searchBox.Text and searchBox.Text ~= "" then
-		local searchTerm = searchBox.Text:lower()
-		for player, button in pairs(playerButtons) do
-			local nameMatch = player.Name:lower():find(searchTerm)
-			local displayMatch = player.DisplayName:lower():find(searchTerm)
-			button.Visible = nameMatch or displayMatch
-		end
-	end
-
-	-- Ajustar canvas
-	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y)
+-- Função simples para atualizar lista - ALIAS para rebuildPlayersList
+function updatePlayersList()
+	rebuildPlayersList()
 end
 
 -- Conectar pesquisa
-searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-	updatePlayersList()
-end)
+if searchBox then
+	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		if updatePlayersList then pcall(updatePlayersList) end
+	end)
+end
 
 -- Conectar botões de ação
-tpBtn.MouseButton1Click:Connect(function()
-	if selectedPlayer then
-		instantTPTo(selectedPlayer)
-	end
-end)
+if tpBtn then
+	tpBtn.MouseButton1Click:Connect(function()
+		if selectedPlayer then
+			instantTPTo(selectedPlayer)
+		end
+	end)
+end
 
 -- Os toggles já têm suas próprias funções de callback
 -- Não precisamos de conexões adicionais
 
 -- Função para atualizar contador de jogadores
-local function updatePlayerCounter()
+function updatePlayerCounter()
 	local playerCount = 0
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer then
@@ -1919,23 +1919,803 @@ local function updatePlayerCounter()
 end
 
 -- Inicializar lista simples
-updatePlayersList()
-updatePlayerCounter()
+task.spawn(function()
+	task.wait(0.5) -- Aguardar um pouco para garantir que tudo carregou
+	if rebuildPlayersList then
+		pcall(rebuildPlayersList)
+	end
+	if updatePlayerCounter then
+		pcall(updatePlayerCounter)
+	end
+end)
 
 -- Atualizar contador quando players entram/saem
 Players.PlayerAdded:Connect(function(player)
 	if player ~= LocalPlayer then
 		updatePlayerCounter()
+		-- Também atualizar lista visual
+		task.wait(0.1)
+		if rebuildPlayersList then pcall(rebuildPlayersList) end
 	end
 end)
 
 Players.PlayerRemoving:Connect(function(player)
 	if player ~= LocalPlayer then
 		updatePlayerCounter()
+		-- Também atualizar lista visual
+		task.wait(0.1)
+		if rebuildPlayersList then pcall(rebuildPlayersList) end
 	end
 end)
 
 print("✅ DEBUG: Players Page SIMPLIFICADA reimplementada com sucesso")
+
+-- Config Page - Sistema de Salvar/Carregar com Biblioteca
+local configCategory = createCategory(configPage, "💾 Gerenciar Configurações")
+
+-- Armazenamento de configs
+local savedConfigs = {}
+
+-- Função para salvar config
+function saveConfig(configName)
+	local config = {
+		name = configName,
+		date = os.date("%d/%m/%Y %H:%M"),
+		-- ESP
+		espEnabled = espEnabled,
+		showName = showName,
+		showHealth = showHealth,
+		espMode = espMode,
+		espAutoEnabled = espAutoEnabled,
+		showSkeleton = showSkeleton,
+		ESP_MAX_DISTANCE = ESP_MAX_DISTANCE,
+		espPosition = espPosition,
+		-- Aimbot
+		aimbotEnabled = aimbotEnabled,
+		aimbotFOV = aimbotFOV,
+		aimbotSmooth = aimbotSmooth,
+		aimbotTarget = aimbotTarget,
+		aimbotBindString = aimbotBindString,
+		aimbotMobile = aimbotMobile,
+		aimbotOnlyVisible = aimbotOnlyVisible,
+		-- Misc
+		speedBoostEnabled = speedBoostEnabled,
+		speedBoostValue = speedBoostValue,
+		jumpPowerBoostEnabled = jumpPowerBoostEnabled,
+		jumpPowerBoostValue = jumpPowerBoostValue,
+		infiniteJumpEnabled = infiniteJumpEnabled,
+		noclip = noclip,
+		FlySpeed = FlySystem.speed
+	}
+	
+	local encoded = HttpService:JSONEncode(config)
+	writefile("NightMenu_" .. configName .. ".json", encoded)
+	savedConfigs[configName] = config
+	return true
+end
+
+-- Função para forçar atualização visual de todos os toggles
+function forceUpdateAllToggles()
+	-- ESP Toggles
+	if espToggle then
+		local switchBg = espToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if espEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if nameToggle then
+		local switchBg = nameToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if showName then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if healthToggle then
+		local switchBg = healthToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if showHealth then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if autoEspToggle then
+		local switchBg = autoEspToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if espAutoEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if skeletonToggle then
+		local switchBg = skeletonToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if showSkeleton then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	-- Aimbot Toggles
+	if aimbotToggle then
+		local switchBg = aimbotToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if aimbotEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if fovToggle then
+		local switchBg = fovToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if aimbotShowFOV then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if visibleToggle then
+		local switchBg = visibleToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if aimbotOnlyVisible then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if mobileToggle then
+		local switchBg = mobileToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if aimbotMobile then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	-- Util Toggles
+	if flyToggle then
+		local switchBg = flyToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if FlySystem.flying then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if noclipToggle then
+		local switchBg = noclipToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if noclip then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if speedToggle then
+		local switchBg = speedToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if speedBoostEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if jumpToggle then
+		local switchBg = jumpToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if jumpPowerBoostEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if infiniteJumpToggle then
+		local switchBg = infiniteJumpToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if infiniteJumpEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	if antiKickToggle then
+		local switchBg = antiKickToggle:FindFirstChildOfClass("Frame")
+		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
+		if switchBg and switchBtn then
+			if antiKickEnabled then
+				switchBg.BackgroundColor3 = COLOR_NEON_PINK
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+			else
+				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
+				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			end
+		end
+	end
+
+	-- Atualizar textos e valores
+	if modeBtn then modeBtn.Text = "Modo: " .. espMode end
+	if espDistLabel then espDistLabel.Text = ESP_MAX_DISTANCE end
+	if espDistFill then espDistFill.Size = UDim2.fromScale(ESP_MAX_DISTANCE / 500, 1) end
+	if positionBtn then positionBtn.Text = "Posição: " .. espPosition end
+	if targetDropdownBtn then targetDropdownBtn.Text = "Alvo: " .. aimbotTarget .. " ▼" end
+	if fovLabel then fovLabel.Text = aimbotFOV end
+	if fovInput then fovInput.Text = tostring(aimbotFOV) end
+	if fovFill then fovFill.Size = UDim2.fromScale(aimbotFOV / 200, 1) end
+	if smoothLabel then smoothLabel.Text = aimbotSmooth end
+	if smoothFill then smoothFill.Size = UDim2.fromScale(aimbotSmooth / 20, 1) end
+	if bindBtn then bindBtn.Text = "Bind: " .. aimbotBindString end
+	if speedTitle then speedTitle.Text = "Velocidade: " .. speedBoostValue end
+	if speedFill then speedFill.Size = UDim2.fromScale(speedBoostValue / 200, 1) end
+	if jumpTitle then jumpTitle.Text = "Pulo: " .. jumpPowerBoostValue end
+	if jumpFill then jumpFill.Size = UDim2.fromScale(jumpPowerBoostValue / 200, 1) end
+	if flySpeedInput then flySpeedInput.Text = tostring(FlySystem.speed) end
+
+	-- FOV Circle
+	local existingFOV = gui:FindFirstChild("FOVCircle")
+	if aimbotShowFOV then
+		if not existingFOV then
+			local fovCircle = Instance.new("Frame")
+			fovCircle.Name = "FOVCircle"
+			fovCircle.Size = UDim2.fromOffset(aimbotFOV * 3, aimbotFOV * 3)
+			fovCircle.Position = UDim2.new(0.5, -aimbotFOV * 1.5, 0.5, -aimbotFOV * 1.5)
+			fovCircle.BackgroundTransparency = 1
+			fovCircle.BorderSizePixel = 0
+			fovCircle.ZIndex = 10
+			Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = Color3.new(1, 1, 1)
+			stroke.Thickness = 2
+			stroke.Parent = fovCircle
+			fovCircle.Parent = gui
+		else
+			existingFOV.Size = UDim2.fromOffset(aimbotFOV * 3, aimbotFOV * 3)
+			existingFOV.Position = UDim2.new(0.5, -aimbotFOV * 1.5, 0.5, -aimbotFOV * 1.5)
+		end
+	else
+		if existingFOV then existingFOV:Destroy() end
+	end
+
+	-- FOV Zero Circle
+	local existingFOVZero = gui:FindFirstChild("FOVZeroCircle")
+	if aimbotShowFOVZero then
+		if not existingFOVZero then
+			local fovZeroCircle = Instance.new("Frame")
+			fovZeroCircle.Name = "FOVZeroCircle"
+			fovZeroCircle.Size = UDim2.fromOffset(aimbotFOVZero * 2, aimbotFOVZero * 2)
+			fovZeroCircle.Position = UDim2.new(0.5, -aimbotFOVZero, 0.5, -aimbotFOVZero)
+			fovZeroCircle.BackgroundTransparency = 0.8
+			fovZeroCircle.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
+			fovZeroCircle.BorderSizePixel = 0
+			fovZeroCircle.ZIndex = 10
+			Instance.new("UICorner", fovZeroCircle).CornerRadius = UDim.new(1, 0)
+			fovZeroCircle.Parent = gui
+		end
+	else
+		if existingFOVZero then existingFOVZero:Destroy() end
+	end
+end
+
+-- Função para carregar config
+function loadConfig(configName)
+	local success, result = pcall(function()
+		local encoded = readfile("NightMenu_" .. configName .. ".json")
+		return HttpService:JSONDecode(encoded)
+	end)
+
+	if success and result then
+		-- Aplicar configurações
+		espEnabled = result.espEnabled or false
+		showName = result.showName or false
+		showHealth = result.showHealth or false
+		espMode = result.espMode or "Cheio"
+		espAutoEnabled = result.espAutoEnabled or false
+		showSkeleton = result.showSkeleton or false
+		ESP_MAX_DISTANCE = result.ESP_MAX_DISTANCE or 500
+		espPosition = result.espPosition or "Topo"
+		aimbotEnabled = result.aimbotEnabled or false
+		aimbotFOV = result.aimbotFOV or 100
+		aimbotSmooth = result.aimbotSmooth or 5
+		aimbotTarget = result.aimbotTarget or "Cabeça"
+		aimbotBindString = result.aimbotBindString or "Nenhuma"
+		aimbotMobile = result.aimbotMobile or false
+		aimbotOnlyVisible = result.aimbotOnlyVisible or false
+		speedBoostEnabled = result.speedBoostEnabled or false
+		speedBoostValue = result.speedBoostValue or 50
+		jumpPowerBoostEnabled = result.jumpPowerBoostEnabled or false
+		jumpPowerBoostValue = result.jumpPowerBoostValue or 100
+		infiniteJumpEnabled = result.infiniteJumpEnabled or false
+		noclip = result.noclip or false
+		if result.FlySpeed then FlySystem:setSpeed(result.FlySpeed) end
+
+		-- Forçar atualização visual de TODOS os toggles
+		task.wait(0.2)
+		forceUpdateAllToggles()
+
+		-- Aplicar configurações funcionais
+		if speedBoostEnabled then
+			local character = LocalPlayer.Character
+			if character then
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid.WalkSpeed = speedBoostValue
+				end
+			end
+		end
+		
+		if jumpPowerBoostEnabled then
+			local character = LocalPlayer.Character
+			if character then
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid.JumpPower = jumpPowerBoostValue
+				end
+			end
+		end
+		
+		if flying and not FlySystem.flying then
+			FlySystem:toggleFly()
+		elseif not flying and FlySystem.flying then
+			FlySystem:toggleFly()
+		end
+
+		-- Aplicar ESP e outras configurações visuais
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer then
+				refreshESPForPlayer(p)
+			end
+		end
+
+		print("✅ Config '" .. configName .. "' carregada com sucesso - UI sincronizada!")
+		
+		-- Aplicar callbacks dos toggles para ativar funcionalidades
+		if speedBoostEnabled then
+			local character = LocalPlayer.Character
+			if character then
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				if humanoid then humanoid.WalkSpeed = speedBoostValue end
+			end
+		end
+		
+		if jumpPowerBoostEnabled then
+			local character = LocalPlayer.Character
+			if character then
+				local humanoid = character:FindFirstChildOfClass("Humanoid")
+				if humanoid then humanoid.JumpPower = jumpPowerBoostValue end
+			end
+		end
+		
+		return true
+	end
+	return false
+end
+
+-- Função para listar configs salvas
+function listConfigs()
+	local configs = {}
+	local success, files = pcall(function()
+		return listfiles("")
+	end)
+	
+	if success and files then
+		for _, file in ipairs(files) do
+			if file:find("NightMenu_") and file:find(".json") then
+				local configName = file:gsub("NightMenu_", ""):gsub(".json", "")
+				local success2, data = pcall(function()
+					local encoded = readfile(file)
+					return HttpService:JSONDecode(encoded)
+				end)
+				if success2 and data then
+					table.insert(configs, data)
+				end
+			end
+		end
+	end
+	return configs
+end
+
+-- Container principal com 2 colunas
+local configContainer = Instance.new("Frame")
+configContainer.Size = UDim2.new(1, 0, 0, 400)
+configContainer.BackgroundTransparency = 1
+configContainer.Parent = configCategory
+
+-- Coluna esquerda - Lista de configs
+local configsList = Instance.new("ScrollingFrame")
+configsList.Size = UDim2.new(0.6, -5, 1, 0)
+configsList.Position = UDim2.new(0, 0, 0, 0)
+configsList.BackgroundColor3 = Color3.fromRGB(32, 32, 38)
+configsList.BorderSizePixel = 0
+configsList.ScrollBarThickness = 6
+configsList.Parent = configContainer
+Instance.new("UICorner", configsList).CornerRadius = UDim.new(0, 8)
+
+local configsLayout = Instance.new("UIListLayout")
+configsLayout.Padding = UDim.new(0, 4)
+configsLayout.Parent = configsList
+
+configsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	configsList.CanvasSize = UDim2.new(0, 0, 0, configsLayout.AbsoluteContentSize.Y)
+end)
+
+-- Coluna direita - Ações
+local actionsPanel = Instance.new("Frame")
+actionsPanel.Size = UDim2.new(0.35, -5, 1, 0)
+actionsPanel.Position = UDim2.new(0.65, 5, 0, 0)
+actionsPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 70)
+actionsPanel.BackgroundTransparency = 0.4
+actionsPanel.Parent = configContainer
+Instance.new("UICorner", actionsPanel).CornerRadius = UDim.new(0, 12)
+
+local actionsTitle = Instance.new("TextLabel")
+actionsTitle.Size = UDim2.new(1, -20, 0, 30)
+actionsTitle.Position = UDim2.new(0, 10, 0, 10)
+actionsTitle.BackgroundTransparency = 1
+actionsTitle.Text = "NOVA CONFIG"
+actionsTitle.Font = Enum.Font.SourceSansBold
+actionsTitle.TextSize = 14
+actionsTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
+actionsTitle.TextXAlignment = Enum.TextXAlignment.Left
+actionsTitle.Parent = actionsPanel
+
+local actionsContainer = Instance.new("Frame")
+actionsContainer.Size = UDim2.new(1, -20, 1, -50)
+actionsContainer.Position = UDim2.new(0, 10, 0, 40)
+actionsContainer.BackgroundTransparency = 1
+actionsContainer.Parent = actionsPanel
+
+local actionsLayout = Instance.new("UIListLayout")
+actionsLayout.Padding = UDim.new(0, 8)
+actionsLayout.Parent = actionsContainer
+
+-- Input para nome da config
+local configNameInput = Instance.new("TextBox")
+configNameInput.Size = UDim2.new(1, 0, 0, 40)
+configNameInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+configNameInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+configNameInput.PlaceholderText = "Nome da config..."
+configNameInput.Font = Enum.Font.SourceSans
+configNameInput.TextSize = 14
+configNameInput.Text = ""
+configNameInput.Parent = actionsContainer
+Instance.new("UICorner", configNameInput).CornerRadius = UDim.new(0, 8)
+
+-- Botão Salvar
+local saveBtn = Instance.new("TextButton")
+saveBtn.Size = UDim2.new(1, 0, 0, 40)
+saveBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+saveBtn.BackgroundTransparency = 0.2
+saveBtn.Text = "💾 SALVAR"
+saveBtn.Font = Enum.Font.SourceSansBold
+saveBtn.TextSize = 14
+saveBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+saveBtn.Parent = actionsContainer
+Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 8)
+
+-- Botão Exportar
+local exportBtn = Instance.new("TextButton")
+exportBtn.Size = UDim2.new(1, 0, 0, 40)
+exportBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+exportBtn.BackgroundTransparency = 0.2
+exportBtn.Text = "📤 EXPORTAR"
+exportBtn.Font = Enum.Font.SourceSansBold
+exportBtn.TextSize = 14
+exportBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+exportBtn.Parent = actionsContainer
+Instance.new("UICorner", exportBtn).CornerRadius = UDim.new(0, 8)
+
+-- Input para importar
+local importInput = Instance.new("TextBox")
+importInput.Size = UDim2.new(1, 0, 0, 80)
+importInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+importInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+importInput.PlaceholderText = "Cole o código aqui..."
+importInput.Font = Enum.Font.SourceSans
+importInput.TextSize = 12
+importInput.Text = ""
+importInput.TextWrapped = true
+importInput.MultiLine = true
+importInput.Parent = actionsContainer
+Instance.new("UICorner", importInput).CornerRadius = UDim.new(0, 8)
+
+-- Botão Importar
+local importBtn = Instance.new("TextButton")
+importBtn.Size = UDim2.new(1, 0, 0, 40)
+importBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+importBtn.BackgroundTransparency = 0.2
+importBtn.Text = "📥 IMPORTAR"
+importBtn.Font = Enum.Font.SourceSansBold
+importBtn.TextSize = 14
+importBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+importBtn.Parent = actionsContainer
+Instance.new("UICorner", importBtn).CornerRadius = UDim.new(0, 8)
+
+-- Função para criar botão de config na lista
+function createConfigButton(config)
+	if not config or not config.name or not config.date then return end
+	
+	local btn = Instance.new("Frame")
+	btn.Size = UDim2.new(1, -8, 0, 60)
+	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+	btn.Parent = configsList
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+	-- Nome da config
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(0.6, 0, 0, 25)
+	nameLabel.Position = UDim2.new(0, 10, 0, 5)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Font = Enum.Font.SourceSansBold
+	nameLabel.TextSize = 14
+	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.Text = tostring(config.name)
+	nameLabel.Parent = btn
+
+	-- Data de criação
+	local dateLabel = Instance.new("TextLabel")
+	dateLabel.Size = UDim2.new(0.6, 0, 0, 20)
+	dateLabel.Position = UDim2.new(0, 10, 0, 30)
+	dateLabel.BackgroundTransparency = 1
+	dateLabel.Font = Enum.Font.SourceSans
+	dateLabel.TextSize = 11
+	dateLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+	dateLabel.TextXAlignment = Enum.TextXAlignment.Left
+	dateLabel.Text = "📅 " .. tostring(config.date)
+	dateLabel.Parent = btn
+
+	local useBtn = Instance.new("TextButton")
+	useBtn.Size = UDim2.new(0, 60, 0, 35)
+	useBtn.Position = UDim2.new(1, -130, 0.5, -17)
+	useBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 0)
+	useBtn.Text = "✓ USAR"
+	useBtn.Font = Enum.Font.SourceSansBold
+	useBtn.TextSize = 13
+	useBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	useBtn.Parent = btn
+	Instance.new("UICorner", useBtn).CornerRadius = UDim.new(0, 6)
+
+	-- Botão DELETAR
+	local deleteBtn = Instance.new("TextButton")
+	deleteBtn.Size = UDim2.new(0, 60, 0, 35)
+	deleteBtn.Position = UDim2.new(1, -65, 0.5, -17)
+	deleteBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+	deleteBtn.Text = "🗑️"
+	deleteBtn.Font = Enum.Font.SourceSansBold
+	deleteBtn.TextSize = 13
+	deleteBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	deleteBtn.Parent = btn
+	Instance.new("UICorner", deleteBtn).CornerRadius = UDim.new(0, 6)
+
+	useBtn.MouseButton1Click:Connect(function()
+		loadConfig(config.name)
+		useBtn.Text = "✅ OK"
+		task.wait(1)
+		useBtn.Text = "✓ USAR"
+	end)
+	
+	deleteBtn.MouseButton1Click:Connect(function()
+		local success = pcall(function()
+			delfile("NightMenu_" .. config.name .. ".json")
+		end)
+		if success then
+			deleteBtn.Text = "✅"
+			task.wait(0.5)
+			btn:Destroy()
+			refreshConfigsList()
+		else
+			deleteBtn.Text = "❌"
+			task.wait(1)
+			deleteBtn.Text = "🗑️"
+		end
+	end)
+
+	return btn
+end
+
+-- Função para atualizar lista de configs
+function refreshConfigsList()
+	for _, child in ipairs(configsList:GetChildren()) do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	
+	local success, configs = pcall(listConfigs)
+	if success and configs then
+		for _, config in ipairs(configs) do
+			if config and config.name then
+				createConfigButton(config)
+			end
+		end
+	end
+end
+
+-- Botão Salvar
+saveBtn.MouseButton1Click:Connect(function()
+	local configName = configNameInput.Text
+	if configName == "" then
+		configNameInput.PlaceholderText = "❌ Digite um nome!"
+		return
+	end
+	
+	local success = pcall(function()
+		saveConfig(configName)
+	end)
+	
+	if success then
+		saveBtn.Text = "✅ SALVA"
+		configNameInput.Text = ""
+		refreshConfigsList()
+		task.wait(1)
+		saveBtn.Text = "💾 SALVAR"
+	else
+		saveBtn.Text = "❌ ERRO"
+		task.wait(1)
+		saveBtn.Text = "💾 SALVAR"
+	end
+end)
+
+-- Botão Exportar
+exportBtn.MouseButton1Click:Connect(function()
+	local configName = configNameInput.Text
+	if configName == "" then
+		configNameInput.PlaceholderText = "❌ Digite um nome!"
+		return
+	end
+	
+	local success, result = pcall(function()
+		local encoded = readfile("NightMenu_" .. configName .. ".json")
+		return encoded
+	end)
+	
+	if success and result then
+		setclipboard(result)
+		exportBtn.Text = "✅ COPIADO"
+		task.wait(1)
+		exportBtn.Text = "📤 EXPORTAR"
+	else
+		exportBtn.Text = "❌ NÃO EXISTE"
+		task.wait(1)
+		exportBtn.Text = "📤 EXPORTAR"
+	end
+end)
+
+-- Botão Importar
+importBtn.MouseButton1Click:Connect(function()
+	local code = importInput.Text
+	if code == "" then
+		importInput.PlaceholderText = "❌ Cole o código!"
+		return
+	end
+	
+	local success, config = pcall(function()
+		return HttpService:JSONDecode(code)
+	end)
+	
+	if success and config and config.name then
+		local encoded = HttpService:JSONEncode(config)
+		writefile("NightMenu_" .. config.name .. ".json", encoded)
+		importBtn.Text = "✅ IMPORTADA"
+		importInput.Text = ""
+		refreshConfigsList()
+		task.wait(1)
+		importBtn.Text = "📥 IMPORTAR"
+	else
+		importBtn.Text = "❌ CÓDIGO INVÁLIDO"
+		task.wait(1)
+		importBtn.Text = "📥 IMPORTAR"
+	end
+end)
+
+-- Carregar lista inicial
+pcall(refreshConfigsList)
 
 -- ESP Page
 local espCategory = createCategory(espPage, "ESP Settings")
@@ -1979,6 +2759,61 @@ end)
 local skeletonToggle = createToggle(espCategory, "Esqueleto (ESP de Corpo)", function(enabled)
 	showSkeleton = enabled
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- ESP Distance Slider
+local espDistanceFrame = Instance.new("Frame")
+espDistanceFrame.Size = UDim2.new(1, 0, 0, 45)
+espDistanceFrame.BackgroundTransparency = 1
+espDistanceFrame.Parent = espCategory
+
+local espDistTitle = Instance.new("TextLabel")
+espDistTitle.BackgroundTransparency = 1
+espDistTitle.Size = UDim2.new(0.4, 0, 0, 14)
+espDistTitle.Font = Enum.Font.SourceSansBold
+espDistTitle.TextSize = 12
+espDistTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
+espDistTitle.Text = "Distância ESP"
+espDistTitle.Parent = espDistanceFrame
+
+local espDistLabel = Instance.new("TextLabel")
+espDistLabel.BackgroundTransparency = 1
+espDistLabel.Size = UDim2.new(0.6, 0, 0, 14)
+espDistLabel.Position = UDim2.new(0.4, 0, 0, 0)
+espDistLabel.Font = Enum.Font.SourceSans
+espDistLabel.TextSize = 12
+espDistLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+espDistLabel.Text = ESP_MAX_DISTANCE
+espDistLabel.Parent = espDistanceFrame
+
+local espDistSlider = Instance.new("Frame")
+espDistSlider.Size = UDim2.new(0.8, 0, 0, 16)
+espDistSlider.Position = UDim2.new(0.1, 0, 0, 16)
+espDistSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
+espDistSlider.Parent = espDistanceFrame
+Instance.new("UICorner", espDistSlider).CornerRadius = UDim.new(0, 5)
+
+local espDistFill = Instance.new("Frame")
+espDistFill.Size = UDim2.fromScale(ESP_MAX_DISTANCE / 500, 1)
+espDistFill.BackgroundColor3 = COLOR_NEON_PINK
+espDistFill.Parent = espDistSlider
+Instance.new("UICorner", espDistFill).CornerRadius = UDim.new(0, 4)
+
+local espDistDrag = false
+espDistSlider.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then espDistDrag = true end
+end)
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then espDistDrag = false end
+end)
+UserInputService.InputChanged:Connect(function(input)
+	if espDistDrag and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local mousePos = UserInputService:GetMouseLocation()
+		local relativeX = math.clamp((mousePos.X - espDistSlider.AbsolutePosition.X) / espDistSlider.AbsoluteSize.X, 0, 1)
+		ESP_MAX_DISTANCE = math.floor(50 + relativeX * 450)
+		espDistLabel.Text = ESP_MAX_DISTANCE
+		espDistFill.Size = UDim2.fromScale(relativeX, 1)
+	end
 end)
 
 -- ESP Position Selector
@@ -2052,12 +2887,6 @@ end)
 visibleToggle.Position = UDim2.new(0, 0, 0, 50)
 visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
-local npcToggle = createToggle(togglesFrame, "Mirar NPCs", function(enabled)
-	aimbotOnNPCs = enabled
-end)
-npcToggle.Position = UDim2.new(0.52, 0, 0, 50)
-npcToggle.Size = UDim2.new(0.48, 0, 0, 50)
-
 local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
 	aimbotShowFOVZero = enabled
 	local existing = gui:FindFirstChild("FOVZeroCircle")
@@ -2078,8 +2907,9 @@ local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
 		if existing then existing:Destroy() end
 	end
 end)
-fovZeroToggle.Position = UDim2.new(0, 0, 0, 100)
+fovZeroToggle.Position = UDim2.new(0.52, 0, 0, 50)
 fovZeroToggle.Size = UDim2.new(0.48, 0, 0, 50)
+fovZeroToggle.Visible = false
 
 -- Dropdown para alvo
 local targetDropdownFrame = Instance.new("Frame")
@@ -2248,7 +3078,7 @@ smoothTitle.Size = UDim2.new(0.4, 0, 0, 14)
 smoothTitle.Font = Enum.Font.SourceSansBold
 smoothTitle.TextSize = 12
 smoothTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
-smoothTitle.Text = "Smooth"
+smoothTitle.Text = "Smooth (0=Melhor)"
 smoothTitle.Parent = smoothFrame
 
 local smoothLabel = Instance.new("TextLabel")
@@ -2720,10 +3550,14 @@ local utilsLayout = Instance.new("UIListLayout")
 utilsLayout.Padding = UDim.new(0, 6)
 utilsLayout.Parent = utilsContent
 
+-- Conexão do infinite jump
+local infiniteJumpConnection = nil
+
 local infiniteJumpToggle = createToggle(utilsContent, "🔄 Infinite Jump", function(enabled)
 	infiniteJumpEnabled = enabled
 	if enabled then
-		UserInputService.JumpRequest:Connect(function()
+		infiniteJumpConnection = UserInputService.JumpRequest:Connect(function()
+			if not infiniteJumpEnabled then return end
 			local character = LocalPlayer.Character
 			if character then
 				local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -2732,6 +3566,11 @@ local infiniteJumpToggle = createToggle(utilsContent, "🔄 Infinite Jump", func
 				end
 			end
 		end)
+	else
+		if infiniteJumpConnection then
+			infiniteJumpConnection:Disconnect()
+			infiniteJumpConnection = nil
+		end
 	end
 end)
 
@@ -2750,6 +3589,39 @@ local antiKickToggle = createToggle(utilsContent, "🛡️ Anti-Kick", function(
 			return old(self, ...)
 		end)
 		setreadonly(mt, true)
+	end
+end)
+
+-- TP para Cursor com Bind
+local tpToCursorBind = nil
+local tpToCursorBindString = "Nenhuma"
+local tpCursorCooldown = 0
+
+local tpCursorBindBtn = Instance.new("TextButton")
+tpCursorBindBtn.Size = UDim2.new(1, 0, 0, 45)
+tpCursorBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+tpCursorBindBtn.BackgroundTransparency = 0.2
+tpCursorBindBtn.Text = "📍 TP Cursor Bind: " .. tpToCursorBindString
+tpCursorBindBtn.Font = Enum.Font.SourceSans
+tpCursorBindBtn.TextSize = 14
+tpCursorBindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpCursorBindBtn.Parent = utilsContent
+Instance.new("UICorner", tpCursorBindBtn).CornerRadius = UDim.new(0, 8)
+
+local tpCursorBindListening = false
+tpCursorBindBtn.MouseButton1Click:Connect(function()
+	tpCursorBindListening = true
+	tpCursorBindBtn.Text = "Pressione qualquer tecla..."
+	tpCursorBindBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if tpCursorBindListening and not processed and input.UserInputType == Enum.UserInputType.Keyboard then
+		tpToCursorBind = input.KeyCode
+		tpToCursorBindString = input.KeyCode.Name
+		tpCursorBindBtn.Text = "📍 TP Cursor Bind: " .. tpToCursorBindString
+		tpCursorBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+		tpCursorBindListening = false
 	end
 end)
 
@@ -2800,7 +3672,7 @@ menuSizeBtn.Parent = utilsContent
 Instance.new("UICorner", menuSizeBtn).CornerRadius = UDim.new(0, 8)
 
 -- Função para redimensionar UI proporcionalmente
-local function resizeUI(newWidth, newHeight)
+function resizeUI(newWidth, newHeight)
 	-- Centralizar o painel
 	mainFrame.Position = UDim2.new(0.5, -newWidth/2, 0.5, -newHeight/2)
 	
@@ -2896,7 +3768,7 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 -- Função de minimizar/expandir com animação suave (SÓ SIDEBAR)
-local function toggleMinimize()
+function toggleMinimize()
 	menuMinimized = not menuMinimized
 	
 	local targetSidebarWidth = menuMinimized and 0 or 80
@@ -2927,16 +3799,22 @@ tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
 tabESP.MouseButton1Click:Connect(function() setTab("ESP") end)
 tabAimbot.MouseButton1Click:Connect(function() setTab("AIMBOT") end)
 tabUtil.MouseButton1Click:Connect(function() setTab("UTIL") end)
+tabConfig.MouseButton1Click:Connect(function() setTab("CONFIG") end)
 
 -- Mostrar/ocultar painel
 local cursorForceLoop = nil
-local function showPanel(show: boolean)
+function showPanel(show)
 	if panelVisible == show then return end
 	panelVisible = show
 	mainFrame.Visible = show
 	inputBlocker.Visible = false -- SEMPRE DESATIVADO para não bloquear teclas do Roblox
 
 	if show then
+		-- Forçar visibilidade das páginas
+		task.wait(0.05)
+		for name, page in pairs(pages) do
+			if page then page.Visible = (name == currentTab) end
+		end
 		-- NÃO BLOQUEAR NADA - Deixar o jogo funcionar normalmente
 		-- Apenas mostrar o menu por cima
 		
@@ -2958,7 +3836,10 @@ local function showPanel(show: boolean)
 		end)
 
 		-- Atualizar lista de players quando abrir o painel
-		rebuildPlayersList()
+		task.spawn(function()
+			task.wait(0.1)
+			if updatePlayersList then pcall(updatePlayersList) end
+		end)
 	else
 		-- Parar loop de forçar cursor
 		if cursorForceLoop then
@@ -2978,7 +3859,7 @@ local function showPanel(show: boolean)
 end
 
 -- Função para criar player buttons
-local function addPlayerToRow(p: Player)
+function addPlayerToRow(p)
 	if p == LocalPlayer then return end
 
 	local playerBtn = Instance.new("TextButton")
@@ -3040,13 +3921,13 @@ local function addPlayerToRow(p: Player)
 	return playerBtn
 end
 
-local function clearPlayersList()
+function clearPlayersList()
 	for _, c in ipairs(playersList:GetChildren()) do
 		if c:IsA("TextButton") then c:Destroy() end
 	end
 end
 
-local function rebuildPlayersList()
+function rebuildPlayersList()
     print("🔧 DEBUG: rebuildPlayersList() chamada")
 
     -- Limpar lista existente
@@ -3056,16 +3937,27 @@ local function rebuildPlayersList()
         end
     end
 
-    -- Limpar cache
+    -- Limpar cache de botões
+    for player, button in pairs(playerButtons) do
+        if button and button.Parent then
+            button:Destroy()
+        end
+    end
     playerButtons = {}
 
     print("🔧 DEBUG: Lista limpa, criando botões...")
 
-    -- Criar botões simples para todos os jogadores (sem ordenação/filtros por enquanto)
+    -- Criar botões para TODOS os jogadores
     for _, plr in ipairs(Players:GetPlayers()) do
+        print("🔧 DEBUG: Verificando jogador " .. plr.Name)
         if plr ~= LocalPlayer then
             print("🔧 DEBUG: Criando botão para " .. plr.Name)
-            createPlayerButton(plr)
+            local success, err = pcall(function()
+                createPlayerButton(plr)
+            end)
+            if not success then
+                warn("❌ Erro ao criar botão para " .. plr.Name .. ": " .. tostring(err))
+            end
         end
     end
 
@@ -3096,7 +3988,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 -- Aimbot Logic
-local function getClosestPlayer()
+function getClosestPlayer()
 	if not aimbotEnabled then return nil end
 
 	local closestPlayer = nil
@@ -3107,6 +3999,11 @@ local function getClosestPlayer()
 
 	for _, player in ipairs(Players:GetPlayers()) do
 		if player ~= LocalPlayer and player.Character then
+			-- Verificar se é inimigo
+			if not isEnemy(player) then
+				continue
+			end
+			
 			local character = player.Character
 			local targetPart = nil
 			if aimbotTarget == "Cabeça" then
@@ -3121,16 +4018,10 @@ local function getClosestPlayer()
 					local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
 					if distance <= closestDistance then
 						if aimbotOnlyVisible then
-							local myChar = LocalPlayer.Character
-							if myChar then
-								local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-								local targetRoot = character:FindFirstChild("HumanoidRootPart")
-								if myRoot and targetRoot then
-									local raycastResult = workspace:Raycast(myRoot.Position, (targetRoot.Position - myRoot.Position).Unit * (targetRoot.Position - myRoot.Position).Magnitude)
-									if raycastResult and raycastResult.Instance and not raycastResult.Instance:IsDescendantOf(character) then
-										continue -- Not visible
-									end
-								end
+							-- Verificar pela cor do ESP (verde = visível)
+							local highlight = highlights[character]
+							if not highlight or highlight.FillColor ~= Color3.fromRGB(0, 255, 0) then
+								continue
 							end
 						end
 						closestDistance = distance
@@ -3145,7 +4036,7 @@ local function getClosestPlayer()
 end
 
 -- Aimbot aim function
-local function aimAt(targetPlayer)
+function aimAt(targetPlayer)
 	if not targetPlayer or not targetPlayer.Character then return end
 
 	local camera = workspace.CurrentCamera
@@ -3164,10 +4055,34 @@ local function aimAt(targetPlayer)
 	local currentCFrame = camera.CFrame
 	local targetCFrame = CFrame.new(currentCFrame.Position, targetPos)
 
-	local smoothFactor = aimbotSmooth / 10
-	if smoothFactor < 0.1 then smoothFactor = 0.1 end
+	-- Smooth invertido: 0 = instantâneo (melhor), 20 = mais lento (pior)
+	local smoothFactor = (20 - aimbotSmooth) / 20
+	if smoothFactor < 0.05 then smoothFactor = 1 end -- 0 = instantâneo
 
 	camera.CFrame = currentCFrame:Lerp(targetCFrame, smoothFactor)
+end
+
+-- Função para verificar se está em veículo em movimento
+function isInMovingVehicle()
+	local character = LocalPlayer.Character
+	if not character then return false end
+	
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return false end
+	
+	local seatPart = humanoid.SeatPart
+	if not seatPart then return false end
+	
+	-- Verificar se o veículo está em movimento
+	local vehicle = seatPart.Parent
+	if vehicle then
+		local primaryPart = vehicle.PrimaryPart or vehicle:FindFirstChildWhichIsA("BasePart")
+		if primaryPart and primaryPart.AssemblyLinearVelocity.Magnitude > 10 then
+			return true
+		end
+	end
+	
+	return false
 end
 
 -- Aimbot activation - custom bind
@@ -3220,9 +4135,18 @@ UserInputService.InputEnded:Connect(function(input, processed)
 	end
 end)
 
--- Continuous aiming when key/button held
+-- Continuous aiming when key/button held OR in moving vehicle
 RunService.RenderStepped:Connect(function()
+	-- Aimbot manual (com bind)
 	if aimbotKeyHeld and aimbotEnabled then
+		local target = getClosestPlayer()
+		if target then
+			aimAt(target)
+		end
+	end
+	
+	-- Aimbot automático em veículo (sempre ativo para inimigos)
+	if isInMovingVehicle() then
 		local target = getClosestPlayer()
 		if target then
 			aimAt(target)
@@ -3230,46 +4154,46 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- 🔧 DEBUG: Comentando sistema de atualização automática que pode estar causando travamento
--- startRealTimeUpdates()
+-- Sistema de atualização automática REABILITADO
+startRealTimeUpdates()
 
--- 🔧 DEBUG: Comentando configuração de eventos que podem causar recursão
--- for _, player in ipairs(Players:GetPlayers()) do
--- 	if player ~= LocalPlayer then
--- 		setupPlayerEvents(player)
--- 	end
--- end
+-- Configuração inicial de eventos para players existentes
+for _, player in ipairs(Players:GetPlayers()) do
+	if player ~= LocalPlayer then
+		setupPlayerEvents(player)
+	end
+end
 
--- 🔧 DEBUG: Comentando eventos globais que podem causar loop
--- Players.PlayerAdded:Connect(function(player)
--- 	if player ~= LocalPlayer then
--- 		setupPlayerEvents(player)
--- 		task.wait(0.1)
--- 		rebuildPlayersList()
--- 	end
--- end)
+-- Eventos globais para atualização automática da lista
+Players.PlayerAdded:Connect(function(player)
+	if player ~= LocalPlayer then
+		setupPlayerEvents(player)
+		task.wait(0.1)
+		rebuildPlayersList()
+	end
+end)
 
--- Players.PlayerRemoving:Connect(function(player)
--- 	if playerButtons[player] then
--- 		playerButtons[player]:Destroy()
--- 		playerButtons[player] = nil
--- 	end
--- 	if selectedPlayer == player then
--- 		selectedPlayer = nil
--- 		if actionsPanel then
--- 			actionsPanel.Visible = false
--- 		end
--- 	end
--- 	task.wait(0.1)
--- 	rebuildPlayersList()
--- end)
+Players.PlayerRemoving:Connect(function(player)
+	if playerButtons[player] then
+		playerButtons[player]:Destroy()
+		playerButtons[player] = nil
+	end
+	if selectedPlayer == player then
+		selectedPlayer = nil
+		if actionsPanel then
+			actionsPanel.Visible = false
+		end
+	end
+	task.wait(0.1)
+	rebuildPlayersList()
+end)
 
-print("🔧 DEBUG: Sistema de atualização automática DESABILITADO")
-print("🔧 DEBUG: Eventos de players DESABILITADOS")
+print("✅ Sistema de atualização automática ATIVADO")
+print("✅ Eventos de players ATIVADOS")
 
 -- Boot
 local success, err = pcall(function()
-	rebuildPlayersList()
+	if updatePlayersList then updatePlayersList() end
 	for _, p in ipairs(Players:GetPlayers()) do
 		if p ~= LocalPlayer and p.Character then
 			refreshESPForPlayer(p)
@@ -3302,5 +4226,37 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		toggleFly()
 	elseif input.KeyCode == UNLOCK_MOUSE_KEY then
 		unlockMouse()
+	elseif tpToCursorBind and input.KeyCode == tpToCursorBind then
+		-- TP para onde o cursor está apontando com cooldown e verificação de física
+		local currentTime = tick()
+		if currentTime - tpCursorCooldown < 3 then
+			return
+		end
+		
+		local mouse = LocalPlayer:GetMouse()
+		local character = LocalPlayer.Character
+		if character and mouse.Hit then
+			local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+			if humanoidRootPart then
+				local targetPos = mouse.Hit.Position + Vector3.new(0, 3, 0)
+				
+				-- Verificar se há parede entre você e o destino
+				local direction = (targetPos - humanoidRootPart.Position)
+				local rayParams = RaycastParams.new()
+				rayParams.FilterDescendantsInstances = {character}
+				rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+				
+				local rayResult = workspace:Raycast(humanoidRootPart.Position, direction, rayParams)
+				
+				if rayResult then
+					return
+				end
+				
+				-- TP instantâneo
+				humanoidRootPart.CFrame = CFrame.new(targetPos)
+				tpCursorCooldown = currentTime
+			end
+		end
 	end
 end)
+		
