@@ -23,11 +23,6 @@ ESP_POSITION_DEFAULT = "Topo"
 ESP_MODE_DEFAULT = "Cheio"
 TEAM_FILTER_DEFAULT = "Todos"
 
-FILL_COLOR = Color3.fromRGB(255, 0, 0)
-OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
-TRACER_COLOR = Color3.fromRGB(0, 255, 0)
-BOX_COLOR = Color3.fromRGB(255, 255, 255)
-LINES_COLOR = Color3.fromRGB(0, 255, 0)
 
 -- Aimbot Config Global
 aimbotEnabled = false
@@ -70,9 +65,7 @@ espPosition = ESP_POSITION_DEFAULT
 espMode = ESP_MODE_DEFAULT
 teamFilter = TEAM_FILTER_DEFAULT
 espAutoEnabled = false
-showBox = false
-showLines = false
-linesMode = "Center"
+
 showSkeleton = false
 
 -- Player enhancements globais
@@ -89,8 +82,7 @@ originalJumpPower = 50
 
 highlights = {}         -- [Character] = Highlight
 overlays = {}           -- [Character] = BillboardGui
-boxes = {}              -- [Character] = BoxHandles
-linesFrames = {}        -- [Character] = Frame
+
 
 -- Fly-to target
 flightConn = nil
@@ -727,6 +719,13 @@ end
 
 local function ensureHighlight(character: Model)
 	if not character or not character.Parent then return end
+	if not showSkeleton or not espEnabled then
+		if highlights[character] then
+			highlights[character].Enabled = false
+		end
+		return
+	end
+	
 	local h = highlights[character]
 	if not h or not h.Parent then
 		h = Instance.new("Highlight")
@@ -737,7 +736,6 @@ local function ensureHighlight(character: Model)
 		highlights[character] = h
 	end
 
-	-- Check visibility
 	local camera = workspace.CurrentCamera
 	local visible = true
 	if camera then
@@ -746,7 +744,6 @@ local function ensureHighlight(character: Model)
 		if targetRoot and myChar then
 			local myRoot = getPrimaryPart(myChar)
 			if myRoot then
-				-- Use character position for raycast to avoid first person issues
 				local direction = (targetRoot.Position - myRoot.Position).Unit
 				local distance = (targetRoot.Position - myRoot.Position).Magnitude
 				local raycastResult = workspace:Raycast(myRoot.Position + Vector3.new(0, 2, 0), direction * distance)
@@ -758,13 +755,14 @@ local function ensureHighlight(character: Model)
 	end
 
 	if espAutoEnabled then
-		h.FillColor = visible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0) -- Green if visible, red if not
+		h.FillColor = visible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+		h.OutlineColor = visible and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 0, 0)
 	else
-		h.FillColor = FILL_COLOR
+		h.FillColor = Color3.fromRGB(255, 0, 0)
+		h.OutlineColor = Color3.fromRGB(255, 255, 255)
 	end
-	h.OutlineColor = OUTLINE_COLOR
 	applyHighlightMode(h)
-	h.Enabled = espEnabled
+	h.Enabled = true
 end
 
 local function ensureOverlayFor(p: Player, character: Model)
@@ -822,87 +820,7 @@ local function overlayOffsetFor(positionName: string): Vector3
 	end
 end
 
-local function ensureBox(character: Model)
-	if not character or not character.Parent then return end
-	local box = boxes[character]
-	if not box or not box.Parent then
-		box = Instance.new("BoxHandleAdornment")
-		box.Name = "ESPBox"
-		box.AlwaysOnTop = true
-		box.ZIndex = 5
-		box.Size = character:GetExtentsSize()
-		box.Adornee = character
-		box.Parent = LocalPlayer:WaitForChild("PlayerGui")
-		boxes[character] = box
-	end
-	box.Color3 = BOX_COLOR
-	box.Transparency = 0.7
-	box.Visible = showBox and espEnabled
-end
 
-local function ensureLine(character: Model)
-	if not character or not character.Parent then return end
-	if not showLines or not espEnabled then
-		if linesFrames[character] then
-			linesFrames[character].Visible = false
-		end
-		return
-	end
-	
-	local lineFrame = linesFrames[character]
-	if not lineFrame or not lineFrame.Parent then
-		lineFrame = Instance.new("Frame")
-		lineFrame.Name = "ESPLine"
-		lineFrame.BackgroundColor3 = LINES_COLOR
-		lineFrame.BorderSizePixel = 0
-		lineFrame.AnchorPoint = Vector2.new(0.5, 0)
-		lineFrame.ZIndex = 10
-		lineFrame.Parent = gui
-		linesFrames[character] = lineFrame
-	end
-	lineFrame.BackgroundColor3 = LINES_COLOR
-end
-
-local function updateLine(character: Model)
-	if not showLines or not espEnabled then
-		if linesFrames[character] then
-			linesFrames[character].Visible = false
-		end
-		return
-	end
-	
-	local lineFrame = linesFrames[character]
-	if not lineFrame then return end
-	
-	local camera = workspace.CurrentCamera
-	local targetRoot = getPrimaryPart(character)
-	if not targetRoot then
-		lineFrame.Visible = false
-		return
-	end
-	
-	local targetPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
-	if not onScreen then
-		lineFrame.Visible = false
-		return
-	end
-	
-	local startPos
-	if linesMode == "Sky" then
-		startPos = Vector2.new(camera.ViewportSize.X / 2, 0)
-	else
-		startPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-	end
-	
-	local endPos = Vector2.new(targetPos.X, targetPos.Y)
-	local distance = (endPos - startPos).Magnitude
-	local angle = math.atan2(endPos.Y - startPos.Y, endPos.X - startPos.X)
-	
-	lineFrame.Size = UDim2.new(0, distance, 0, 2)
-	lineFrame.Position = UDim2.new(0, startPos.X, 0, startPos.Y)
-	lineFrame.Rotation = math.deg(angle)
-	lineFrame.Visible = true
-end
 
 local function updateOverlay(p: Player, character: Model, bb: BillboardGui)
 	if not bb then return end
@@ -921,21 +839,7 @@ local function updateOverlay(p: Player, character: Model, bb: BillboardGui)
 	local visibleByFilter = true
 	if teamFilter == "Só inimigos" then visibleByFilter = isEnemy(p) end
 
-	local h = highlights[character]
-	if h then
-		h.FillColor = FILL_COLOR
-		h.OutlineColor = OUTLINE_COLOR
-		applyHighlightMode(h)
-		h.Enabled = showSkeleton and espEnabled and visibleByFilter
-	end
 	bb.Enabled = espEnabled and (showName or showHealth) and visibleByFilter
-	
-	-- Atualizar Box
-	ensureBox(character)
-	
-	-- Atualizar Line
-	ensureLine(character)
-	updateLine(character)
 end
 
 local function refreshESPForPlayer(p: Player)
@@ -1044,17 +948,9 @@ task.spawn(function()
 				end
 				if espEnabled then
 					if char and char.Parent then
-						ensureHighlight(char)
-						ensureBox(char)
-						ensureLine(char)
-						updateLine(char)
-					end
-				else
-					if linesFrames[char] then
-						linesFrames[char].Visible = false
-					end
-					if boxes[char] then
-						boxes[char].Visible = false
+						if showSkeleton then
+							ensureHighlight(char)
+						end
 					end
 				end
 			end
@@ -1158,74 +1054,132 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "AdminPanel"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.IgnoreGuiInset = false
+gui.DisplayOrder = 10000000
+gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets -- Respeita áreas seguras
 gui.Parent = playerGui
 
+-- Bloqueador AGRESSIVO - BLOQUEIA ABSOLUTAMENTE TUDO
+local inputBlocker = Instance.new("TextButton") -- TextButton bloqueia melhor que Frame
+inputBlocker.Name = "InputBlocker"
+inputBlocker.Size = UDim2.new(2, 0, 2, 0) -- 200% da tela para garantir
+inputBlocker.Position = UDim2.new(-0.5, 0, -0.5, 0) -- Centralizado e expandido
+inputBlocker.BackgroundTransparency = 0.3 -- Semi-transparente para ver que está bloqueando
+inputBlocker.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+inputBlocker.Text = ""
+inputBlocker.Modal = true -- CRÍTICO: Bloqueia TODOS os inputs
+inputBlocker.Visible = false
+inputBlocker.ZIndex = 10000000
+inputBlocker.AutoButtonColor = false
+inputBlocker.Parent = gui
+
+-- ScreenGui separado para ESP (sempre visível)
+local espGui = Instance.new("ScreenGui")
+espGui.Name = "ESPOverlay"
+espGui.ResetOnSpawn = false
+espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+espGui.Parent = playerGui
+
+-- ScreenGui separado para ESP (sempre visível)
+local espGui = Instance.new("ScreenGui")
+espGui.Name = "ESPOverlay"
+espGui.ResetOnSpawn = false
+espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+espGui.Parent = playerGui
 
 
--- Main Frame
+
+-- Main Frame - Estilo Dark Futurista
+local MENU_WIDTH_EXPANDED = 900
+local MENU_WIDTH_MINIMIZED = 80
+local MENU_HEIGHT = 650
+local menuMinimized = false
+
+-- 🎨 PALETA DE CORES ROSA NEON
+local COLOR_BG_MAIN = Color3.fromRGB(15, 15, 20)
+local COLOR_BG_PANEL = Color3.fromRGB(23, 23, 32)
+local COLOR_BG_HOVER = Color3.fromRGB(31, 31, 42)
+local COLOR_DIVIDER = Color3.fromRGB(36, 36, 51)
+local COLOR_NEON_PINK = Color3.fromRGB(224, 76, 255)
+local COLOR_PINK_LIGHT = Color3.fromRGB(240, 108, 255)
+local COLOR_PINK_DARK = Color3.fromRGB(184, 62, 217)
+local COLOR_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255)
+local COLOR_TEXT_SECONDARY = Color3.fromRGB(181, 181, 192)
+local COLOR_TEXT_INACTIVE = Color3.fromRGB(122, 122, 136)
+local COLOR_TOGGLE_OFF_BG = Color3.fromRGB(42, 42, 54)
+local COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(138, 138, 150)
+local COLOR_SLIDER_TRACK = Color3.fromRGB(44, 44, 58)
+
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 1100, 0, 750)
-mainFrame.Position = UDim2.new(0.5, -550, 0.5, -375)
-mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
+mainFrame.Size = UDim2.new(0, MENU_WIDTH_EXPANDED, 0, MENU_HEIGHT)
+mainFrame.Position = UDim2.new(0, 20, 0.5, -MENU_HEIGHT/2)
+mainFrame.BackgroundColor3 = COLOR_BG_MAIN
 mainFrame.BorderSizePixel = 0
-mainFrame.ZIndex = 1
+mainFrame.ZIndex = 10000001
+mainFrame.ClipsDescendants = false
 mainFrame.Parent = gui
 
 local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 16)
+mainCorner.CornerRadius = UDim.new(0, 12)
 mainCorner.Parent = mainFrame
 
 local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(88, 101, 242)
-mainStroke.Thickness = 2
-mainStroke.Transparency = 0.5
+mainStroke.Color = COLOR_NEON_PINK
+mainStroke.Thickness = 1
+mainStroke.Transparency = 0.85
 mainStroke.Parent = mainFrame
 
--- Gradient de fundo
+-- Gradient futurista
 local bgGradient = Instance.new("UIGradient")
 bgGradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 25)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 15, 30))
+    ColorSequenceKeypoint.new(0, COLOR_BG_MAIN),
+    ColorSequenceKeypoint.new(1, COLOR_BG_PANEL)
 }
-bgGradient.Rotation = 45
+bgGradient.Rotation = 90
 bgGradient.Parent = mainFrame
 
--- Header moderno
+-- Header dark
 local header = Instance.new("Frame")
 header.Size = UDim2.new(1, 0, 0, 60)
-header.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+header.BackgroundColor3 = COLOR_BG_PANEL
 header.BorderSizePixel = 0
 header.Parent = mainFrame
 
 local headerCorner = Instance.new("UICorner")
-headerCorner.CornerRadius = UDim.new(0, 16)
+headerCorner.CornerRadius = UDim.new(0, 12)
 headerCorner.Parent = header
 
 local headerFix = Instance.new("Frame")
 headerFix.Size = UDim2.new(1, 0, 0, 20)
 headerFix.Position = UDim2.new(0, 0, 1, -20)
-headerFix.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+headerFix.BackgroundColor3 = COLOR_BG_PANEL
 headerFix.BorderSizePixel = 0
 headerFix.Parent = header
 
-local headerGradient = Instance.new("UIGradient")
-headerGradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(88, 101, 242)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(139, 92, 246))
-}
-headerGradient.Parent = header
+local headerStroke = Instance.new("UIStroke")
+headerStroke.Color = COLOR_DIVIDER
+headerStroke.Thickness = 1
+headerStroke.Transparency = 0.5
+headerStroke.Parent = header
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(0.7, 0, 1, 0)
-title.Position = UDim2.new(0, 25, 0, 0)
+title.Name = "Title"
+title.Size = UDim2.new(1, -120, 1, 0)
+title.Position = UDim2.new(0, 80, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "⚡ RODRI MENU PRO"
+title.Text = "Night Menu"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 28
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 22
+title.TextColor3 = COLOR_TEXT_PRIMARY
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
+
+local titleGlow = Instance.new("UIStroke")
+titleGlow.Color = COLOR_NEON_PINK
+titleGlow.Thickness = 1
+titleGlow.Transparency = 0.3
+titleGlow.Parent = title
 
 local titleShadow = Instance.new("UIStroke")
 titleShadow.Color = Color3.fromRGB(0, 0, 0)
@@ -1233,123 +1187,148 @@ titleShadow.Thickness = 2
 titleShadow.Transparency = 0.5
 titleShadow.Parent = title
 
-local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 40, 0, 40)
-closeBtn.Position = UDim2.new(1, -50, 0.5, -20)
-closeBtn.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
-closeBtn.Text = "✕"
-closeBtn.Font = Enum.Font.GothamBold
-closeBtn.TextSize = 24
-closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-closeBtn.BorderSizePixel = 0
-closeBtn.Parent = header
+-- Botão Minimizar
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Name = "MinimizeBtn"
+minimizeBtn.Size = UDim2.new(0, 45, 0, 45)
+minimizeBtn.Position = UDim2.new(0, 8, 0.5, -22)
+minimizeBtn.BackgroundColor3 = COLOR_BG_PANEL
+minimizeBtn.Text = "◄"
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextSize = 18
+minimizeBtn.TextColor3 = COLOR_NEON_PINK
+minimizeBtn.BorderSizePixel = 0
+minimizeBtn.ZIndex = 10000002
+minimizeBtn.Parent = header
 
-local closeBtnCorner = Instance.new("UICorner")
-closeBtnCorner.CornerRadius = UDim.new(0, 10)
-closeBtnCorner.Parent = closeBtn
+local minimizeBtnCorner = Instance.new("UICorner")
+minimizeBtnCorner.CornerRadius = UDim.new(0, 8)
+minimizeBtnCorner.Parent = minimizeBtn
 
-local closeBtnStroke = Instance.new("UIStroke")
-closeBtnStroke.Color = Color3.fromRGB(220, 38, 38)
-closeBtnStroke.Thickness = 2
-closeBtnStroke.Transparency = 0.3
-closeBtnStroke.Parent = closeBtn
+local minimizeBtnStroke = Instance.new("UIStroke")
+minimizeBtnStroke.Color = COLOR_NEON_PINK
+minimizeBtnStroke.Thickness = 1
+minimizeBtnStroke.Transparency = 0.6
+minimizeBtnStroke.Parent = minimizeBtn
 
-closeBtn.MouseEnter:Connect(function()
-	closeBtn.BackgroundColor3 = Color3.fromRGB(220, 38, 38)
+minimizeBtn.MouseEnter:Connect(function()
+	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
+	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {TextColor3 = COLOR_BG_MAIN}):Play()
+	minimizeBtnStroke.Transparency = 0.3
 end)
-closeBtn.MouseLeave:Connect(function()
-	closeBtn.BackgroundColor3 = Color3.fromRGB(239, 68, 68)
+minimizeBtn.MouseLeave:Connect(function()
+	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_PANEL}):Play()
+	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
+	minimizeBtnStroke.Transparency = 0.6
 end)
-closeBtn.MouseButton1Click:Connect(function()
-	showPanel(false)
-end)
 
--- Tabs Container moderno
-local tabsContainer = Instance.new("Frame")
-tabsContainer.Size = UDim2.new(1, -20, 0, 50)
-tabsContainer.Position = UDim2.new(0, 10, 0, 70)
-tabsContainer.BackgroundColor3 = Color3.fromRGB(25, 25, 35)
-tabsContainer.BackgroundTransparency = 0.3
-tabsContainer.BorderSizePixel = 0
-tabsContainer.Parent = mainFrame
+-- Sidebar dark
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.new(0, 70, 1, -60)
+sidebar.Position = UDim2.new(0, 0, 0, 60)
+sidebar.BackgroundColor3 = COLOR_BG_MAIN
+sidebar.BorderSizePixel = 0
+sidebar.ClipsDescendants = true
+sidebar.Parent = mainFrame
 
-local tabsCorner = Instance.new("UICorner")
-tabsCorner.CornerRadius = UDim.new(0, 12)
-tabsCorner.Parent = tabsContainer
+local sidebarStroke = Instance.new("UIStroke")
+sidebarStroke.Color = COLOR_DIVIDER
+sidebarStroke.Thickness = 1
+sidebarStroke.Transparency = 0.7
+sidebarStroke.Parent = sidebar
 
-local tabsStroke = Instance.new("UIStroke")
-tabsStroke.Color = Color3.fromRGB(88, 101, 242)
-tabsStroke.Thickness = 1
-tabsStroke.Transparency = 0.7
-tabsStroke.Parent = tabsContainer
+local sidebarLayout = Instance.new("UIListLayout")
+sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sidebarLayout.Padding = UDim.new(0, 8)
+sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sidebarLayout.Parent = sidebar
+
+local sidebarPadding = Instance.new("UIPadding")
+sidebarPadding.PaddingTop = UDim.new(0, 10)
+sidebarPadding.Parent = sidebar
 
 -- Tabs
 local tabs = {}
 local currentTab = "PLAYERS"
 
-local tabsList = Instance.new("Frame")
-tabsList.Size = UDim2.new(1, -20, 1, -10)
-tabsList.Position = UDim2.new(0, 10, 0, 5)
-tabsList.BackgroundTransparency = 1
-tabsList.Parent = tabsContainer
-
-local tabsLayout = Instance.new("UIListLayout")
-tabsLayout.FillDirection = Enum.FillDirection.Horizontal
-tabsLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-tabsLayout.Padding = UDim.new(0, 10)
-tabsLayout.Parent = tabsList
-
-local function createTab(name, text, icon)
+local function createTab(name, text, icon, order)
 	local tab = Instance.new("TextButton")
-	tab.Size = UDim2.new(0, 240, 1, 0)
-	tab.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+	tab.Name = name .. "Tab"
+	tab.Size = UDim2.new(0, 70, 0, 70)
+	tab.BackgroundColor3 = COLOR_BG_PANEL
 	tab.BackgroundTransparency = 0.5
-	tab.Text = icon .. "  " .. text
-	tab.Font = Enum.Font.GothamBold
-	tab.TextSize = 15
-	tab.TextColor3 = Color3.fromRGB(200, 200, 220)
+	tab.Text = ""
 	tab.BorderSizePixel = 0
-	tab.Parent = tabsList
+	tab.LayoutOrder = order
+	tab.Parent = sidebar
 
 	local tabCorner = Instance.new("UICorner")
-	tabCorner.CornerRadius = UDim.new(0, 10)
+	tabCorner.CornerRadius = UDim.new(0, 14)
 	tabCorner.Parent = tab
 
 	local tabStroke = Instance.new("UIStroke")
-	tabStroke.Color = Color3.fromRGB(88, 101, 242)
+	tabStroke.Color = COLOR_NEON_PINK
 	tabStroke.Thickness = 0
 	tabStroke.Transparency = 0.5
 	tabStroke.Parent = tab
+
+	local iconLabel = Instance.new("TextLabel")
+	iconLabel.Name = "Icon"
+	iconLabel.Size = UDim2.new(1, 0, 0, 35)
+	iconLabel.Position = UDim2.new(0, 0, 0, 8)
+	iconLabel.BackgroundTransparency = 1
+	iconLabel.Text = icon
+	iconLabel.Font = Enum.Font.GothamBold
+	iconLabel.TextSize = 28
+	iconLabel.TextColor3 = COLOR_TEXT_INACTIVE
+	iconLabel.Parent = tab
+
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Name = "Name"
+	nameLabel.Size = UDim2.new(1, 0, 0, 20)
+	nameLabel.Position = UDim2.new(0, 0, 1, -25)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = text
+	nameLabel.Font = Enum.Font.Gotham
+	nameLabel.TextSize = 10
+	nameLabel.TextColor3 = COLOR_TEXT_INACTIVE
+	nameLabel.Parent = tab
 
 	tabs[name] = tab
 
 	tab.MouseEnter:Connect(function()
 		if currentTab ~= name then
-			tab.BackgroundTransparency = 0.3
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_HOVER}):Play()
+			TweenService:Create(iconLabel, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
 		end
 	end)
 	tab.MouseLeave:Connect(function()
 		if currentTab ~= name then
-			tab.BackgroundTransparency = 0.5
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_PANEL, BackgroundTransparency = 0.5}):Play()
+			TweenService:Create(iconLabel, TweenInfo.new(0.2), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
 		end
 	end)
 	tab.MouseButton1Click:Connect(function()
 		setTab(name)
 	end)
 
+	tabs[name] = {tab, iconLabel, nameLabel}
 	return tab
 end
 
-local tabPlayers = createTab("PLAYERS", "JOGADORES", "👥")
-local tabESP = createTab("ESP", "VISUAL", "👁️")
-local tabAimbot = createTab("AIMBOT", "RAGE", "🎯")
-local tabUtil = createTab("UTIL", "MISC", "⚙️")
+local tabPlayers = createTab("PLAYERS", "PLAYERS", "👥", 1)
+local tabESP = createTab("ESP", "VISUAL", "👁️", 2)
+local tabAimbot = createTab("AIMBOT", "RAGE", "🎯", 3)
+local tabUtil = createTab("UTIL", "MISC", "⚙️", 4)
 
 -- Content Area
 local content = Instance.new("Frame")
-content.Size = UDim2.new(1, -20, 1, -140)
-content.Position = UDim2.new(0, 10, 0, 130)
+content.Name = "Content"
+content.Size = UDim2.new(1, -80, 1, -70)
+content.Position = UDim2.new(0, 75, 0, 65)
 content.BackgroundTransparency = 1
+content.ClipsDescendants = true
 content.Parent = mainFrame
 
 -- Pages
@@ -1360,10 +1339,11 @@ local function createPage(name)
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
 	page.ScrollBarThickness = 6
-	page.ScrollBarImageColor3 = Color3.fromRGB(88, 101, 242)
+	page.ScrollBarImageColor3 = COLOR_NEON_PINK
 	page.ScrollBarImageTransparency = 0.3
 	page.BorderSizePixel = 0
 	page.Visible = false
+	page.ClipsDescendants = true -- Cortar conteúdo que sai dos limites
 	page.Parent = content
 
 	local layout = Instance.new("UIListLayout")
@@ -1382,19 +1362,20 @@ local utilPage = createPage("UTIL")
 
 -- Set initial tab com animação
 local function setTab(tabName)
-	for name, tab in pairs(tabs) do
+	for name, tabData in pairs(tabs) do
+		local tab, icon, label = tabData[1], tabData[2], tabData[3]
 		local tabStroke = tab:FindFirstChildOfClass("UIStroke")
 		if name == tabName then
-			tab.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
-			tab.BackgroundTransparency = 0
-			tab.TextColor3 = Color3.fromRGB(255, 255, 255)
-			if tabStroke then tabStroke.Thickness = 2 end
+			TweenService:Create(tab, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundColor3 = COLOR_NEON_PINK, BackgroundTransparency = 0}):Play()
+			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = COLOR_BG_MAIN}):Play()
+			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = COLOR_BG_MAIN}):Play()
+			if tabStroke then tabStroke.Thickness = 3 end
 			pages[name].Visible = true
 			currentTab = name
 		else
-			tab.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
-			tab.BackgroundTransparency = 0.5
-			tab.TextColor3 = Color3.fromRGB(200, 200, 220)
+			TweenService:Create(tab, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundColor3 = COLOR_BG_PANEL, BackgroundTransparency = 0.5}):Play()
+			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
+			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
 			if tabStroke then tabStroke.Thickness = 0 end
 			pages[name].Visible = false
 		end
@@ -1407,7 +1388,7 @@ setTab("PLAYERS")
 local function createCategory(parent, title)
 	local category = Instance.new("Frame")
 	category.Size = UDim2.new(0.98, 0, 0, 0)
-	category.BackgroundColor3 = Color3.fromRGB(25, 25, 40)
+	category.BackgroundColor3 = COLOR_BG_PANEL
 	category.BackgroundTransparency = 0.2
 	category.BorderSizePixel = 0
 	category.Parent = parent
@@ -1417,7 +1398,7 @@ local function createCategory(parent, title)
 	categoryCorner.Parent = category
 
 	local categoryStroke = Instance.new("UIStroke")
-	categoryStroke.Color = Color3.fromRGB(88, 101, 242)
+	categoryStroke.Color = COLOR_DIVIDER
 	categoryStroke.Thickness = 1
 	categoryStroke.Transparency = 0.6
 	categoryStroke.Parent = category
@@ -1431,19 +1412,19 @@ local function createCategory(parent, title)
 	categoryGradient.Parent = category
 
 	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, -20, 0, 35)
-	titleLabel.Position = UDim2.new(0, 15, 0, 10)
+	titleLabel.Size = UDim2.new(1, -35, 0, 35)
+	titleLabel.Position = UDim2.new(0, 25, 0, 10)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Text = title
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.TextSize = 16
-	titleLabel.TextColor3 = Color3.fromRGB(139, 92, 246)
+	titleLabel.TextColor3 = COLOR_NEON_PINK
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 	titleLabel.Parent = category
 
 	local titleStroke = Instance.new("UIStroke")
 	titleStroke.Color = Color3.fromRGB(0, 0, 0)
-	titleStroke.Thickness = 1
+	titleStroke.Thickness = 0.5
 	titleStroke.Transparency = 0.7
 	titleStroke.Parent = titleLabel
 
@@ -1470,7 +1451,7 @@ end
 local function createToggle(parent, text, callback)
 	local toggleFrame = Instance.new("Frame")
 	toggleFrame.Size = UDim2.new(1, 0, 0, 42)
-	toggleFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+	toggleFrame.BackgroundColor3 = COLOR_BG_HOVER
 	toggleFrame.BackgroundTransparency = 0.3
 	toggleFrame.BorderSizePixel = 0
 	toggleFrame.Parent = parent
@@ -1492,7 +1473,7 @@ local function createToggle(parent, text, callback)
 	label.Text = text
 	label.Font = Enum.Font.GothamMedium
 	label.TextSize = 14
-	label.TextColor3 = Color3.fromRGB(220, 220, 240)
+	label.TextColor3 = COLOR_TEXT_PRIMARY
 	label.TextXAlignment = Enum.TextXAlignment.Left
 	label.Parent = toggleFrame
 
@@ -1500,7 +1481,7 @@ local function createToggle(parent, text, callback)
 	local switchBg = Instance.new("Frame")
 	switchBg.Size = UDim2.new(0, 50, 0, 26)
 	switchBg.Position = UDim2.new(1, -60, 0.5, -13)
-	switchBg.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+	switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
 	switchBg.BorderSizePixel = 0
 	switchBg.Parent = toggleFrame
 
@@ -1511,7 +1492,7 @@ local function createToggle(parent, text, callback)
 	local switchBtn = Instance.new("TextButton")
 	switchBtn.Size = UDim2.new(0, 22, 0, 22)
 	switchBtn.Position = UDim2.new(0, 2, 0.5, -11)
-	switchBtn.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
+	switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
 	switchBtn.Text = ""
 	switchBtn.BorderSizePixel = 0
 	switchBtn.Parent = switchBg
@@ -1527,20 +1508,29 @@ local function createToggle(parent, text, callback)
 	btnStroke.Parent = switchBtn
 
 	local enabled = false
+	
+	-- Botão invisível que cobre TODA a área do toggle
+	local clickArea = Instance.new("TextButton")
+	clickArea.Size = UDim2.new(1, 0, 1, 0)
+	clickArea.Position = UDim2.new(0, 0, 0, 0)
+	clickArea.BackgroundTransparency = 1
+	clickArea.Text = ""
+	clickArea.ZIndex = toggleFrame.ZIndex + 1
+	clickArea.Parent = toggleFrame
 
-	switchBtn.MouseButton1Click:Connect(function()
+	clickArea.MouseButton1Click:Connect(function()
 		enabled = not enabled
 		if enabled then
-			switchBg.BackgroundColor3 = Color3.fromRGB(88, 101, 242)
+			switchBg.BackgroundColor3 = COLOR_NEON_PINK
 			TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
 			switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			toggleStroke.Color = Color3.fromRGB(88, 101, 242)
+			toggleStroke.Color = COLOR_NEON_PINK
 			toggleStroke.Transparency = 0.3
 		else
-			switchBg.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+			switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
 			TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-			switchBtn.BackgroundColor3 = Color3.fromRGB(200, 200, 210)
-			toggleStroke.Color = Color3.fromRGB(60, 60, 80)
+			switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
+			toggleStroke.Color = COLOR_DIVIDER
 			toggleStroke.Transparency = 0.5
 		end
 		if callback then callback(enabled) end
@@ -1912,166 +1902,6 @@ local skeletonToggle = createToggle(espCategory, "Esqueleto (ESP de Corpo)", fun
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
--- Box Toggle
-local boxToggle = createToggle(espCategory, "Box (Caixa 3D)", function(enabled)
-	showBox = enabled
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Box Color Picker
-local boxColorFrame = Instance.new("Frame")
-boxColorFrame.Size = UDim2.new(1, 0, 0, 40)
-boxColorFrame.BackgroundTransparency = 1
-boxColorFrame.Parent = espCategory
-
-local boxColorLabel = Instance.new("TextLabel")
-boxColorLabel.Size = UDim2.new(0.5, 0, 1, 0)
-boxColorLabel.BackgroundTransparency = 1
-boxColorLabel.Text = "Cor da Box:"
-boxColorLabel.Font = Enum.Font.GothamMedium
-boxColorLabel.TextSize = 14
-boxColorLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
-boxColorLabel.TextXAlignment = Enum.TextXAlignment.Left
-boxColorLabel.Parent = boxColorFrame
-
-local boxColorBtn = Instance.new("TextButton")
-boxColorBtn.Size = UDim2.new(0.5, 0, 0, 30)
-boxColorBtn.Position = UDim2.new(0.5, 0, 0.5, -15)
-boxColorBtn.BackgroundColor3 = BOX_COLOR
-boxColorBtn.Text = ""
-boxColorBtn.Parent = boxColorFrame
-Instance.new("UICorner", boxColorBtn).CornerRadius = UDim.new(0, 8)
-
-boxColorBtn.MouseButton1Click:Connect(function()
-	local colors = {
-		Color3.fromRGB(255, 255, 255), -- Branco
-		Color3.fromRGB(255, 0, 0),     -- Vermelho
-		Color3.fromRGB(0, 255, 0),     -- Verde
-		Color3.fromRGB(0, 0, 255),     -- Azul
-		Color3.fromRGB(255, 255, 0),   -- Amarelo
-		Color3.fromRGB(255, 0, 255),   -- Magenta
-		Color3.fromRGB(0, 255, 255),   -- Ciano
-	}
-	local currentIndex = 1
-	for i, color in ipairs(colors) do
-		if BOX_COLOR == color then
-			currentIndex = i
-			break
-		end
-	end
-	currentIndex = (currentIndex % #colors) + 1
-	BOX_COLOR = colors[currentIndex]
-	boxColorBtn.BackgroundColor3 = BOX_COLOR
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Lines Toggle
-local linesToggle = createToggle(espCategory, "Lines (Linhas)", function(enabled)
-	showLines = enabled
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Lines Mode Dropdown
-local linesModeFrame = Instance.new("Frame")
-linesModeFrame.Size = UDim2.new(1, 0, 0, 40)
-linesModeFrame.BackgroundTransparency = 1
-linesModeFrame.Parent = espCategory
-
-local linesModeBtn = Instance.new("TextButton")
-linesModeBtn.Size = UDim2.new(1, 0, 0, 40)
-linesModeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
-linesModeBtn.BackgroundTransparency = 0.2
-linesModeBtn.Text = "Modo Lines: " .. linesMode .. " ▼"
-linesModeBtn.Font = Enum.Font.SourceSans
-linesModeBtn.TextSize = 14
-linesModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-linesModeBtn.Parent = linesModeFrame
-Instance.new("UICorner", linesModeBtn).CornerRadius = UDim.new(0, 8)
-
-local linesModeDropdown = Instance.new("Frame")
-linesModeDropdown.Size = UDim2.new(1, 0, 0, 80)
-linesModeDropdown.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-linesModeDropdown.BackgroundTransparency = 0.1
-linesModeDropdown.Visible = false
-linesModeDropdown.Parent = linesModeFrame
-Instance.new("UICorner", linesModeDropdown).CornerRadius = UDim.new(0, 8)
-
-local linesModeLayout = Instance.new("UIListLayout")
-linesModeLayout.Padding = UDim.new(0, 2)
-linesModeLayout.Parent = linesModeDropdown
-
-local linesModes = {"Center", "Sky"}
-for _, mode in ipairs(linesModes) do
-	local optionBtn = Instance.new("TextButton")
-	optionBtn.Size = UDim2.new(1, 0, 0, 25)
-	optionBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-	optionBtn.BackgroundTransparency = 0.3
-	optionBtn.Text = mode
-	optionBtn.Font = Enum.Font.SourceSans
-	optionBtn.TextSize = 12
-	optionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-	optionBtn.Parent = linesModeDropdown
-	Instance.new("UICorner", optionBtn).CornerRadius = UDim.new(0, 6)
-
-	optionBtn.MouseButton1Click:Connect(function()
-		linesMode = mode
-		linesModeBtn.Text = "Modo Lines: " .. linesMode .. " ▼"
-		linesModeDropdown.Visible = false
-		for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-	end)
-end
-
-linesModeBtn.MouseButton1Click:Connect(function()
-	linesModeDropdown.Visible = not linesModeDropdown.Visible
-end)
-
--- Lines Color Picker
-local linesColorFrame = Instance.new("Frame")
-linesColorFrame.Size = UDim2.new(1, 0, 0, 40)
-linesColorFrame.BackgroundTransparency = 1
-linesColorFrame.Parent = espCategory
-
-local linesColorLabel = Instance.new("TextLabel")
-linesColorLabel.Size = UDim2.new(0.5, 0, 1, 0)
-linesColorLabel.BackgroundTransparency = 1
-linesColorLabel.Text = "Cor das Lines:"
-linesColorLabel.Font = Enum.Font.GothamMedium
-linesColorLabel.TextSize = 14
-linesColorLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
-linesColorLabel.TextXAlignment = Enum.TextXAlignment.Left
-linesColorLabel.Parent = linesColorFrame
-
-local linesColorBtn = Instance.new("TextButton")
-linesColorBtn.Size = UDim2.new(0.5, 0, 0, 30)
-linesColorBtn.Position = UDim2.new(0.5, 0, 0.5, -15)
-linesColorBtn.BackgroundColor3 = LINES_COLOR
-linesColorBtn.Text = ""
-linesColorBtn.Parent = linesColorFrame
-Instance.new("UICorner", linesColorBtn).CornerRadius = UDim.new(0, 8)
-
-linesColorBtn.MouseButton1Click:Connect(function()
-	local colors = {
-		Color3.fromRGB(255, 255, 255), -- Branco
-		Color3.fromRGB(255, 0, 0),     -- Vermelho
-		Color3.fromRGB(0, 255, 0),     -- Verde
-		Color3.fromRGB(0, 0, 255),     -- Azul
-		Color3.fromRGB(255, 255, 0),   -- Amarelo
-		Color3.fromRGB(255, 0, 255),   -- Magenta
-		Color3.fromRGB(0, 255, 255),   -- Ciano
-	}
-	local currentIndex = 1
-	for i, color in ipairs(colors) do
-		if LINES_COLOR == color then
-			currentIndex = i
-			break
-		end
-	end
-	currentIndex = (currentIndex % #colors) + 1
-	LINES_COLOR = colors[currentIndex]
-	linesColorBtn.BackgroundColor3 = LINES_COLOR
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
 -- ESP Position Selector
 local positionBtn = Instance.new("TextButton")
 positionBtn.Size = UDim2.new(1, 0, 0, 40)
@@ -2270,13 +2100,13 @@ Instance.new("UICorner", fovInput).CornerRadius = UDim.new(0, 4)
 local fovSlider = Instance.new("Frame")
 fovSlider.Size = UDim2.new(0.8, 0, 0, 16)
 fovSlider.Position = UDim2.new(0.1, 0, 0, 16)
-fovSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+fovSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 fovSlider.Parent = fovFrame
 Instance.new("UICorner", fovSlider).CornerRadius = UDim.new(0, 5)
 
 local fovFill = Instance.new("Frame")
 fovFill.Size = UDim2.fromScale(aimbotFOV / 200, 1)
-fovFill.BackgroundColor3 = Color3.fromRGB(139, 92, 246)
+fovFill.BackgroundColor3 = COLOR_NEON_PINK
 fovFill.Parent = fovSlider
 Instance.new("UICorner", fovFill).CornerRadius = UDim.new(0, 4)
 
@@ -2355,13 +2185,13 @@ smoothLabel.Parent = smoothFrame
 local smoothSlider = Instance.new("Frame")
 smoothSlider.Size = UDim2.new(0.8, 0, 0, 16)
 smoothSlider.Position = UDim2.new(0.1, 0, 0, 16)
-smoothSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+smoothSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 smoothSlider.Parent = smoothFrame
 Instance.new("UICorner", smoothSlider).CornerRadius = UDim.new(0, 5)
 
 local smoothFill = Instance.new("Frame")
 smoothFill.Size = UDim2.fromScale(aimbotSmooth / 20, 1)
-smoothFill.BackgroundColor3 = Color3.fromRGB(236, 72, 153)
+smoothFill.BackgroundColor3 = COLOR_NEON_PINK
 smoothFill.Parent = smoothSlider
 Instance.new("UICorner", smoothFill).CornerRadius = UDim.new(0, 4)
 
@@ -2505,6 +2335,48 @@ local flyToggle = createToggle(movementContent, "✈️ Fly (F) - Ativa Noclip A
 	end
 end)
 
+-- TextBox para velocidade do Fly
+local flySpeedFrame = Instance.new("Frame")
+flySpeedFrame.Size = UDim2.new(1, 0, 0, 35)
+flySpeedFrame.BackgroundTransparency = 1
+flySpeedFrame.Parent = movementContent
+
+local flySpeedLabel = Instance.new("TextLabel")
+flySpeedLabel.Size = UDim2.new(0.5, 0, 1, 0)
+flySpeedLabel.BackgroundTransparency = 1
+flySpeedLabel.Text = "⚡ Velocidade Fly:"
+flySpeedLabel.Font = Enum.Font.SourceSansBold
+flySpeedLabel.TextSize = 13
+flySpeedLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+flySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+flySpeedLabel.Parent = flySpeedFrame
+
+local flySpeedInput = Instance.new("TextBox")
+flySpeedInput.Size = UDim2.new(0.5, -5, 0, 30)
+flySpeedInput.Position = UDim2.new(0.5, 5, 0, 2)
+flySpeedInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+flySpeedInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+flySpeedInput.PlaceholderText = "1-100"
+flySpeedInput.Text = tostring(FlySystem.speed)
+flySpeedInput.Font = Enum.Font.SourceSans
+flySpeedInput.TextSize = 14
+flySpeedInput.ClearTextOnFocus = false
+flySpeedInput.Parent = flySpeedFrame
+Instance.new("UICorner", flySpeedInput).CornerRadius = UDim.new(0, 6)
+
+flySpeedInput.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		local newSpeed = tonumber(flySpeedInput.Text)
+		if newSpeed and newSpeed >= 1 and newSpeed <= 100 then
+			FlySystem:setSpeed(newSpeed)
+			print("⚡ Velocidade do Fly alterada para: " .. newSpeed)
+		else
+			flySpeedInput.Text = tostring(FlySystem.speed)
+			print("❌ Velocidade inválida! Use valores entre 1 e 100")
+		end
+	end
+end)
+
 -- Atualizar toggle visual baseado no estado do fly
 task.spawn(function()
 	while true do
@@ -2584,7 +2456,7 @@ local boostsLayout = Instance.new("UIListLayout")
 boostsLayout.Padding = UDim.new(0, 6)
 boostsLayout.Parent = boostsContent
 
-local speedToggle = createToggle(boostsContent, "🏃 Speed Boost - Persistente", function(enabled)
+local speedToggle = createToggle(boostsContent, "🏃 Speed Boost", function(enabled)
 	speedBoostEnabled = enabled
 	local character = LocalPlayer.Character
 	if character then
@@ -2600,7 +2472,7 @@ local speedToggle = createToggle(boostsContent, "🏃 Speed Boost - Persistente"
 	end
 end)
 
-local jumpToggle = createToggle(boostsContent, "🦘 Jump Power Boost - Persistente", function(enabled)
+local jumpToggle = createToggle(boostsContent, "🦘 Jump Power Boost", function(enabled)
 	jumpPowerBoostEnabled = enabled
 	local character = LocalPlayer.Character
 	if character then
@@ -2648,14 +2520,14 @@ speedTitle.Text = "Velocidade: " .. speedBoostValue
 speedTitle.Parent = boostsContent
 
 local speedSlider = Instance.new("Frame")
-speedSlider.Size = UDim2.new(1, 0, 0, 8)
-speedSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+speedSlider.Size = UDim2.new(1, 0, 0, 16) -- AUMENTADO (igual ao Smooth)
+speedSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 speedSlider.Parent = boostsContent
-Instance.new("UICorner", speedSlider).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", speedSlider).CornerRadius = UDim.new(0, 5)
 
 local speedFill = Instance.new("Frame")
 speedFill.Size = UDim2.fromScale(speedBoostValue / 200, 1)
-speedFill.BackgroundColor3 = Color3.fromRGB(139, 92, 246)
+speedFill.BackgroundColor3 = COLOR_NEON_PINK
 speedFill.Parent = speedSlider
 Instance.new("UICorner", speedFill).CornerRadius = UDim.new(0, 4)
 
@@ -2702,14 +2574,14 @@ jumpTitle.Text = "Pulo: " .. jumpPowerBoostValue
 jumpTitle.Parent = boostsContent
 
 local jumpSlider = Instance.new("Frame")
-jumpSlider.Size = UDim2.new(1, 0, 0, 8)
-jumpSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+jumpSlider.Size = UDim2.new(1, 0, 0, 16) -- AUMENTADO (igual ao Smooth)
+jumpSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 jumpSlider.Parent = boostsContent
-Instance.new("UICorner", jumpSlider).CornerRadius = UDim.new(0, 4)
+Instance.new("UICorner", jumpSlider).CornerRadius = UDim.new(0, 5)
 
 local jumpFill = Instance.new("Frame")
 jumpFill.Size = UDim2.fromScale(jumpPowerBoostValue / 200, 1)
-jumpFill.BackgroundColor3 = Color3.fromRGB(236, 72, 153)
+jumpFill.BackgroundColor3 = COLOR_NEON_PINK
 jumpFill.Parent = jumpSlider
 Instance.new("UICorner", jumpFill).CornerRadius = UDim.new(0, 4)
 
@@ -2808,6 +2680,117 @@ local antiKickToggle = createToggle(utilsContent, "🛡️ Anti-Kick", function(
 	end
 end)
 
+-- Bind para trocar tecla do menu
+local menuBindBtn = Instance.new("TextButton")
+menuBindBtn.Size = UDim2.new(1, 0, 0, 45)
+menuBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+menuBindBtn.BackgroundTransparency = 0.2
+menuBindBtn.Text = "🔑 Menu Bind: " .. UI_TOGGLE_KEY.Name
+menuBindBtn.Font = Enum.Font.SourceSans
+menuBindBtn.TextSize = 14
+menuBindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+menuBindBtn.Parent = utilsContent
+Instance.new("UICorner", menuBindBtn).CornerRadius = UDim.new(0, 8)
+
+local menuBindListening = false
+menuBindBtn.MouseButton1Click:Connect(function()
+	menuBindListening = true
+	menuBindBtn.Text = "Press any key..."
+	menuBindBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+end)
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if menuBindListening and not processed and input.UserInputType == Enum.UserInputType.Keyboard then
+		UI_TOGGLE_KEY = input.KeyCode
+		menuBindBtn.Text = "🔑 Menu Bind: " .. UI_TOGGLE_KEY.Name
+		menuBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+		menuBindListening = false
+	end
+end)
+
+-- Seletor de tamanho do menu
+local menuSizes = {
+	{name = "Grande (1100x750)", width = 1100, height = 750},
+	{name = "Médio (900x600)", width = 900, height = 600}
+}
+local currentSizeIndex = 1
+
+local menuSizeBtn = Instance.new("TextButton")
+menuSizeBtn.Size = UDim2.new(1, 0, 0, 45)
+menuSizeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+menuSizeBtn.BackgroundTransparency = 0.2
+menuSizeBtn.Text = "📐 Tamanho: " .. menuSizes[currentSizeIndex].name
+menuSizeBtn.Font = Enum.Font.SourceSans
+menuSizeBtn.TextSize = 14
+menuSizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+menuSizeBtn.Parent = utilsContent
+Instance.new("UICorner", menuSizeBtn).CornerRadius = UDim.new(0, 8)
+
+-- Função para redimensionar UI proporcionalmente
+local function resizeUI(newWidth, newHeight)
+	-- Centralizar o painel
+	mainFrame.Position = UDim2.new(0.5, -newWidth/2, 0.5, -newHeight/2)
+	
+	-- Ajustar header (altura proporcional)
+	local headerRatio = 60 / 750 -- Altura original do header / altura original
+	header.Size = UDim2.new(1, 0, 0, math.max(50, newHeight * headerRatio))
+	
+	-- Ajustar tabs container (altura proporcional)
+	local tabsRatio = 50 / 750 -- Altura original dos tabs / altura original
+	tabsContainer.Size = UDim2.new(1, -20, 0, math.max(40, newHeight * tabsRatio))
+	tabsContainer.Position = UDim2.new(0, 10, 0, header.Size.Y.Offset + 10)
+	
+	-- Ajustar content area (altura restante)
+	local contentY = header.Size.Y.Offset + tabsContainer.Size.Y.Offset + 20
+	content.Size = UDim2.new(1, -20, 1, -contentY)
+	content.Position = UDim2.new(0, 10, 0, contentY)
+	
+	-- Ajustar tamanhos de fonte proporcionalmente
+	local fontScale = newHeight / 750
+	local titleSize = math.max(20, 28 * fontScale)
+	local tabSize = math.max(12, 15 * fontScale)
+	local buttonSize = math.max(12, 14 * fontScale)
+	
+	title.TextSize = titleSize
+	for _, tab in pairs(tabs) do
+		if tab:IsA("TextButton") then
+			tab.TextSize = tabSize
+		end
+	end
+	
+	-- Ajustar elementos das páginas
+	for _, page in pairs(pages) do
+		if page:IsA("ScrollingFrame") then
+			-- Ajustar elementos dentro das páginas
+			for _, child in ipairs(page:GetDescendants()) do
+				if child:IsA("TextLabel") or child:IsA("TextButton") then
+					child.TextSize = buttonSize
+				elseif child:IsA("TextBox") then
+					child.TextSize = buttonSize
+				end
+			end
+		end
+	end
+	
+	print("🔄 UI redimensionada proporcionalmente para " .. newWidth .. "x" .. newHeight)
+end
+
+menuSizeBtn.MouseButton1Click:Connect(function()
+	currentSizeIndex = currentSizeIndex % #menuSizes + 1
+	local size = menuSizes[currentSizeIndex]
+	
+	-- Redimensionar mainFrame
+	mainFrame.Size = UDim2.new(0, size.width, 0, size.height)
+	
+	-- Aplicar redimensionamento proporcional
+	resizeUI(size.width, size.height)
+	
+	-- Atualizar texto do botão
+	menuSizeBtn.Text = "📐 Tamanho: " .. size.name
+	
+	print("🔄 Resolução alterada para: " .. size.name)
+end)
+
 -- Ajustar tamanhos das subcategorias
 movementSubCategory.Size = UDim2.new(1, -20, 0, movementLayout.AbsoluteContentSize.Y + 40)
 boostsSubCategory.Size = UDim2.new(1, -20, 0, boostsLayout.AbsoluteContentSize.Y + 40)
@@ -2839,6 +2822,33 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
+-- Função de minimizar/expandir com animação suave (SÓ SIDEBAR)
+local function toggleMinimize()
+	menuMinimized = not menuMinimized
+	
+	local targetSidebarWidth = menuMinimized and 0 or 80
+	local targetContentPos = menuMinimized and UDim2.new(0, 5, 0, 75) or UDim2.new(0, 85, 0, 75)
+	local targetContentSize = menuMinimized and UDim2.new(1, -10, 1, -80) or UDim2.new(1, -90, 1, -80)
+	
+	-- Animar sidebar
+	TweenService:Create(sidebar, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, targetSidebarWidth, 1, -70)
+	}):Play()
+	
+	-- Animar content frame para ocupar espaço da sidebar
+	TweenService:Create(content, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		Position = targetContentPos,
+		Size = targetContentSize
+	}):Play()
+	
+	-- Mudar ícone do botão
+	minimizeBtn.Text = menuMinimized and "►" or "◄"
+	
+	print(menuMinimized and "📕 Abas escondidas" or "📖 Abas visíveis")
+end
+
+minimizeBtn.MouseButton1Click:Connect(toggleMinimize)
+
 -- Tab connections
 tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
 tabESP.MouseButton1Click:Connect(function() setTab("ESP") end)
@@ -2846,23 +2856,49 @@ tabAimbot.MouseButton1Click:Connect(function() setTab("AIMBOT") end)
 tabUtil.MouseButton1Click:Connect(function() setTab("UTIL") end)
 
 -- Mostrar/ocultar painel
+local cursorForceLoop = nil
 local function showPanel(show: boolean)
 	if panelVisible == show then return end
 	panelVisible = show
 	mainFrame.Visible = show
+	inputBlocker.Visible = show
 
 	if show then
+		-- BLOQUEAR CHAT E STATS IMEDIATAMENTE
+		pcall(function()
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Health, false)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.EmotesMenu, false)
+		end)
+		
 		-- Salvar estado atual do mouse
 		prevMouseBehavior = UserInputService.MouseBehavior
 		prevMouseIconEnabled = UserInputService.MouseIconEnabled
 
-		-- Liberar mouse para usar a interface
+		-- Forçar liberação do cursor SEMPRE
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
+		
+		-- Loop para garantir que cursor fica sempre livre
+		if cursorForceLoop then cursorForceLoop:Disconnect() end
+		cursorForceLoop = RunService.RenderStepped:Connect(function()
+			if panelVisible then
+				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+				UserInputService.MouseIconEnabled = true
+			end
+		end)
 
 		-- Atualizar lista de players quando abrir o painel
 		rebuildPlayersList()
 	else
+		-- Parar loop de forçar cursor
+		if cursorForceLoop then
+			cursorForceLoop:Disconnect()
+			cursorForceLoop = nil
+		end
+		
 		-- Restaurar estado do mouse quando fechar
 		if prevMouseBehavior then
 				UserInputService.MouseBehavior = prevMouseBehavior
@@ -2870,6 +2906,15 @@ local function showPanel(show: boolean)
 		if prevMouseIconEnabled ~= nil then
 				UserInputService.MouseIconEnabled = prevMouseIconEnabled
 		end
+		
+		-- REATIVAR CHAT E STATS
+		pcall(function()
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, true)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.Health, true)
+			game:GetService("StarterGui"):SetCoreGuiEnabled(Enum.CoreGuiType.EmotesMenu, true)
+		end)
 	end
 end
 
