@@ -7,6 +7,15 @@ local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 
+-- Silenciar avisos de WaitForChild do jogo
+local oldWarn = warn
+warn = function(...)
+	local msg = tostring(...)
+	if not msg:find("Infinite yield") then
+		oldWarn(...)
+	end
+end
+
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
@@ -70,6 +79,7 @@ showBox3D = false
 showTracers = false
 tracerMode = "Sky" -- Sky ou Center
 espColor = Color3.fromRGB(255, 0, 0) -- Cor padrão das boxes
+espTracerColor = Color3.fromRGB(255, 255, 255) -- Cor padrão dos tracers (branco)
 showEspDistance = false
 espDistanceColor = Color3.fromRGB(255, 255, 0) -- Cor padrão da distância (amarelo)
 
@@ -136,6 +146,11 @@ bugCarConn = nil
 -- Player selection
 selectedPlayer = nil
 playerButtons = {}
+
+-- Search system
+local searchQuery = ""
+local searchBox = nil
+local isTypingInSearch = false
 
 -- ========= FUNÇÕES AUXILIARES PARA LISTA DE JOGADORES =========
 function getPlayerTeam(player)
@@ -250,19 +265,9 @@ function updatePlayerButton(player, button)
 	end
 end
 
--- Sistema de atualização em tempo real
+-- Sistema de atualização em tempo real (DESABILITADO para não interferir na pesquisa)
 function startRealTimeUpdates()
-	task.spawn(function()
-		while true do
-			task.wait(0.5) -- Atualizar a cada 0.5 segundos
-
-			for player, button in pairs(playerButtons) do
-				if player and player.Parent and button and button.Parent then
-					updatePlayerButton(player, button)
-				end
-			end
-		end
-	end)
+	-- Desabilitado para evitar recarregar lista durante pesquisa
 end
 
 -- Conectar eventos de mudança de equipe
@@ -448,19 +453,20 @@ Players.PlayerRemoving:Connect(function(p)
 	end
 end)
 
-function applySearch(text)
-	if not playerButtons then return end
-	text = text:lower()
-
+function filterPlayersBySearch(query)
+	searchQuery = query:lower()
 	for player, button in pairs(playerButtons) do
-		if text == "" then
-			button.Visible = true
-		else
-			local name = player.Name:lower()
-			local display = player.DisplayName:lower()
-			button.Visible = name:find(text) or display:find(text)
+		if button and button.Parent then
+			local playerName = player.Name:lower()
+			local displayName = (player.DisplayName or ""):lower()
+			local matches = playerName:find(searchQuery, 1, true) or displayName:find(searchQuery, 1, true)
+			button.Visible = (searchQuery == "" or matches ~= nil)
 		end
 	end
+end
+
+function applySearch(text)
+	filterPlayersBySearch(text)
 end
 
 
@@ -1060,8 +1066,8 @@ function ensureTracer(character)
 		tracers[character] = tracer
 	end
 	
-	-- Usar a mesma cor da box
-	tracer.Color = espColor
+	-- Usar cor independente dos tracers
+	tracer.Color = espTracerColor
 	tracer.Thickness = 1
 	
 	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
@@ -1930,16 +1936,39 @@ searchBox.Size = UDim2.new(0.7, -5, 1, 0)
 searchBox.Position = UDim2.new(0, 0, 0, 0)
 searchBox.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
 searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchBox.PlaceholderText = "Pesquisar jogador..."
+
 searchBox.Font = Enum.Font.SourceSans
 searchBox.TextSize = 14
+searchBox.ClearTextOnFocus = false
 searchBox.Parent = topContainer
 Instance.new("UICorner", searchBox).CornerRadius = UDim.new(0, 8)
 
--- Conectar pesquisa
+-- Adicionar borda ao searchBox
+local searchBoxStroke = Instance.new("UIStroke")
+searchBoxStroke.Color = COLOR_NEON_PINK
+searchBoxStroke.Thickness = 1
+searchBoxStroke.Transparency = 0.7
+searchBoxStroke.Parent = searchBox
+
+-- Conectar pesquisa em tempo real
+searchBox.Focused:Connect(function()
+	isTypingInSearch = true
+end)
+
+searchBox.FocusLost:Connect(function()
+	isTypingInSearch = false
+end)
+
 searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-	if not searchBox or not searchBox.Parent then return end
-	updatePlayersList()
+	local text = searchBox.Text:lower()
+	for player, button in pairs(playerButtons) do
+		if button and button.Parent then
+			local playerName = player.Name:lower()
+			local displayName = (player.DisplayName or ""):lower()
+			local matches = playerName:find(text, 1, true) or displayName:find(text, 1, true)
+			button.Visible = (text == "" or matches ~= nil)
+		end
+	end
 end)
 
 -- Contador de jogadores (lado direito)
@@ -1974,9 +2003,8 @@ local playersLayout = Instance.new("UIListLayout")
 playersLayout.Padding = UDim.new(0, 4)
 playersLayout.Parent = playersList
 
-playersLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-	playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y)
-end)
+-- Desabilitar atualização automática para evitar tremida
+playersList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 -- Painel de ações simples
 local actionsPanel = Instance.new("Frame")
@@ -2173,15 +2201,11 @@ end
 
 -- Função simples para atualizar lista - ALIAS para rebuildPlayersList
 function updatePlayersList()
+	if isTypingInSearch then return end
 	rebuildPlayersList()
 end
 
--- Conectar pesquisa
-if searchBox then
-	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
-		if updatePlayersList then pcall(updatePlayersList) end
-	end)
-end
+
 
 -- Conectar botões de ação
 if tpBtn then
@@ -2207,32 +2231,29 @@ function updatePlayerCounter()
 end
 
 -- Inicializar lista simples
-task.spawn(function()
-	task.wait(0.5) -- Aguardar um pouco para garantir que tudo carregou
-	if rebuildPlayersList then
-		pcall(rebuildPlayersList)
-	end
-	if updatePlayerCounter then
-		pcall(updatePlayerCounter)
-	end
-end)
+if rebuildPlayersList then
+	rebuildPlayersList()
+end
+if updatePlayerCounter then
+	updatePlayerCounter()
+end
 
 -- Atualizar contador quando players entram/saem
 Players.PlayerAdded:Connect(function(player)
+	if isTypingInSearch then return end
 	if player ~= LocalPlayer then
 		updatePlayerCounter()
 		-- Também atualizar lista visual
 		task.wait(0.1)
-		if rebuildPlayersList then pcall(rebuildPlayersList) end
+		if rebuildPlayersList and not isTypingInSearch then pcall(rebuildPlayersList) end
 	end
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	if isTypingInSearch then return end
 	if player ~= LocalPlayer then
 		updatePlayerCounter()
-		-- Também atualizar lista visual
-		task.wait(0.1)
-		if rebuildPlayersList then pcall(rebuildPlayersList) end
+		if rebuildPlayersList and not isTypingInSearch then rebuildPlayersList() end
 	end
 end)
 
@@ -3050,24 +3071,159 @@ local espToggle = createToggle(espCategory, "ESP Ativado", function(enabled)
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
-local nameToggle = createToggle(espCategory, "Mostrar Nome", function(enabled)
+-- Nome: Toggle + Cor
+local nameFrame = Instance.new("Frame")
+nameFrame.Size = UDim2.new(1, 0, 0, 42)
+nameFrame.BackgroundTransparency = 1
+nameFrame.Parent = espCategory
+
+local nameToggle = createToggle(nameFrame, "Mostrar Nome", function(enabled)
 	showName = enabled
 end)
+nameToggle.Size = UDim2.new(0.65, -5, 1, 0)
+nameToggle.Position = UDim2.new(0, 0, 0, 0)
 
+local nameColorBtn = Instance.new("TextButton")
+nameColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
+nameColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
+nameColorBtn.BackgroundColor3 = espNameColor
+nameColorBtn.Text = "🎨"
+nameColorBtn.Font = Enum.Font.SourceSansBold
+nameColorBtn.TextSize = 18
+nameColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+nameColorBtn.Parent = nameFrame
+Instance.new("UICorner", nameColorBtn).CornerRadius = UDim.new(0, 10)
+
+local boxColors = {
+	Color3.fromRGB(255, 0, 0), Color3.fromRGB(0, 255, 0), Color3.fromRGB(0, 0, 255),
+	Color3.fromRGB(255, 255, 0), Color3.fromRGB(255, 0, 255), Color3.fromRGB(0, 255, 255),
+	Color3.fromRGB(255, 255, 255)
+}
+local nameColorIndex = 7
+
+nameColorBtn.MouseButton1Click:Connect(function()
+	nameColorIndex = (nameColorIndex % #boxColors) + 1
+	espNameColor = boxColors[nameColorIndex]
+	nameColorBtn.BackgroundColor3 = espNameColor
+	nameColorBtn.TextColor3 = nameColorIndex == 7 and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+end)
+
+-- Vida
 local healthToggle = createToggle(espCategory, "Mostrar Vida", function(enabled)
 	showHealth = enabled
-	-- Limpar overlays quando desativado
 	if not enabled then
 		for char, overlay in pairs(overlays) do
-			if overlay then
-				pcall(function() overlay:Destroy() end)
-			end
+			if overlay then pcall(function() overlay:Destroy() end) end
 		end
 		overlays = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
+-- Box 3D: Toggle + Cor
+local boxFrame = Instance.new("Frame")
+boxFrame.Size = UDim2.new(1, 0, 0, 42)
+boxFrame.BackgroundTransparency = 1
+boxFrame.Parent = espCategory
+
+local box3DToggle = createToggle(boxFrame, "Box 3D", function(enabled)
+	showBox3D = enabled
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+box3DToggle.Size = UDim2.new(0.65, -5, 1, 0)
+box3DToggle.Position = UDim2.new(0, 0, 0, 0)
+
+local boxColorBtn = Instance.new("TextButton")
+boxColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
+boxColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
+boxColorBtn.BackgroundColor3 = espColor
+boxColorBtn.Text = "🎨"
+boxColorBtn.Font = Enum.Font.SourceSansBold
+boxColorBtn.TextSize = 18
+boxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+boxColorBtn.Parent = boxFrame
+Instance.new("UICorner", boxColorBtn).CornerRadius = UDim.new(0, 10)
+
+local boxColorIndex = 1
+
+boxColorBtn.MouseButton1Click:Connect(function()
+	boxColorIndex = (boxColorIndex % #boxColors) + 1
+	espColor = boxColors[boxColorIndex]
+	boxColorBtn.BackgroundColor3 = espColor
+end)
+
+-- Tracers: Toggle + Cor
+local tracersFrame = Instance.new("Frame")
+tracersFrame.Size = UDim2.new(1, 0, 0, 42)
+tracersFrame.BackgroundTransparency = 1
+tracersFrame.Parent = espCategory
+
+local tracersToggle = createToggle(tracersFrame, "Tracers (Linhas)", function(enabled)
+	showTracers = enabled
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+tracersToggle.Size = UDim2.new(0.65, -5, 1, 0)
+tracersToggle.Position = UDim2.new(0, 0, 0, 0)
+
+local tracerColorBtn = Instance.new("TextButton")
+tracerColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
+tracerColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
+tracerColorBtn.BackgroundColor3 = espTracerColor
+tracerColorBtn.Text = "🎨"
+tracerColorBtn.Font = Enum.Font.SourceSansBold
+tracerColorBtn.TextSize = 18
+tracerColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+tracerColorBtn.Parent = tracersFrame
+Instance.new("UICorner", tracerColorBtn).CornerRadius = UDim.new(0, 10)
+
+local tracerColorIndex = 7
+
+tracerColorBtn.MouseButton1Click:Connect(function()
+	tracerColorIndex = (tracerColorIndex % #boxColors) + 1
+	espTracerColor = boxColors[tracerColorIndex]
+	tracerColorBtn.BackgroundColor3 = espTracerColor
+	tracerColorBtn.TextColor3 = tracerColorIndex == 7 and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+end)
+
+-- Distância: Toggle + Cor
+local distFrame = Instance.new("Frame")
+distFrame.Size = UDim2.new(1, 0, 0, 42)
+distFrame.BackgroundTransparency = 1
+distFrame.Parent = espCategory
+
+local espDistToggle = createToggle(distFrame, "Mostrar Distância (m)", function(enabled)
+	showEspDistance = enabled
+end)
+espDistToggle.Size = UDim2.new(0.65, -5, 1, 0)
+espDistToggle.Position = UDim2.new(0, 0, 0, 0)
+
+local distColorBtn = Instance.new("TextButton")
+distColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
+distColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
+distColorBtn.BackgroundColor3 = espDistanceColor
+distColorBtn.Text = "🎨"
+distColorBtn.Font = Enum.Font.SourceSansBold
+distColorBtn.TextSize = 18
+distColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+distColorBtn.Parent = distFrame
+Instance.new("UICorner", distColorBtn).CornerRadius = UDim.new(0, 10)
+
+local distColorIndex = 4
+
+distColorBtn.MouseButton1Click:Connect(function()
+	distColorIndex = (distColorIndex % #boxColors) + 1
+	espDistanceColor = boxColors[distColorIndex]
+	distColorBtn.BackgroundColor3 = espDistanceColor
+	distColorBtn.TextColor3 = distColorIndex == 4 and Color3.fromRGB(0, 0, 0) or Color3.fromRGB(255, 255, 255)
+end)
+
+-- Outros toggles
+local skeletonToggle = createToggle(espCategory, "Esqueleto (ESP de Corpo)", function(enabled)
+	showSkeleton = enabled
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- Configurações avançadas
 local modeBtn = Instance.new("TextButton")
 modeBtn.Size = UDim2.new(1, 0, 0, 40)
 modeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
@@ -3090,99 +3246,6 @@ local autoEspToggle = createToggle(espCategory, "ESP Automático (Visível/Invis
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
--- Skeleton Toggle
-local skeletonToggle = createToggle(espCategory, "Esqueleto (ESP de Corpo)", function(enabled)
-	showSkeleton = enabled
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Box 3D Toggle
-local box3DToggle = createToggle(espCategory, "Box 3D", function(enabled)
-	showBox3D = enabled
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Botão para cor da Box 3D
-local boxColorBtn = Instance.new("TextButton")
-boxColorBtn.Size = UDim2.new(1, 0, 0, 40)
-boxColorBtn.BackgroundColor3 = espColor
-boxColorBtn.BackgroundTransparency = 0.2
-boxColorBtn.Text = "🎨 Cor da Box"
-boxColorBtn.Font = Enum.Font.SourceSans
-boxColorBtn.TextSize = 14
-boxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-boxColorBtn.Parent = espCategory
-Instance.new("UICorner", boxColorBtn).CornerRadius = UDim.new(0, 8)
-
-local boxColors = {
-	Color3.fromRGB(255, 0, 0),   -- Vermelho
-	Color3.fromRGB(0, 255, 0),   -- Verde
-	Color3.fromRGB(0, 0, 255),   -- Azul
-	Color3.fromRGB(255, 255, 0), -- Amarelo
-	Color3.fromRGB(255, 0, 255), -- Magenta
-	Color3.fromRGB(0, 255, 255), -- Ciano
-	Color3.fromRGB(255, 255, 255) -- Branco
-}
-local boxColorIndex = 1
-
-boxColorBtn.MouseButton1Click:Connect(function()
-	boxColorIndex = (boxColorIndex % #boxColors) + 1
-	espColor = boxColors[boxColorIndex]
-	boxColorBtn.BackgroundColor3 = espColor
-end)
-
--- Botão para cor do nome
-local nameColorBtn = Instance.new("TextButton")
-nameColorBtn.Size = UDim2.new(1, 0, 0, 40)
-nameColorBtn.BackgroundColor3 = espNameColor
-nameColorBtn.BackgroundTransparency = 0.2
-nameColorBtn.Text = "🎨 Cor do Nome"
-nameColorBtn.Font = Enum.Font.SourceSans
-nameColorBtn.TextSize = 14
-nameColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-nameColorBtn.Parent = espCategory
-Instance.new("UICorner", nameColorBtn).CornerRadius = UDim.new(0, 8)
-
-local nameColorIndex = 7 -- Começa no branco
-
-nameColorBtn.MouseButton1Click:Connect(function()
-	nameColorIndex = (nameColorIndex % #boxColors) + 1
-	espNameColor = boxColors[nameColorIndex]
-	nameColorBtn.BackgroundColor3 = espNameColor
-end)
-
--- Toggle de Distância ESP
-local espDistToggle = createToggle(espCategory, "Mostrar Distância (m)", function(enabled)
-	showEspDistance = enabled
-end)
-
--- Botão para cor da Distância
-local distColorBtn = Instance.new("TextButton")
-distColorBtn.Size = UDim2.new(1, 0, 0, 40)
-distColorBtn.BackgroundColor3 = espDistanceColor
-distColorBtn.BackgroundTransparency = 0.2
-distColorBtn.Text = "🎨 Cor da Distância"
-distColorBtn.Font = Enum.Font.SourceSans
-distColorBtn.TextSize = 14
-distColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-distColorBtn.Parent = espCategory
-Instance.new("UICorner", distColorBtn).CornerRadius = UDim.new(0, 8)
-
-local distColorIndex = 4 -- Começa no amarelo
-
-distColorBtn.MouseButton1Click:Connect(function()
-	distColorIndex = (distColorIndex % #boxColors) + 1
-	espDistanceColor = boxColors[distColorIndex]
-	distColorBtn.BackgroundColor3 = espDistanceColor
-end)
-
--- Tracers Toggle
-local tracersToggle = createToggle(espCategory, "Tracers (Linhas)", function(enabled)
-	showTracers = enabled
-	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
-
--- Tracer Mode Button
 local tracerModeBtn = Instance.new("TextButton")
 tracerModeBtn.Size = UDim2.new(1, 0, 0, 40)
 tracerModeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
@@ -4274,10 +4337,7 @@ function showPanel(show)
 		end)
 
 		-- Atualizar lista de players quando abrir o painel
-		task.spawn(function()
-			task.wait(0.1)
-			if updatePlayersList then pcall(updatePlayersList) end
-		end)
+		if updatePlayersList then updatePlayersList() end
 	else
 		-- Parar loop de forçar cursor
 		if cursorForceLoop then
@@ -4366,14 +4426,17 @@ function clearPlayersList()
 end
 
 function rebuildPlayersList()
-    -- Limpar lista existente
+    if isTypingInSearch then return end
+    
+    -- Salvar posição do scroll
+    local scrollPos = playersList.CanvasPosition
+    
     for _, child in ipairs(playersList:GetChildren()) do
         if child:IsA("Frame") or child:IsA("TextButton") then
             child:Destroy()
         end
     end
 
-    -- Limpar cache de botões
     for player, button in pairs(playerButtons) do
         if button and button.Parent then
             button:Destroy()
@@ -4381,25 +4444,19 @@ function rebuildPlayersList()
     end
     playerButtons = {}
 
-    -- Criar botões para TODOS os jogadores
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            pcall(function()
-                createPlayerButton(plr)
-            end)
+            createPlayerButton(plr)
         end
     end
 
-    -- Aplicar filtro de pesquisa se existir
     if searchBox and searchBox.Text and searchBox.Text ~= "" then
         applySearch(searchBox.Text)
     end
-
-    -- Ajustar tamanho do canvas
+    
+    -- Restaurar posição do scroll
     task.wait()
-    if playersLayout then
-        playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y)
-    end
+    playersList.CanvasPosition = scrollPos
 end
 
 Players.PlayerAdded:Connect(function(p)
@@ -4633,26 +4690,20 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- Sistema de atualização automática REABILITADO
-startRealTimeUpdates()
+-- Sistema de atualização automática DESABILITADO para não interferir na pesquisa
+-- startRealTimeUpdates()
 
--- Configuração inicial de eventos para players existentes
-for _, player in ipairs(Players:GetPlayers()) do
-	if player ~= LocalPlayer then
-		setupPlayerEvents(player)
-	end
-end
-
--- Eventos globais para atualização automática da lista
+-- Eventos globais SIMPLIFICADOS - só adiciona/remove, não recarrega tudo
 Players.PlayerAdded:Connect(function(player)
+	if isTypingInSearch then return end
 	if player ~= LocalPlayer then
-		setupPlayerEvents(player)
-		task.wait(0.1)
-		rebuildPlayersList()
+		createPlayerButton(player)
+		updatePlayerCounter()
 	end
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	if isTypingInSearch then return end
 	if playerButtons[player] then
 		playerButtons[player]:Destroy()
 		playerButtons[player] = nil
@@ -4663,8 +4714,7 @@ Players.PlayerRemoving:Connect(function(player)
 			actionsPanel.Visible = false
 		end
 	end
-	task.wait(0.1)
-	rebuildPlayersList()
+	updatePlayerCounter()
 end)
 
 print("✅ Sistema de atualização automática ATIVADO")
