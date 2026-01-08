@@ -35,7 +35,7 @@ aimbotShowFOVZero = false
 aimbotOnlyVisible = false
 aimbotOnNPCs = false
 aimbotMobile = false
-aimbotTeamCheck = false
+aimbotTeamCheck = true
 
 -- Dropdown alvo
 targetDropdownOpen = false
@@ -66,6 +66,18 @@ teamFilter = TEAM_FILTER_DEFAULT
 espAutoEnabled = false
 
 showSkeleton = false
+showBox3D = false
+showTracers = false
+tracerMode = "Sky" -- Sky ou Center
+espColor = Color3.fromRGB(255, 0, 0) -- Cor padrão das boxes
+showEspDistance = false
+espDistanceColor = Color3.fromRGB(255, 255, 0) -- Cor padrão da distância (amarelo)
+
+boxes = {}           -- [Character] = BoxHandles
+tracers = {}         -- [Character] = Line
+distanceLabels = {}  -- [Character] = Drawing.Text
+nameLabels = {}      -- [Character] = Drawing.Text
+espNameColor = Color3.fromRGB(255, 255, 255) -- Cor padrão do nome (branco)
 
 -- Player enhancements globais
 speedBoostEnabled = false
@@ -749,8 +761,20 @@ function forEachCharacterPart(char, fn)
 end
 
 function isEnemy(p)
-	-- Mostrar ESP em todos exceto você mesmo
-	return p ~= LocalPlayer
+	-- Verificar se não é você mesmo
+	if p == LocalPlayer then return false end
+	
+	-- Se team check estiver desativado, todos são inimigos
+	if not aimbotTeamCheck then return true end
+	
+	-- Se team check estiver ativado, verificar equipe
+	if not LocalPlayer.Team or not p.Team then
+		-- Se algum jogador não tem equipe, considerar inimigo
+		return true
+	end
+	
+	-- Retornar true se estiverem em equipes diferentes
+	return LocalPlayer.Team ~= p.Team
 end
 
 function applyHighlightMode(highlight)
@@ -836,8 +860,246 @@ function ensureHighlight(character)
 	h.Enabled = true
 end
 
+-- Função separada para exibir distância (embaixo da box)
+function ensureDistanceLabel(character)
+	if not character or not character.Parent then return end
+	if not espEnabled or not showEspDistance then
+		if distanceLabels[character] then
+			distanceLabels[character].Visible = false
+		end
+		return
+	end
+	
+	local root = getPrimaryPart(character)
+	if not root then return end
+	
+	local camera = workspace.CurrentCamera
+	-- Usar posição do root ao invés de calcular minY
+	local bottomPos = root.Position - Vector3.new(0, 3, 0)
+	local screenPos, onScreen = camera:WorldToViewportPoint(bottomPos)
+	
+	if not onScreen then
+		if distanceLabels[character] then
+			distanceLabels[character].Visible = false
+		end
+		return
+	end
+	
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local dist = math.floor((targetRoot.Position - myRoot.Position).Magnitude)
+			local label = distanceLabels[character]
+			if not label then
+				label = Drawing.new("Text")
+				label.Size = 14
+				label.Center = true
+				label.Outline = true
+				distanceLabels[character] = label
+			end
+			label.Text = dist .. "m"
+			label.Color = espDistanceColor
+			label.Position = Vector2.new(screenPos.X, screenPos.Y + 5)
+			label.Visible = true
+		end
+	end
+end
+
+-- Função para exibir nome (em cima da box)
+function ensureNameLabel(character, player)
+	if not character or not character.Parent then return end
+	if not espEnabled or not showName then
+		if nameLabels[character] then
+			nameLabels[character].Visible = false
+		end
+		return
+	end
+	
+	local root = getPrimaryPart(character)
+	if not root then return end
+	
+	local camera = workspace.CurrentCamera
+	-- Usar posição do root ao invés de calcular maxY
+	local topPos = root.Position + Vector3.new(0, 3, 0)
+	local screenPos, onScreen = camera:WorldToViewportPoint(topPos)
+	
+	if not onScreen then
+		if nameLabels[character] then
+			nameLabels[character].Visible = false
+		end
+		return
+	end
+	
+	local label = nameLabels[character]
+	if not label then
+		label = Drawing.new("Text")
+		label.Size = 14
+		label.Center = true
+		label.Outline = true
+		nameLabels[character] = label
+	end
+	label.Text = player.Name
+	label.Color = espNameColor
+	label.Position = Vector2.new(screenPos.X, screenPos.Y - 10)
+	label.Visible = true
+end
+
+-- Box 3D estilo Warzone (cobre todo o corpo)
+function ensureBox3D(character)
+	if not character or not character.Parent then return end
+	if not showBox3D or not espEnabled then
+		if boxes[character] then
+			for _, line in pairs(boxes[character]) do
+				pcall(function() line:Remove() end)
+			end
+			boxes[character] = nil
+		end
+		return
+	end
+	
+	if not boxes[character] then
+		boxes[character] = {}
+		for i = 1, 12 do
+			local line = Drawing.new("Line")
+			line.Thickness = 1.5
+			line.Transparency = 1
+			boxes[character][i] = line
+		end
+	end
+	
+	-- Calcular bounding box baseado em todas as partes do corpo
+	local minX, maxX = math.huge, -math.huge
+	local minY, maxY = math.huge, -math.huge
+	local minZ, maxZ = math.huge, -math.huge
+	
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local pos = part.Position
+			local size = part.Size
+			
+			minX = math.min(minX, pos.X - size.X/2)
+			maxX = math.max(maxX, pos.X + size.X/2)
+			minY = math.min(minY, pos.Y - size.Y/2)
+			maxY = math.max(maxY, pos.Y + size.Y/2)
+			minZ = math.min(minZ, pos.Z - size.Z/2)
+			maxZ = math.max(maxZ, pos.Z + size.Z/2)
+		end
+	end
+	
+	if minX == math.huge then return end
+	
+	local camera = workspace.CurrentCamera
+	
+	-- 8 cantos da box baseados no bounding box real
+	local corners = {
+		Vector3.new(minX, maxY, minZ),
+		Vector3.new(maxX, maxY, minZ),
+		Vector3.new(maxX, maxY, maxZ),
+		Vector3.new(minX, maxY, maxZ),
+		Vector3.new(minX, minY, minZ),
+		Vector3.new(maxX, minY, minZ),
+		Vector3.new(maxX, minY, maxZ),
+		Vector3.new(minX, minY, maxZ)
+	}
+	
+	local screenCorners = {}
+	local allOnScreen = true
+	for i, corner in ipairs(corners) do
+		local screenPos, onScreen = camera:WorldToViewportPoint(corner)
+		screenCorners[i] = Vector2.new(screenPos.X, screenPos.Y)
+		if not onScreen then
+			allOnScreen = false
+		end
+	end
+	
+	if not allOnScreen then
+		for _, line in pairs(boxes[character]) do
+			line.Visible = false
+		end
+		if distanceLabels[character] then
+			distanceLabels[character].Visible = false
+		end
+		return
+	end
+	
+	-- Desenhar 12 linhas
+	local lines = boxes[character]
+	local edges = {
+		{1,2},{2,3},{3,4},{4,1}, -- Topo
+		{5,6},{6,7},{7,8},{8,5}, -- Base
+		{1,5},{2,6},{3,7},{4,8}  -- Verticais
+	}
+	
+	for i, edge in ipairs(edges) do
+		lines[i].From = screenCorners[edge[1]]
+		lines[i].To = screenCorners[edge[2]]
+		lines[i].Color = espColor
+		lines[i].Thickness = 1.5
+		lines[i].Visible = true
+	end
+end
+
+-- Tracers com modos Sky e Center
+function ensureTracer(character)
+	if not character or not character.Parent then return end
+	if not showTracers or not espEnabled then
+		if tracers[character] then
+			pcall(function() tracers[character]:Remove() end)
+			tracers[character] = nil
+		end
+		return
+	end
+	
+	local tracer = tracers[character]
+	if not tracer then
+		tracer = Drawing.new("Line")
+		tracer.Thickness = 1
+		tracer.Transparency = 1
+		tracers[character] = tracer
+	end
+	
+	-- Usar a mesma cor da box
+	tracer.Color = espColor
+	tracer.Thickness = 1
+	
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+	if not torso then
+		tracer.Visible = false
+		return
+	end
+	
+	local camera = workspace.CurrentCamera
+	local chestPos = torso.Position
+	local chestScreen, chestOnScreen = camera:WorldToViewportPoint(chestPos)
+	
+	if not chestOnScreen then
+		tracer.Visible = false
+		return
+	end
+	
+	if tracerMode == "Center" then
+		-- Center: Do chão (parte inferior central da tela) até o peito
+		tracer.From = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y)
+		tracer.To = Vector2.new(chestScreen.X, chestScreen.Y)
+		tracer.Visible = true
+	else
+		-- Sky: Do topo (parte superior central da tela) até o peito
+		tracer.From = Vector2.new(camera.ViewportSize.X / 2, 0)
+		tracer.To = Vector2.new(chestScreen.X, chestScreen.Y)
+		tracer.Visible = true
+	end
+end
+
 function ensureOverlayFor(p, character)
 	if not character or not character.Parent then return end
+	-- Remover overlay antigo se existir para evitar duplicação
+	if overlays[character] then
+		pcall(function() overlays[character]:Destroy() end)
+		overlays[character] = nil
+	end
+	
 	local bb = overlays[character]
 	if not bb or not bb.Parent then
 		local head = getHead(character); if not head then return end
@@ -900,7 +1162,7 @@ function updateOverlay(p, character, bb)
 	bb.StudsOffsetWorldSpace = overlayOffsetFor(espPosition)
 
 	local bits = {}
-	if showName then table.insert(bits, (p.DisplayName or p.Name)) end
+	-- Só mostrar nome se showName estiver ativo E não estiver usando nameLabels
 	if showHealth then
 		local hum = character:FindFirstChildOfClass("Humanoid"); if hum then table.insert(bits, ("HP: %d"):format(hum.Health + 0.5)) end
 	end
@@ -910,22 +1172,26 @@ function updateOverlay(p, character, bb)
 	local visibleByFilter = true
 	if teamFilter == "Só inimigos" then visibleByFilter = isEnemy(p) end
 
-	bb.Enabled = espEnabled and (showName or showHealth) and visibleByFilter
+	bb.Enabled = espEnabled and showHealth and visibleByFilter
 end
 
 function refreshESPForPlayer(p)
 	if p == LocalPlayer then return end
-	-- Mostrar apenas inimigos
+	-- Verificar se é inimigo (team check automático)
 	if not isEnemy(p) then return end
 	
 	local char = p.Character; if not char then return end
 	if espEnabled then
 		ensureHighlight(char)
-		ensureOverlayFor(p, char)
-		updateOverlay(p, char, overlays[char])
+		ensureBox3D(char)
+		if showHealth then
+			ensureOverlayFor(p, char)
+			updateOverlay(p, char, overlays[char])
+		end
 	else
 		if overlays[char] then overlays[char].Enabled = false end
 		if highlights[char] then highlights[char].Enabled = false end
+		if boxes[char] then boxes[char]:Destroy(); boxes[char] = nil end
 	end
 end
 
@@ -940,8 +1206,18 @@ function cleanupESPForCharacter(character)
 		highlights[character] = nil
 	end
 	if boxes[character] then 
-		pcall(function() boxes[character]:Destroy() end)
+		for _, line in pairs(boxes[character]) do
+			pcall(function() line:Remove() end)
+		end
 		boxes[character] = nil
+	end
+	if distanceLabels[character] then
+		pcall(function() distanceLabels[character]:Remove() end)
+		distanceLabels[character] = nil
+	end
+	if nameLabels[character] then
+		pcall(function() nameLabels[character]:Remove() end)
+		nameLabels[character] = nil
 	end
 	if linesFrames[character] then 
 		pcall(function() linesFrames[character]:Destroy() end)
@@ -972,7 +1248,7 @@ task.spawn(function()
 			continue
 		end
 		
-		-- Limpar ESPs antigos
+		-- Limpar ESPs antigos de personagens que não existem mais
 		for char, highlight in pairs(highlights) do
 			if not char or not char.Parent then
 				pcall(function() highlight:Destroy() end)
@@ -983,6 +1259,18 @@ task.spawn(function()
 			if not char or not char.Parent then
 				pcall(function() overlay:Destroy() end)
 				overlays[char] = nil
+			end
+		end
+		for char, label in pairs(nameLabels) do
+			if not char or not char.Parent then
+				pcall(function() label:Remove() end)
+				nameLabels[char] = nil
+			end
+		end
+		for char, label in pairs(distanceLabels) do
+			if not char or not char.Parent then
+				pcall(function() label:Remove() end)
+				distanceLabels[char] = nil
 			end
 		end
 		
@@ -1968,6 +2256,9 @@ function saveConfig(configName)
 		espMode = espMode,
 		espAutoEnabled = espAutoEnabled,
 		showSkeleton = showSkeleton,
+		showBox3D = showBox3D,
+		showTracers = showTracers,
+		showEspDistance = showEspDistance,
 		ESP_MAX_DISTANCE = ESP_MAX_DISTANCE,
 		espPosition = espPosition,
 		-- Aimbot
@@ -2317,6 +2608,9 @@ function loadConfig(configName)
 		espMode = result.espMode or "Cheio"
 		espAutoEnabled = result.espAutoEnabled or false
 		showSkeleton = result.showSkeleton or false
+		showBox3D = result.showBox3D or false
+		showTracers = result.showTracers or false
+		showEspDistance = result.showEspDistance or false
 		ESP_MAX_DISTANCE = result.ESP_MAX_DISTANCE or 500
 		espPosition = result.espPosition or "Topo"
 		aimbotEnabled = result.aimbotEnabled or false
@@ -2722,6 +3016,37 @@ local espCategory = createCategory(espPage, "ESP Settings")
 
 local espToggle = createToggle(espCategory, "ESP Ativado", function(enabled)
 	espEnabled = enabled
+	if not enabled then
+		-- Limpar todos os ESPs quando desativado
+		for char, highlight in pairs(highlights) do
+			if highlight then pcall(function() highlight:Destroy() end) end
+		end
+		for char, overlay in pairs(overlays) do
+			if overlay then pcall(function() overlay:Destroy() end) end
+		end
+		for char, lines in pairs(boxes) do
+			if lines then
+				for _, line in pairs(lines) do
+					if line then pcall(function() line:Remove() end) end
+				end
+			end
+		end
+		for char, tracer in pairs(tracers) do
+			if tracer then pcall(function() tracer:Remove() end) end
+		end
+		for char, label in pairs(distanceLabels) do
+			if label then pcall(function() label:Remove() end) end
+		end
+		for char, label in pairs(nameLabels) do
+			if label then pcall(function() label:Remove() end) end
+		end
+		highlights = {}
+		overlays = {}
+		boxes = {}
+		tracers = {}
+		distanceLabels = {}
+		nameLabels = {}
+	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
@@ -2731,6 +3056,16 @@ end)
 
 local healthToggle = createToggle(espCategory, "Mostrar Vida", function(enabled)
 	showHealth = enabled
+	-- Limpar overlays quando desativado
+	if not enabled then
+		for char, overlay in pairs(overlays) do
+			if overlay then
+				pcall(function() overlay:Destroy() end)
+			end
+		end
+		overlays = {}
+	end
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
 local modeBtn = Instance.new("TextButton")
@@ -2759,6 +3094,109 @@ end)
 local skeletonToggle = createToggle(espCategory, "Esqueleto (ESP de Corpo)", function(enabled)
 	showSkeleton = enabled
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- Box 3D Toggle
+local box3DToggle = createToggle(espCategory, "Box 3D", function(enabled)
+	showBox3D = enabled
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- Botão para cor da Box 3D
+local boxColorBtn = Instance.new("TextButton")
+boxColorBtn.Size = UDim2.new(1, 0, 0, 40)
+boxColorBtn.BackgroundColor3 = espColor
+boxColorBtn.BackgroundTransparency = 0.2
+boxColorBtn.Text = "🎨 Cor da Box"
+boxColorBtn.Font = Enum.Font.SourceSans
+boxColorBtn.TextSize = 14
+boxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+boxColorBtn.Parent = espCategory
+Instance.new("UICorner", boxColorBtn).CornerRadius = UDim.new(0, 8)
+
+local boxColors = {
+	Color3.fromRGB(255, 0, 0),   -- Vermelho
+	Color3.fromRGB(0, 255, 0),   -- Verde
+	Color3.fromRGB(0, 0, 255),   -- Azul
+	Color3.fromRGB(255, 255, 0), -- Amarelo
+	Color3.fromRGB(255, 0, 255), -- Magenta
+	Color3.fromRGB(0, 255, 255), -- Ciano
+	Color3.fromRGB(255, 255, 255) -- Branco
+}
+local boxColorIndex = 1
+
+boxColorBtn.MouseButton1Click:Connect(function()
+	boxColorIndex = (boxColorIndex % #boxColors) + 1
+	espColor = boxColors[boxColorIndex]
+	boxColorBtn.BackgroundColor3 = espColor
+end)
+
+-- Botão para cor do nome
+local nameColorBtn = Instance.new("TextButton")
+nameColorBtn.Size = UDim2.new(1, 0, 0, 40)
+nameColorBtn.BackgroundColor3 = espNameColor
+nameColorBtn.BackgroundTransparency = 0.2
+nameColorBtn.Text = "🎨 Cor do Nome"
+nameColorBtn.Font = Enum.Font.SourceSans
+nameColorBtn.TextSize = 14
+nameColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+nameColorBtn.Parent = espCategory
+Instance.new("UICorner", nameColorBtn).CornerRadius = UDim.new(0, 8)
+
+local nameColorIndex = 7 -- Começa no branco
+
+nameColorBtn.MouseButton1Click:Connect(function()
+	nameColorIndex = (nameColorIndex % #boxColors) + 1
+	espNameColor = boxColors[nameColorIndex]
+	nameColorBtn.BackgroundColor3 = espNameColor
+end)
+
+-- Toggle de Distância ESP
+local espDistToggle = createToggle(espCategory, "Mostrar Distância (m)", function(enabled)
+	showEspDistance = enabled
+end)
+
+-- Botão para cor da Distância
+local distColorBtn = Instance.new("TextButton")
+distColorBtn.Size = UDim2.new(1, 0, 0, 40)
+distColorBtn.BackgroundColor3 = espDistanceColor
+distColorBtn.BackgroundTransparency = 0.2
+distColorBtn.Text = "🎨 Cor da Distância"
+distColorBtn.Font = Enum.Font.SourceSans
+distColorBtn.TextSize = 14
+distColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+distColorBtn.Parent = espCategory
+Instance.new("UICorner", distColorBtn).CornerRadius = UDim.new(0, 8)
+
+local distColorIndex = 4 -- Começa no amarelo
+
+distColorBtn.MouseButton1Click:Connect(function()
+	distColorIndex = (distColorIndex % #boxColors) + 1
+	espDistanceColor = boxColors[distColorIndex]
+	distColorBtn.BackgroundColor3 = espDistanceColor
+end)
+
+-- Tracers Toggle
+local tracersToggle = createToggle(espCategory, "Tracers (Linhas)", function(enabled)
+	showTracers = enabled
+	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
+end)
+
+-- Tracer Mode Button
+local tracerModeBtn = Instance.new("TextButton")
+tracerModeBtn.Size = UDim2.new(1, 0, 0, 40)
+tracerModeBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+tracerModeBtn.BackgroundTransparency = 0.2
+tracerModeBtn.Text = "Modo Tracer: " .. tracerMode
+tracerModeBtn.Font = Enum.Font.SourceSans
+tracerModeBtn.TextSize = 14
+tracerModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tracerModeBtn.Parent = espCategory
+Instance.new("UICorner", tracerModeBtn).CornerRadius = UDim.new(0, 8)
+
+tracerModeBtn.MouseButton1Click:Connect(function()
+	tracerMode = (tracerMode == "Sky") and "Center" or "Sky"
+	tracerModeBtn.Text = "Modo Tracer: " .. tracerMode
 end)
 
 -- ESP Distance Slider
@@ -3928,8 +4366,6 @@ function clearPlayersList()
 end
 
 function rebuildPlayersList()
-    print("🔧 DEBUG: rebuildPlayersList() chamada")
-
     -- Limpar lista existente
     for _, child in ipairs(playersList:GetChildren()) do
         if child:IsA("Frame") or child:IsA("TextButton") then
@@ -3945,35 +4381,25 @@ function rebuildPlayersList()
     end
     playerButtons = {}
 
-    print("🔧 DEBUG: Lista limpa, criando botões...")
-
     -- Criar botões para TODOS os jogadores
     for _, plr in ipairs(Players:GetPlayers()) do
-        print("🔧 DEBUG: Verificando jogador " .. plr.Name)
         if plr ~= LocalPlayer then
-            print("🔧 DEBUG: Criando botão para " .. plr.Name)
-            local success, err = pcall(function()
+            pcall(function()
                 createPlayerButton(plr)
             end)
-            if not success then
-                warn("❌ Erro ao criar botão para " .. plr.Name .. ": " .. tostring(err))
-            end
         end
     end
 
     -- Aplicar filtro de pesquisa se existir
     if searchBox and searchBox.Text and searchBox.Text ~= "" then
-        print("🔧 DEBUG: Aplicando filtro de pesquisa: " .. searchBox.Text)
         applySearch(searchBox.Text)
     end
 
     -- Ajustar tamanho do canvas
-    task.wait() -- Esperar um frame
+    task.wait()
     if playersLayout then
         playersList.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y)
     end
-
-    print("✅ DEBUG: Lista de jogadores atualizada: " .. #Players:GetPlayers() .. " players")
 end
 
 Players.PlayerAdded:Connect(function(p)
@@ -4150,6 +4576,59 @@ RunService.RenderStepped:Connect(function()
 		local target = getClosestPlayer()
 		if target then
 			aimAt(target)
+		end
+	end
+	
+	-- Atualizar tracers e boxes
+	if espEnabled then
+		-- Limpar tracers e boxes antigos
+		if showTracers then
+			for char, tracer in pairs(tracers) do
+				if tracer then tracer.Visible = false end
+			end
+		else
+			for char, tracer in pairs(tracers) do
+				if tracer then pcall(function() tracer:Remove() end) end
+			end
+			tracers = {}
+		end
+		
+		if showBox3D then
+			for char, lines in pairs(boxes) do
+				if lines then
+					for _, line in pairs(lines) do
+						if line then line.Visible = false end
+					end
+				end
+			end
+			-- Limpar labels de distância
+			for char, label in pairs(distanceLabels) do
+				if label then label.Visible = false end
+			end
+		else
+			for char, lines in pairs(boxes) do
+				if lines then
+					for _, line in pairs(lines) do
+						if line then pcall(function() line:Remove() end) end
+					end
+				end
+			end
+			boxes = {}
+			-- Remover labels de distância
+			for char, label in pairs(distanceLabels) do
+				if label then pcall(function() label:Remove() end) end
+			end
+			distanceLabels = {}
+		end
+		
+		-- Atualizar para inimigos válidos
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p ~= LocalPlayer and p.Character and isEnemy(p) then
+				if showTracers then ensureTracer(p.Character) end
+				if showBox3D then ensureBox3D(p.Character) end
+				ensureDistanceLabel(p.Character)
+				ensureNameLabel(p.Character, p)
+			end
 		end
 	end
 end)
