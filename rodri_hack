@@ -19,6 +19,17 @@ end
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
+-- ========= SISTEMA CENTRAL DE ESP =========
+local ESPData = {}
+
+local function isValidPlayer(player)
+	local data = ESPData[player]
+	if not data then return false end
+	if not data.character or not data.humanoid or not data.root then return false end
+	if data.humanoid.Health <= 0 then return false end
+	return true
+end
+
 -- ========= Configurações Globais (Otimização para reduzir registros locais) =========
 ESP_DEFAULT_ON = false
 SHOW_NAME_DEFAULT = false
@@ -268,6 +279,120 @@ end
 -- Sistema de atualização em tempo real (DESABILITADO para não interferir na pesquisa)
 function startRealTimeUpdates()
 	-- Desabilitado para evitar recarregar lista durante pesquisa
+end
+
+-- ========= SISTEMA DE BIND DE CHARACTER =========
+local function bindCharacter(player, character)
+	local humanoid = character:WaitForChild("Humanoid", 5)
+	local root = character:WaitForChild("HumanoidRootPart", 5)
+	if not humanoid or not root then return end
+
+	local data = ESPData[player]
+	if not data then return end
+
+	data.character = character
+	data.humanoid = humanoid
+	data.root = root
+
+	-- Aplicar ESP visual
+	if data.init and espEnabled then
+		data.init(character)
+	end
+end
+
+local function setupPlayer(player)
+	if player == LocalPlayer then return end
+
+	ESPData[player] = {
+		character = nil,
+		humanoid = nil,
+		root = nil,
+
+		init = function(character)
+			ensureHighlight(character)
+			ensureBox3D(character)
+			if showHealth then
+				ensureOverlayFor(player, character)
+				updateOverlay(player, character, overlays[character])
+			end
+		end,
+
+		hide = function()
+			local char = player.Character
+			if not char then return end
+			
+			if highlights[char] then
+				highlights[char].Enabled = false
+			end
+			if overlays[char] then
+				overlays[char].Enabled = false
+			end
+			if boxes[char] then
+				for _, line in pairs(boxes[char]) do
+					if line then line.Visible = false end
+				end
+			end
+			if nameLabels[char] then
+				nameLabels[char].Visible = false
+			end
+			if distanceLabels[char] then
+				distanceLabels[char].Visible = false
+			end
+		end,
+
+		cleanup = function()
+			local char = player.Character
+			if char then
+				pcall(function()
+					if highlights[char] then
+						highlights[char]:Destroy()
+						highlights[char] = nil
+					end
+					if overlays[char] then
+						overlays[char]:Destroy()
+						overlays[char] = nil
+					end
+					if boxes[char] then
+						for _, line in pairs(boxes[char]) do
+							if line then line:Remove() end
+						end
+						boxes[char] = nil
+					end
+					if tracers[char] then
+						tracers[char]:Remove()
+						tracers[char] = nil
+					end
+					if nameLabels[char] then
+						nameLabels[char]:Remove()
+						nameLabels[char] = nil
+					end
+					if distanceLabels[char] then
+						distanceLabels[char]:Remove()
+						distanceLabels[char] = nil
+					end
+				end)
+			end
+		end
+	}
+
+	player.CharacterAdded:Connect(function(character)
+		bindCharacter(player, character)
+	end)
+
+	player.CharacterRemoving:Connect(function()
+		local data = ESPData[player]
+		if not data then return end
+		data.character = nil
+		data.humanoid = nil
+		data.root = nil
+		if data.cleanup then
+			data.cleanup()
+		end
+	end)
+
+	if player.Character then
+		bindCharacter(player, player.Character)
+	end
 end
 
 -- Conectar eventos de mudança de equipe
@@ -795,13 +920,14 @@ end
 
 function ensureHighlight(character)
 	if not character or not character.Parent then return end
-	if not showSkeleton or not espEnabled then
+	if not espEnabled then
 		if highlights[character] then
 			highlights[character].Enabled = false
 		end
 		return
 	end
 	
+	-- Criar highlight se não existir
 	local h = highlights[character]
 	if not h or not h.Parent then
 		h = Instance.new("Highlight")
@@ -859,28 +985,47 @@ function ensureHighlight(character)
 		h.FillColor = isVisible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 		h.OutlineColor = isVisible and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 	else
+		-- Cor padrão para TODOS os jogadores
 		h.FillColor = Color3.fromRGB(255, 0, 0)
 		h.OutlineColor = Color3.fromRGB(255, 255, 255)
 	end
-	applyHighlightMode(h)
-	h.Enabled = true
+	
+	-- SEMPRE aplicar modo se showSkeleton estiver ativo
+	if showSkeleton then
+		applyHighlightMode(h)
+		h.Enabled = true
+	else
+		h.Enabled = false
+	end
 end
 
 -- Função separada para exibir distância (embaixo da box)
 function ensureDistanceLabel(character)
-	if not character or not character.Parent then return end
+	if not character or not character.Parent then
+		if distanceLabels[character] then
+			pcall(function() distanceLabels[character]:Remove() end)
+			distanceLabels[character] = nil
+		end
+		return
+	end
+	
 	if not espEnabled or not showEspDistance then
+		if distanceLabels[character] then
+			pcall(function() distanceLabels[character]:Remove() end)
+			distanceLabels[character] = nil
+		end
+		return
+	end
+	
+	local root = getPrimaryPart(character)
+	if not root then
 		if distanceLabels[character] then
 			distanceLabels[character].Visible = false
 		end
 		return
 	end
 	
-	local root = getPrimaryPart(character)
-	if not root then return end
-	
 	local camera = workspace.CurrentCamera
-	-- Usar posição do root ao invés de calcular minY
 	local bottomPos = root.Position - Vector3.new(0, 3, 0)
 	local screenPos, onScreen = camera:WorldToViewportPoint(bottomPos)
 	
@@ -915,19 +1060,31 @@ end
 
 -- Função para exibir nome (em cima da box)
 function ensureNameLabel(character, player)
-	if not character or not character.Parent then return end
+	if not character or not character.Parent or not player or not player.Parent then
+		if nameLabels[character] then
+			pcall(function() nameLabels[character]:Remove() end)
+			nameLabels[character] = nil
+		end
+		return
+	end
+	
 	if not espEnabled or not showName then
+		if nameLabels[character] then
+			pcall(function() nameLabels[character]:Remove() end)
+			nameLabels[character] = nil
+		end
+		return
+	end
+	
+	local root = getPrimaryPart(character)
+	if not root then
 		if nameLabels[character] then
 			nameLabels[character].Visible = false
 		end
 		return
 	end
 	
-	local root = getPrimaryPart(character)
-	if not root then return end
-	
 	local camera = workspace.CurrentCamera
-	-- Usar posição do root ao invés de calcular maxY
 	local topPos = root.Position + Vector3.new(0, 3, 0)
 	local screenPos, onScreen = camera:WorldToViewportPoint(topPos)
 	
@@ -1183,8 +1340,7 @@ end
 
 function refreshESPForPlayer(p)
 	if p == LocalPlayer then return end
-	-- Verificar se é inimigo (team check automático)
-	if not isEnemy(p) then return end
+	-- Remover verificação de inimigo - aplicar ESP para TODOS
 	
 	local char = p.Character; if not char then return end
 	if espEnabled then
@@ -1203,58 +1359,78 @@ end
 
 -- Sistema ESP Otimizado - Atualiza automaticamente após morte
 function cleanupESPForCharacter(character)
-	if overlays[character] then 
-		pcall(function() overlays[character]:Destroy() end)
-		overlays[character] = nil
-	end
-	if highlights[character] then 
-		pcall(function() highlights[character]:Destroy() end)
-		highlights[character] = nil
-	end
-	if boxes[character] then 
-		for _, line in pairs(boxes[character]) do
-			pcall(function() line:Remove() end)
+	if not character then return end
+	
+	pcall(function()
+		if overlays[character] then 
+			overlays[character]:Destroy()
+			overlays[character] = nil
 		end
-		boxes[character] = nil
-	end
-	if distanceLabels[character] then
-		pcall(function() distanceLabels[character]:Remove() end)
-		distanceLabels[character] = nil
-	end
-	if nameLabels[character] then
-		pcall(function() nameLabels[character]:Remove() end)
-		nameLabels[character] = nil
-	end
-	if linesFrames[character] then 
-		pcall(function() linesFrames[character]:Destroy() end)
-		linesFrames[character] = nil
-	end
+		if highlights[character] then 
+			highlights[character]:Destroy()
+			highlights[character] = nil
+		end
+		if boxes[character] then 
+			for _, line in pairs(boxes[character]) do
+				if line then line:Remove() end
+			end
+			boxes[character] = nil
+		end
+		if distanceLabels[character] then
+			distanceLabels[character]:Remove()
+			distanceLabels[character] = nil
+		end
+		if nameLabels[character] then
+			nameLabels[character]:Remove()
+			nameLabels[character] = nil
+		end
+		if tracers[character] then
+			tracers[character]:Remove()
+			tracers[character] = nil
+		end
+	end)
 end
 
 -- Inicial + eventos de players (DESABILITADO - usar sistema manual)
--- Sistema de atualização manual do ESP
+-- Sistema de atualização automática do ESP sincronizado com lista
 task.spawn(function()
 	while true do
-		task.wait(1) -- Atualizar ESP a cada 1 segundo
+		task.wait(5) -- Atualizar a cada 5 segundos
 		
 		if not espEnabled then
 			-- Limpar todos os ESPs se desativado
 			for char, highlight in pairs(highlights) do
-				if highlight then
-					pcall(function() highlight:Destroy() end)
-				end
+				if highlight then pcall(function() highlight:Destroy() end) end
 			end
 			for char, overlay in pairs(overlays) do
-				if overlay then
-					pcall(function() overlay:Destroy() end)
+				if overlay then pcall(function() overlay:Destroy() end) end
+			end
+			for char, lines in pairs(boxes) do
+				if lines then
+					for _, line in pairs(lines) do
+						if line then pcall(function() line:Remove() end) end
+					end
 				end
+			end
+			for char, tracer in pairs(tracers) do
+				if tracer then pcall(function() tracer:Remove() end) end
+			end
+			for char, label in pairs(distanceLabels) do
+				if label then pcall(function() label:Remove() end) end
+			end
+			for char, label in pairs(nameLabels) do
+				if label then pcall(function() label:Remove() end) end
 			end
 			highlights = {}
 			overlays = {}
+			boxes = {}
+			tracers = {}
+			distanceLabels = {}
+			nameLabels = {}
 			continue
 		end
 		
-		-- Limpar ESPs antigos de personagens que não existem mais
+		-- Limpar ESPs de personagens que não existem mais
 		for char, highlight in pairs(highlights) do
 			if not char or not char.Parent then
 				pcall(function() highlight:Destroy() end)
@@ -1265,6 +1441,20 @@ task.spawn(function()
 			if not char or not char.Parent then
 				pcall(function() overlay:Destroy() end)
 				overlays[char] = nil
+			end
+		end
+		for char, lines in pairs(boxes) do
+			if not char or not char.Parent then
+				for _, line in pairs(lines) do
+					if line then pcall(function() line:Remove() end) end
+				end
+				boxes[char] = nil
+			end
+		end
+		for char, tracer in pairs(tracers) do
+			if not char or not char.Parent then
+				pcall(function() tracer:Remove() end)
+				tracers[char] = nil
 			end
 		end
 		for char, label in pairs(nameLabels) do
@@ -1280,12 +1470,14 @@ task.spawn(function()
 			end
 		end
 		
-		-- Atualizar ESP para todos os jogadores
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LocalPlayer and p.Character and isEnemy(p) then
-				refreshESPForPlayer(p)
+		-- Aplicar ESP para TODOS os jogadores (não apenas da lista)
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player and player ~= LocalPlayer and player.Character then
+				refreshESPForPlayer(player)
 			end
 		end
+		
+		print("✅ ESP auto-atualizado (5s) - Total: " .. #Players:GetPlayers() - 1 .. " jogadores")
 	end
 end)
 
@@ -1936,7 +2128,8 @@ searchBox.Size = UDim2.new(0.7, -5, 1, 0)
 searchBox.Position = UDim2.new(0, 0, 0, 0)
 searchBox.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
 searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-
+searchBox.PlaceholderText = ""
+searchBox.Text = ""
 searchBox.Font = Enum.Font.SourceSans
 searchBox.TextSize = 14
 searchBox.ClearTextOnFocus = false
@@ -4470,7 +4663,7 @@ Players.PlayerRemoving:Connect(function(p)
 	rebuildPlayersList()
 end)
 
--- Aimbot Logic
+-- Aimbot Logic - USA ESPDATA
 function getClosestPlayer()
 	if not aimbotEnabled then return nil end
 
@@ -4480,15 +4673,12 @@ function getClosestPlayer()
 	local camera = workspace.CurrentCamera
 	local centerPos = aimbotMobile and UserInputService:GetMouseLocation() or Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
 
-	for _, player in ipairs(Players:GetPlayers()) do
-		if player ~= LocalPlayer and player.Character then
-			-- Verificar se é inimigo
-			if not isEnemy(player) then
-				continue
-			end
-			
-			local character = player.Character
+	for player in pairs(ESPData) do
+		if isValidPlayer(player) then
+			local data = ESPData[player]
+			local character = data.character
 			local targetPart = nil
+			
 			if aimbotTarget == "Cabeça" then
 				targetPart = character:FindFirstChild("Head")
 			elseif aimbotTarget == "Peito" then
@@ -4501,7 +4691,6 @@ function getClosestPlayer()
 					local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
 					if distance <= closestDistance then
 						if aimbotOnlyVisible then
-							-- Verificar pela cor do ESP (verde = visível)
 							local highlight = highlights[character]
 							if not highlight or highlight.FillColor ~= Color3.fromRGB(0, 255, 0) then
 								continue
@@ -4619,6 +4808,7 @@ UserInputService.InputEnded:Connect(function(input, processed)
 end)
 
 -- Continuous aiming when key/button held OR in moving vehicle
+local espDebugCounter = 0
 RunService.RenderStepped:Connect(function()
 	-- Aimbot manual (com bind)
 	if aimbotKeyHeld and aimbotEnabled then
@@ -4636,55 +4826,84 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 	
-	-- Atualizar tracers e boxes
+	-- GARANTIR ESP PARA TODOS OS JOGADORES A CADA FRAME
 	if espEnabled then
-		-- Limpar tracers e boxes antigos
-		if showTracers then
-			for char, tracer in pairs(tracers) do
-				if tracer then tracer.Visible = false end
-			end
-		else
-			for char, tracer in pairs(tracers) do
-				if tracer then pcall(function() tracer:Remove() end) end
-			end
-			tracers = {}
-		end
+		local playersProcessed = 0
 		
-		if showBox3D then
-			for char, lines in pairs(boxes) do
-				if lines then
-					for _, line in pairs(lines) do
-						if line then line.Visible = false end
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				local character = player.Character
+				
+				if character then
+					local humanoid = character:FindFirstChildOfClass("Humanoid")
+					local root = character:FindFirstChild("HumanoidRootPart")
+					
+					-- Verificar se está vivo E tem root
+					if humanoid and root and humanoid.Health > 0 then
+						playersProcessed = playersProcessed + 1
+						
+						-- Forçar aplicação de TODOS os tipos de ESP
+						pcall(function()
+							-- SEMPRE aplicar highlight (corpo)
+							if showSkeleton then
+								ensureHighlight(character)
+							end
+							
+							-- SEMPRE aplicar box se ativado
+							if showBox3D then
+								ensureBox3D(character)
+							end
+							
+							-- SEMPRE aplicar tracer se ativado
+							if showTracers then
+								ensureTracer(character)
+							end
+							
+							-- SEMPRE aplicar distância se ativado
+							if showEspDistance then
+								ensureDistanceLabel(character)
+							end
+							
+							-- SEMPRE aplicar nome se ativado
+							if showName then
+								ensureNameLabel(character, player)
+							end
+						end)
+					else
+						-- Esconder se morto ou sem root
+						pcall(function()
+							if highlights[character] then highlights[character].Enabled = false end
+							if boxes[character] then
+								for _, line in pairs(boxes[character]) do
+									if line then line.Visible = false end
+								end
+							end
+							if nameLabels[character] then nameLabels[character].Visible = false end
+							if distanceLabels[character] then distanceLabels[character].Visible = false end
+						end)
 					end
 				end
 			end
-			-- Limpar labels de distância
-			for char, label in pairs(distanceLabels) do
-				if label then label.Visible = false end
-			end
-		else
-			for char, lines in pairs(boxes) do
-				if lines then
-					for _, line in pairs(lines) do
-						if line then pcall(function() line:Remove() end) end
-					end
-				end
-			end
-			boxes = {}
-			-- Remover labels de distância
-			for char, label in pairs(distanceLabels) do
-				if label then pcall(function() label:Remove() end) end
-			end
-			distanceLabels = {}
 		end
 		
-		-- Atualizar para inimigos válidos
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p ~= LocalPlayer and p.Character and isEnemy(p) then
-				if showTracers then ensureTracer(p.Character) end
-				if showBox3D then ensureBox3D(p.Character) end
-				ensureDistanceLabel(p.Character)
-				ensureNameLabel(p.Character, p)
+		-- Debug a cada 5 segundos
+		espDebugCounter = espDebugCounter + 1
+		if espDebugCounter >= 300 then -- ~5 segundos a 60 FPS
+			print("🔍 ESP: " .. playersProcessed .. "/" .. (#Players:GetPlayers() - 1) .. " jogadores com ESP")
+			espDebugCounter = 0
+		end
+		
+		-- Limpar labels de jogadores que não existem mais
+		for char, label in pairs(nameLabels) do
+			if not char or not char.Parent then
+				pcall(function() label:Remove() end)
+				nameLabels[char] = nil
+			end
+		end
+		for char, label in pairs(distanceLabels) do
+			if not char or not char.Parent then
+				pcall(function() label:Remove() end)
+				distanceLabels[char] = nil
 			end
 		end
 	end
@@ -4693,8 +4912,14 @@ end)
 -- Sistema de atualização automática DESABILITADO para não interferir na pesquisa
 -- startRealTimeUpdates()
 
--- Eventos globais SIMPLIFICADOS - só adiciona/remove, não recarrega tudo
+-- Eventos globais - USA ESPDATA
+for _, player in ipairs(Players:GetPlayers()) do
+	setupPlayer(player)
+end
+
 Players.PlayerAdded:Connect(function(player)
+	setupPlayer(player)
+	
 	if isTypingInSearch then return end
 	if player ~= LocalPlayer then
 		createPlayerButton(player)
@@ -4703,6 +4928,13 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	if ESPData[player] then
+		if ESPData[player].cleanup then
+			ESPData[player].cleanup()
+		end
+		ESPData[player] = nil
+	end
+	
 	if isTypingInSearch then return end
 	if playerButtons[player] then
 		playerButtons[player]:Destroy()
