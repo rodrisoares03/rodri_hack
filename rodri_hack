@@ -22,7 +22,7 @@ local Camera = workspace.CurrentCamera
 -- ========= SISTEMA CENTRAL DE ESP =========
 local ESPData = {}
 
-local function isValidPlayer(player)
+function isValidPlayer(player)
 	local data = ESPData[player]
 	if not data then return false end
 	if not data.character or not data.humanoid or not data.root then return false end
@@ -98,6 +98,7 @@ boxes = {}           -- [Character] = BoxHandles
 tracers = {}         -- [Character] = Line
 distanceLabels = {}  -- [Character] = Drawing.Text
 nameLabels = {}      -- [Character] = Drawing.Text
+healthBars = {}      -- [Character] = {bg, fill} - Barras de vida 2D
 espNameColor = Color3.fromRGB(255, 255, 255) -- Cor padrão do nome (branco)
 
 -- Player enhancements globais
@@ -159,9 +160,9 @@ selectedPlayer = nil
 playerButtons = {}
 
 -- Search system
-local searchQuery = ""
-local searchBox = nil
-local isTypingInSearch = false
+searchQuery = ""
+searchBox = nil
+isTypingInSearch = false
 
 -- ========= FUNÇÕES AUXILIARES PARA LISTA DE JOGADORES =========
 function getPlayerTeam(player)
@@ -282,7 +283,7 @@ function startRealTimeUpdates()
 end
 
 -- ========= SISTEMA DE BIND DE CHARACTER =========
-local function bindCharacter(player, character)
+function bindCharacter(player, character)
 	local humanoid = character:WaitForChild("Humanoid", 5)
 	local root = character:WaitForChild("HumanoidRootPart", 5)
 	if not humanoid or not root then return end
@@ -294,13 +295,12 @@ local function bindCharacter(player, character)
 	data.humanoid = humanoid
 	data.root = root
 
-	-- Aplicar ESP visual
 	if data.init and espEnabled then
 		data.init(character)
 	end
 end
 
-local function setupPlayer(player)
+function setupPlayer(player)
 	if player == LocalPlayer then return end
 
 	ESPData[player] = {
@@ -312,8 +312,7 @@ local function setupPlayer(player)
 			ensureHighlight(character)
 			ensureBox3D(character)
 			if showHealth then
-				ensureOverlayFor(player, character)
-				updateOverlay(player, character, overlays[character])
+				ensureHealthBar(character)
 			end
 		end,
 
@@ -1109,99 +1108,63 @@ function ensureNameLabel(character, player)
 	label.Visible = true
 end
 
--- Box 3D estilo Warzone (cobre todo o corpo)
+-- Box 2D SEMPRE RETA (não rotaciona)
 function ensureBox3D(character)
-	if not character or not character.Parent then return end
-	if not showBox3D or not espEnabled then
+	if not character or not character.Parent then
 		if boxes[character] then
-			for _, line in pairs(boxes[character]) do
-				pcall(function() line:Remove() end)
-			end
+			pcall(function() boxes[character]:Remove() end)
 			boxes[character] = nil
 		end
 		return
 	end
-	
-	if not boxes[character] then
-		boxes[character] = {}
-		for i = 1, 12 do
-			local line = Drawing.new("Line")
-			line.Thickness = 1.5
-			line.Transparency = 1
-			boxes[character][i] = line
+
+	if not showBox3D or not espEnabled then
+		if boxes[character] then
+			pcall(function() boxes[character]:Remove() end)
+			boxes[character] = nil
 		end
+		return
 	end
-	
-	-- Calcular bounding box baseado em todas as partes do corpo
-	local minX, maxX = math.huge, -math.huge
-	local minY, maxY = math.huge, -math.huge
-	local minZ, maxZ = math.huge, -math.huge
-	
-	for _, part in pairs(character:GetDescendants()) do
-		if part:IsA("BasePart") then
-			local pos = part.Position
-			local size = part.Size
-			
-			minX = math.min(minX, pos.X - size.X/2)
-			maxX = math.max(maxX, pos.X + size.X/2)
-			minY = math.min(minY, pos.Y - size.Y/2)
-			maxY = math.max(maxY, pos.Y + size.Y/2)
-			minZ = math.min(minZ, pos.Z - size.Z/2)
-			maxZ = math.max(maxZ, pos.Z + size.Z/2)
-		end
-	end
-	
-	if minX == math.huge then return end
-	
+
+	local head = character:FindFirstChild("Head")
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	if not head or not humanoidRootPart then return end
+
 	local camera = workspace.CurrentCamera
 	
-	-- 8 cantos da box baseados no bounding box real
-	local corners = {
-		Vector3.new(minX, maxY, minZ),
-		Vector3.new(maxX, maxY, minZ),
-		Vector3.new(maxX, maxY, maxZ),
-		Vector3.new(minX, maxY, maxZ),
-		Vector3.new(minX, minY, minZ),
-		Vector3.new(maxX, minY, minZ),
-		Vector3.new(maxX, minY, maxZ),
-		Vector3.new(minX, minY, maxZ)
-	}
+	-- Posições fixas (não seguem rotação do personagem)
+	local topPos = head.Position + Vector3.new(0, 0.5, 0)
+	local bottomPos = humanoidRootPart.Position - Vector3.new(0, 2.5, 0)
 	
-	local screenCorners = {}
-	local allOnScreen = true
-	for i, corner in ipairs(corners) do
-		local screenPos, onScreen = camera:WorldToViewportPoint(corner)
-		screenCorners[i] = Vector2.new(screenPos.X, screenPos.Y)
-		if not onScreen then
-			allOnScreen = false
-		end
-	end
+	-- Projetar na tela
+	local topScreen, topOnScreen = camera:WorldToViewportPoint(topPos)
+	local bottomScreen, bottomOnScreen = camera:WorldToViewportPoint(bottomPos)
 	
-	if not allOnScreen then
-		for _, line in pairs(boxes[character]) do
-			line.Visible = false
-		end
-		if distanceLabels[character] then
-			distanceLabels[character].Visible = false
+	if not topOnScreen or not bottomOnScreen then
+		if boxes[character] then
+			boxes[character].Visible = false
 		end
 		return
 	end
 	
-	-- Desenhar 12 linhas
-	local lines = boxes[character]
-	local edges = {
-		{1,2},{2,3},{3,4},{4,1}, -- Topo
-		{5,6},{6,7},{7,8},{8,5}, -- Base
-		{1,5},{2,6},{3,7},{4,8}  -- Verticais
-	}
+	-- Altura e largura FIXAS (box sempre reta)
+	local height = math.abs(bottomScreen.Y - topScreen.Y)
+	local width = height * 0.4 -- Largura fixa proporcional à altura
 	
-	for i, edge in ipairs(edges) do
-		lines[i].From = screenCorners[edge[1]]
-		lines[i].To = screenCorners[edge[2]]
-		lines[i].Color = espColor
-		lines[i].Thickness = 1.5
-		lines[i].Visible = true
+	-- Criar box se não existir
+	if not boxes[character] then
+		local square = Drawing.new("Square")
+		square.Thickness = 2
+		square.Filled = false
+		square.Transparency = 1
+		boxes[character] = square
 	end
+	
+	local square = boxes[character]
+	square.Size = Vector2.new(width, height)
+	square.Position = Vector2.new(topScreen.X - width/2, topScreen.Y)
+	square.Color = espColor
+	square.Visible = true
 end
 
 -- Tracers com modos Sky e Center
@@ -1255,55 +1218,97 @@ function ensureTracer(character)
 	end
 end
 
-function ensureOverlayFor(p, character)
-	if not character or not character.Parent then return end
-	-- Remover overlay antigo se existir para evitar duplicação
-	if overlays[character] then
-		pcall(function() overlays[character]:Destroy() end)
-		overlays[character] = nil
+function ensureHealthBar(character)
+	if not character or not character.Parent then
+		if healthBars[character] then
+			pcall(function()
+				if healthBars[character].bg then healthBars[character].bg:Remove() end
+				if healthBars[character].fill then healthBars[character].fill:Remove() end
+			end)
+			healthBars[character] = nil
+		end
+		return
 	end
+
+	if not espEnabled or not showHealth then
+		if healthBars[character] then
+			pcall(function()
+				if healthBars[character].bg then healthBars[character].bg:Remove() end
+				if healthBars[character].fill then healthBars[character].fill:Remove() end
+			end)
+			healthBars[character] = nil
+		end
+		return
+	end
+
+	local head = character:FindFirstChild("Head")
+	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if not head or not humanoidRootPart or not humanoid then return end
+
+	local camera = workspace.CurrentCamera
 	
-	local bb = overlays[character]
-	if not bb or not bb.Parent then
-		local head = getHead(character); if not head then return end
-		bb = Instance.new("BillboardGui")
-		bb.Name = "ESP_Overlay"
-		bb.Adornee = head
-		bb.Size = UDim2.fromOffset(220, 36)
-		bb.AlwaysOnTop = true
-		bb.MaxDistance = 10000
-		bb.Parent = LocalPlayer:WaitForChild("PlayerGui")
+	-- Calcular posições da box
+	local topPos = head.Position + Vector3.new(0, head.Size.Y/2, 0)
+	local bottomPos = humanoidRootPart.Position - Vector3.new(0, 2.5, 0)
+	local leftShoulder = humanoidRootPart.Position - humanoidRootPart.CFrame.RightVector * 1.5
+	
+	local topScreen, topOnScreen = camera:WorldToViewportPoint(topPos)
+	local bottomScreen, bottomOnScreen = camera:WorldToViewportPoint(bottomPos)
+	local leftScreen = camera:WorldToViewportPoint(leftShoulder)
 
-		local holder = Instance.new("Frame")
-		holder.Name = "Holder"
-		holder.BackgroundTransparency = 1 -- Fundo transparente
-		holder.Size = UDim2.fromScale(1, 1)
-		holder.Parent = bb
-
-		local label = Instance.new("TextLabel")
-		label.Name = "Text"
-		label.BackgroundTransparency = 1 -- Fundo transparente
-		label.Size = UDim2.fromScale(1, 1)
-		label.Font = Enum.Font.GothamBold
-		label.TextSize = 14
-		label.TextColor3 = Color3.fromRGB(255,255,255)
-		label.TextStrokeTransparency = 0.8 -- Contorno para melhor visibilidade
-		label.TextStrokeColor3 = Color3.fromRGB(0,0,0)
-		label.TextWrapped = true
-		label.Text = ""
-		label.Parent = holder
-
-		overlays[character] = bb
-
-		character.AncestryChanged:Connect(function(_, parent)
-			if not parent then
-				if overlays[character] then pcall(function() overlays[character]:Destroy() end) end
-				overlays[character] = nil
-				if highlights[character] then pcall(function() highlights[character]:Destroy() end) end
-				highlights[character] = nil
-			end
-		end)
+	if not topOnScreen or not bottomOnScreen then
+		if healthBars[character] then
+			healthBars[character].bg.Visible = false
+			healthBars[character].fill.Visible = false
+		end
+		return
 	end
+
+	if not healthBars[character] then
+		local bg = Drawing.new("Square")
+		bg.Thickness = 1
+		bg.Filled = false
+		bg.Color = Color3.fromRGB(0, 0, 0)
+		bg.Transparency = 1
+
+		local fill = Drawing.new("Square")
+		fill.Thickness = 0
+		fill.Filled = true
+		fill.Transparency = 1
+
+		healthBars[character] = {bg = bg, fill = fill}
+	end
+
+	local healthPercent = humanoid.Health / humanoid.MaxHealth
+	local barHeight = math.abs(topScreen.Y - bottomScreen.Y)
+	local barWidth = 4
+
+	-- Posicionar barra colada à esquerda da box
+	local barX = leftScreen.X - 6
+	local barY = topScreen.Y
+
+	healthBars[character].bg.Size = Vector2.new(barWidth, barHeight)
+	healthBars[character].bg.Position = Vector2.new(barX, barY)
+	healthBars[character].bg.Visible = true
+
+	local fillHeight = barHeight * healthPercent
+	healthBars[character].fill.Size = Vector2.new(barWidth - 2, fillHeight)
+	healthBars[character].fill.Position = Vector2.new(barX + 1, barY + barHeight - fillHeight)
+
+	if healthPercent > 0.5 then
+		healthBars[character].fill.Color = Color3.fromRGB(0, 255, 0)
+	elseif healthPercent > 0.25 then
+		healthBars[character].fill.Color = Color3.fromRGB(255, 255, 0)
+	else
+		healthBars[character].fill.Color = Color3.fromRGB(255, 0, 0)
+	end
+
+	healthBars[character].fill.Visible = true
+end
+
+function ensureOverlayFor(p, character)
+	return -- Removido - não usamos mais overlays de texto
 end
 
 function overlayOffsetFor(positionName)
@@ -1319,58 +1324,43 @@ end
 
 
 function updateOverlay(p, character, bb)
-	if not bb then return end
-	local head = getHead(character); if not head then return end
-	bb.Adornee = head
-	bb.StudsOffsetWorldSpace = overlayOffsetFor(espPosition)
-
-	local bits = {}
-	-- Só mostrar nome se showName estiver ativo E não estiver usando nameLabels
-	if showHealth then
-		local hum = character:FindFirstChildOfClass("Humanoid"); if hum then table.insert(bits, ("HP: %d"):format(hum.Health + 0.5)) end
-	end
-	local label = bb:FindFirstChild("Holder") and bb.Holder:FindFirstChild("Text")
-	if label and label:IsA("TextLabel") then label.Text = table.concat(bits, " | ") end
-
-	local visibleByFilter = true
-	if teamFilter == "Só inimigos" then visibleByFilter = isEnemy(p) end
-
-	bb.Enabled = espEnabled and showHealth and visibleByFilter
+	return -- Removido
 end
 
 function refreshESPForPlayer(p)
 	if p == LocalPlayer then return end
-	-- Remover verificação de inimigo - aplicar ESP para TODOS
-	
+
 	local char = p.Character; if not char then return end
 	if espEnabled then
 		ensureHighlight(char)
 		ensureBox3D(char)
 		if showHealth then
-			ensureOverlayFor(p, char)
-			updateOverlay(p, char, overlays[char])
+			ensureHealthBar(char)
 		end
 	else
-		if overlays[char] then overlays[char].Enabled = false end
 		if highlights[char] then highlights[char].Enabled = false end
 		if boxes[char] then boxes[char]:Destroy(); boxes[char] = nil end
+		if healthBars[char] then
+			if healthBars[char].bg then healthBars[char].bg.Visible = false end
+			if healthBars[char].fill then healthBars[char].fill.Visible = false end
+		end
 	end
 end
 
 -- Sistema ESP Otimizado - Atualiza automaticamente após morte
 function cleanupESPForCharacter(character)
 	if not character then return end
-	
+
 	pcall(function()
-		if overlays[character] then 
+		if overlays[character] then
 			overlays[character]:Destroy()
 			overlays[character] = nil
 		end
-		if highlights[character] then 
+		if highlights[character] then
 			highlights[character]:Destroy()
 			highlights[character] = nil
 		end
-		if boxes[character] then 
+		if boxes[character] then
 			for _, line in pairs(boxes[character]) do
 				if line then line:Remove() end
 			end
@@ -1387,6 +1377,11 @@ function cleanupESPForCharacter(character)
 		if tracers[character] then
 			tracers[character]:Remove()
 			tracers[character] = nil
+		end
+		if healthBars[character] then
+			if healthBars[character].bg then healthBars[character].bg:Remove() end
+			if healthBars[character].fill then healthBars[character].fill:Remove() end
+			healthBars[character] = nil
 		end
 	end)
 end
@@ -1467,6 +1462,16 @@ task.spawn(function()
 			if not char or not char.Parent then
 				pcall(function() label:Remove() end)
 				distanceLabels[char] = nil
+			end
+		end
+
+		for char, bar in pairs(healthBars) do
+			if not char or not char.Parent then
+				pcall(function()
+					if bar.bg then bar.bg:Remove() end
+					if bar.fill then bar.fill:Remove() end
+				end)
+				healthBars[char] = nil
 			end
 		end
 		
@@ -1749,6 +1754,34 @@ titleShadow.Thickness = 2
 titleShadow.Transparency = 0.5
 titleShadow.Parent = title
 
+
+
+-- Sidebar dark
+local sidebar = Instance.new("Frame")
+sidebar.Name = "Sidebar"
+sidebar.Size = UDim2.new(0, 70, 1, -60)
+sidebar.Position = UDim2.new(0, 0, 0, 60)
+sidebar.BackgroundColor3 = COLOR_BG_MAIN
+sidebar.BorderSizePixel = 0
+sidebar.ClipsDescendants = true
+sidebar.Parent = mainFrame
+
+local sidebarStroke = Instance.new("UIStroke")
+sidebarStroke.Color = COLOR_DIVIDER
+sidebarStroke.Thickness = 1
+sidebarStroke.Transparency = 0.7
+sidebarStroke.Parent = sidebar
+
+local sidebarLayout = Instance.new("UIListLayout")
+sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+sidebarLayout.Padding = UDim.new(0, 8)
+sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+sidebarLayout.Parent = sidebar
+
+local sidebarPadding = Instance.new("UIPadding")
+sidebarPadding.PaddingTop = UDim.new(0, 10)
+sidebarPadding.Parent = sidebar
+
 -- Botão Minimizar
 local minimizeBtn = Instance.new("TextButton")
 minimizeBtn.Name = "MinimizeBtn"
@@ -1784,31 +1817,157 @@ minimizeBtn.MouseLeave:Connect(function()
 	minimizeBtnStroke.Transparency = 0.6
 end)
 
--- Sidebar dark
-local sidebar = Instance.new("Frame")
-sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 70, 1, -60)
-sidebar.Position = UDim2.new(0, 0, 0, 60)
-sidebar.BackgroundColor3 = COLOR_BG_MAIN
-sidebar.BorderSizePixel = 0
-sidebar.ClipsDescendants = true
-sidebar.Parent = mainFrame
+-- Botão redondo "Night" (aparece quando minimizado)
+local nightBtn = Instance.new("Frame")
+nightBtn.Name = "NightBtn"
+nightBtn.Size = UDim2.new(0, 80, 0, 80)
+nightBtn.Position = UDim2.new(0.25, -40, 0.25, -40)
+nightBtn.BackgroundColor3 = COLOR_BG_MAIN
+nightBtn.BorderSizePixel = 0
+nightBtn.ZIndex = 10000002
+nightBtn.Visible = false
+nightBtn.Parent = gui
 
-local sidebarStroke = Instance.new("UIStroke")
-sidebarStroke.Color = COLOR_DIVIDER
-sidebarStroke.Thickness = 1
-sidebarStroke.Transparency = 0.7
-sidebarStroke.Parent = sidebar
+local nightBtnCorner = Instance.new("UICorner")
+nightBtnCorner.CornerRadius = UDim.new(1, 0)
+nightBtnCorner.Parent = nightBtn
 
-local sidebarLayout = Instance.new("UIListLayout")
-sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sidebarLayout.Padding = UDim.new(0, 8)
-sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-sidebarLayout.Parent = sidebar
+local nightBtnStroke = Instance.new("UIStroke")
+nightBtnStroke.Color = COLOR_NEON_PINK
+nightBtnStroke.Thickness = 2
+nightBtnStroke.Transparency = 0.3
+nightBtnStroke.Parent = nightBtn
 
-local sidebarPadding = Instance.new("UIPadding")
-sidebarPadding.PaddingTop = UDim.new(0, 10)
-sidebarPadding.Parent = sidebar
+local nightText = Instance.new("TextLabel")
+nightText.Size = UDim2.new(1, 0, 1, 0)
+nightText.BackgroundTransparency = 1
+nightText.Text = "Night"
+nightText.Font = Enum.Font.GothamBold
+nightText.TextSize = 16
+nightText.TextColor3 = COLOR_NEON_PINK
+nightText.Parent = nightBtn
+
+-- Ícone de arrastar (fora do botão, canto inferior esquerdo)
+local dragIcon = Instance.new("Frame")
+dragIcon.Size = UDim2.new(0, 24, 0, 24)
+dragIcon.Position = UDim2.new(0, -5, 1, 5)
+dragIcon.BackgroundColor3 = COLOR_BG_MAIN
+dragIcon.BorderSizePixel = 0
+dragIcon.ZIndex = 10000004
+dragIcon.Parent = nightBtn
+
+local dragIconCorner = Instance.new("UICorner")
+dragIconCorner.CornerRadius = UDim.new(0, 6)
+dragIconCorner.Parent = dragIcon
+
+local dragIconStroke = Instance.new("UIStroke")
+dragIconStroke.Color = COLOR_NEON_PINK
+dragIconStroke.Thickness = 1
+dragIconStroke.Transparency = 0.5
+dragIconStroke.Parent = dragIcon
+
+-- Setas do ícone de mover
+local arrows = {
+	{pos = UDim2.new(0.5, -1, 0, 0), size = UDim2.new(0, 2, 0, 6)}, -- Cima
+	{pos = UDim2.new(0.5, -1, 1, -6), size = UDim2.new(0, 2, 0, 6)}, -- Baixo
+	{pos = UDim2.new(0, 0, 0.5, -1), size = UDim2.new(0, 6, 0, 2)}, -- Esquerda
+	{pos = UDim2.new(1, -6, 0.5, -1), size = UDim2.new(0, 6, 0, 2)} -- Direita
+}
+
+for _, arrow in ipairs(arrows) do
+	local line = Instance.new("Frame")
+	line.Size = arrow.size
+	line.Position = arrow.pos
+	line.BackgroundColor3 = COLOR_NEON_PINK
+	line.BorderSizePixel = 0
+	line.Parent = dragIcon
+end
+
+-- Botão clicável
+local nightClickBtn = Instance.new("TextButton")
+nightClickBtn.Size = UDim2.new(1, 0, 1, 0)
+nightClickBtn.BackgroundTransparency = 1
+nightClickBtn.Text = ""
+nightClickBtn.ZIndex = 10000003
+nightClickBtn.Parent = nightBtn
+
+nightClickBtn.MouseEnter:Connect(function()
+	TweenService:Create(nightBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
+	TweenService:Create(nightText, TweenInfo.new(0.2), {TextColor3 = COLOR_BG_MAIN}):Play()
+	for _, line in ipairs(dragIcon:GetChildren()) do
+		if line:IsA("Frame") then
+			TweenService:Create(line, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_MAIN}):Play()
+		end
+	end
+end)
+nightClickBtn.MouseLeave:Connect(function()
+	TweenService:Create(nightBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_MAIN}):Play()
+	TweenService:Create(nightText, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
+	for _, line in ipairs(dragIcon:GetChildren()) do
+		if line:IsA("Frame") then
+			TweenService:Create(line, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
+		end
+	end
+end)
+
+-- Tornar o botão Night arrastável pelo ícone
+local nightDragging = false
+local nightDragStart = nil
+local nightStartPos = nil
+
+dragIcon.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		nightDragging = true
+		nightDragStart = input.Position
+		nightStartPos = nightBtn.Position
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if nightDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - nightDragStart
+		nightBtn.Position = UDim2.new(nightStartPos.X.Scale, nightStartPos.X.Offset + delta.X, nightStartPos.Y.Scale, nightStartPos.Y.Offset + delta.Y)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		nightDragging = false
+	end
+end)
+
+nightClickBtn.MouseButton1Click:Connect(function()
+	if not nightDragging then
+		toggleMinimize()
+	end
+end)
+
+-- Função para minimizar/maximizar
+local menuMinimized = false
+function toggleMinimize()
+	menuMinimized = not menuMinimized
+	if menuMinimized then
+		-- Minimizar: esconder menu e mostrar botão Night
+		mainFrame.Visible = false
+		nightBtn.Visible = true
+		panelVisible = false
+		-- Restaurar mouse
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	else
+		-- Maximizar: mostrar menu e esconder botão Night
+		mainFrame.Visible = true
+		nightBtn.Visible = false
+		panelVisible = true
+		-- Liberar cursor
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end
+end
+
+minimizeBtn.MouseButton1Click:Connect(function()
+	toggleMinimize()
+end)
 
 -- Tabs
 tabs = {}
@@ -1948,7 +2107,7 @@ end
 
 setTab("PLAYERS")
 
--- Create categories com visual moderno
+-- Create categories com visual moderno e botão de minimizar
 function createCategory(parent, title)
 	local category = Instance.new("Frame")
 	category.Size = UDim2.new(0.98, 0, 0, 0)
@@ -1976,7 +2135,7 @@ function createCategory(parent, title)
 	categoryGradient.Parent = category
 
 	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, -35, 0, 35)
+	titleLabel.Size = UDim2.new(1, -70, 0, 35)
 	titleLabel.Position = UDim2.new(0, 25, 0, 10)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Text = title
@@ -1996,6 +2155,7 @@ function createCategory(parent, title)
 	contentFrame.Size = UDim2.new(1, -30, 1, -55)
 	contentFrame.Position = UDim2.new(0, 15, 0, 45)
 	contentFrame.BackgroundTransparency = 1
+	contentFrame.ClipsDescendants = true
 	contentFrame.Parent = category
 
 	local contentLayout = Instance.new("UIListLayout")
@@ -2004,7 +2164,8 @@ function createCategory(parent, title)
 
 	local function updateSize()
 		local contentSize = contentLayout.AbsoluteContentSize
-		category.Size = UDim2.new(0.98, 0, 0, contentSize.Y + 65)
+		local newHeight = contentSize.Y + 65
+		category.Size = UDim2.new(0.98, 0, 0, newHeight)
 	end
 
 	contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
@@ -2420,16 +2581,25 @@ function updatePlayerCounter()
 			playerCount = playerCount + 1
 		end
 	end
-	playerCounter.Text = playerCount .. " jogadores"
+	if playerCounter then
+		playerCounter.Text = playerCount .. " jogadores"
+	end
+	print("👥 Total de jogadores: " .. playerCount)
 end
 
 -- Inicializar lista simples
-if rebuildPlayersList then
-	rebuildPlayersList()
-end
-if updatePlayerCounter then
+task.spawn(function()
+	task.wait(1) -- Aguardar UI carregar
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			pcall(function()
+				createPlayerButton(plr)
+			end)
+		end
+	end
 	updatePlayerCounter()
-end
+	print("✅ Lista de players carregada: " .. #playerButtons .. " jogadores")
+end)
 
 -- Atualizar contador quando players entram/saem
 Players.PlayerAdded:Connect(function(player)
@@ -3302,13 +3472,18 @@ nameColorBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Vida
-local healthToggle = createToggle(espCategory, "Mostrar Vida", function(enabled)
+local healthToggle = createToggle(espCategory, "Barra de Vida 2D (Esquerda)", function(enabled)
 	showHealth = enabled
 	if not enabled then
-		for char, overlay in pairs(overlays) do
-			if overlay then pcall(function() overlay:Destroy() end) end
+		for char, bar in pairs(healthBars) do
+			if bar then
+				pcall(function()
+					if bar.bg then bar.bg:Remove() end
+					if bar.fill then bar.fill:Remove() end
+				end)
+			end
 		end
-		overlays = {}
+		healthBars = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
@@ -3319,8 +3494,15 @@ boxFrame.Size = UDim2.new(1, 0, 0, 42)
 boxFrame.BackgroundTransparency = 1
 boxFrame.Parent = espCategory
 
-local box3DToggle = createToggle(boxFrame, "Box 3D", function(enabled)
+local box3DToggle = createToggle(boxFrame, "Box", function(enabled)
 	showBox3D = enabled
+	if not enabled then
+		-- Limpar todas as boxes quando desativado
+		for char, box in pairs(boxes) do
+			if box then pcall(function() box:Remove() end) end
+		end
+		boxes = {}
+	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 box3DToggle.Size = UDim2.new(0.65, -5, 1, 0)
@@ -4461,32 +4643,7 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
--- Função de minimizar/expandir com animação suave (SÓ SIDEBAR)
-function toggleMinimize()
-	menuMinimized = not menuMinimized
-	
-	local targetSidebarWidth = menuMinimized and 0 or 80
-	local targetContentPos = menuMinimized and UDim2.new(0, 5, 0, 75) or UDim2.new(0, 85, 0, 75)
-	local targetContentSize = menuMinimized and UDim2.new(1, -10, 1, -80) or UDim2.new(1, -90, 1, -80)
-	
-	-- Animar sidebar
-	TweenService:Create(sidebar, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, targetSidebarWidth, 1, -70)
-	}):Play()
-	
-	-- Animar content frame para ocupar espaço da sidebar
-	TweenService:Create(content, TweenInfo.new(0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
-		Position = targetContentPos,
-		Size = targetContentSize
-	}):Play()
-	
-	-- Mudar ícone do botão
-	minimizeBtn.Text = menuMinimized and "►" or "◄"
-	
-	print(menuMinimized and "📕 Abas escondidas" or "📖 Abas visíveis")
-end
 
-minimizeBtn.MouseButton1Click:Connect(toggleMinimize)
 
 -- Tab connections
 tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
@@ -4501,7 +4658,7 @@ function showPanel(show)
 	if panelVisible == show then return end
 	panelVisible = show
 	mainFrame.Visible = show
-	inputBlocker.Visible = false -- SEMPRE DESATIVADO para não bloquear teclas do Roblox
+	inputBlocker.Visible = false
 
 	if show then
 		-- Forçar visibilidade das páginas
@@ -4509,8 +4666,6 @@ function showPanel(show)
 		for name, page in pairs(pages) do
 			if page then page.Visible = (name == currentTab) end
 		end
-		-- NÃO BLOQUEAR NADA - Deixar o jogo funcionar normalmente
-		-- Apenas mostrar o menu por cima
 		
 		-- Salvar estado atual do mouse
 		prevMouseBehavior = UserInputService.MouseBehavior
@@ -4531,6 +4686,7 @@ function showPanel(show)
 
 		-- Atualizar lista de players quando abrir o painel
 		if updatePlayersList then updatePlayersList() end
+		print("📜 Menu ABERTO (Tecla M para fechar)")
 	else
 		-- Parar loop de forçar cursor
 		if cursorForceLoop then
@@ -4546,6 +4702,7 @@ function showPanel(show)
 		task.wait(0.1)
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
+		print("📝 Menu FECHADO (Tecla M para abrir)")
 	end
 end
 
@@ -4621,35 +4778,32 @@ end
 function rebuildPlayersList()
     if isTypingInSearch then return end
     
-    -- Salvar posição do scroll
-    local scrollPos = playersList.CanvasPosition
-    
+    -- Limpar lista atual
     for _, child in ipairs(playersList:GetChildren()) do
         if child:IsA("Frame") or child:IsA("TextButton") then
             child:Destroy()
         end
     end
 
-    for player, button in pairs(playerButtons) do
-        if button and button.Parent then
-            button:Destroy()
-        end
-    end
+    -- Limpar tabela de botões
     playerButtons = {}
 
+    -- Criar botões para todos os players
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
-            createPlayerButton(plr)
+            pcall(function()
+                createPlayerButton(plr)
+            end)
         end
     end
 
+    -- Aplicar filtro de pesquisa se houver
     if searchBox and searchBox.Text and searchBox.Text ~= "" then
         applySearch(searchBox.Text)
     end
     
-    -- Restaurar posição do scroll
-    task.wait()
-    playersList.CanvasPosition = scrollPos
+    updatePlayerCounter()
+    print("✅ Lista atualizada: " .. #playerButtons .. " jogadores")
 end
 
 Players.PlayerAdded:Connect(function(p)
@@ -4807,28 +4961,31 @@ UserInputService.InputEnded:Connect(function(input, processed)
 	end
 end)
 
--- Continuous aiming when key/button held OR in moving vehicle
-local espDebugCounter = 0
+-- Aimbot vars
+currentAimbotTarget = nil
+lastTargetUpdateTime = 0
+
+-- Continuous aiming
 RunService.RenderStepped:Connect(function()
-	-- Aimbot manual (com bind)
-	if aimbotKeyHeld and aimbotEnabled then
-		local target = getClosestPlayer()
-		if target then
-			aimAt(target)
+	if (aimbotKeyHeld and aimbotEnabled) or isInMovingVehicle() then
+		if tick() - lastTargetUpdateTime >= 0.15 then
+			if currentAimbotTarget then
+				if not currentAimbotTarget.Character or not currentAimbotTarget.Character:FindFirstChildOfClass("Humanoid") or currentAimbotTarget.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then
+					currentAimbotTarget = getClosestPlayer()
+				end
+			else
+				currentAimbotTarget = getClosestPlayer()
+			end
+			lastTargetUpdateTime = tick()
 		end
+		if currentAimbotTarget then aimAt(currentAimbotTarget) end
+	else
+		currentAimbotTarget = nil
 	end
 	
-	-- Aimbot automático em veículo (sempre ativo para inimigos)
-	if isInMovingVehicle() then
-		local target = getClosestPlayer()
-		if target then
-			aimAt(target)
-		end
-	end
-	
-	-- GARANTIR ESP PARA TODOS OS JOGADORES A CADA FRAME
+	-- ESP COM LIMPEZA AUTOMÁTICA
 	if espEnabled then
-		local playersProcessed = 0
+		local validChars = {}
 		
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer then
@@ -4838,74 +4995,81 @@ RunService.RenderStepped:Connect(function()
 					local humanoid = character:FindFirstChildOfClass("Humanoid")
 					local root = character:FindFirstChild("HumanoidRootPart")
 					
-					-- Verificar se está vivo E tem root
 					if humanoid and root and humanoid.Health > 0 then
-						playersProcessed = playersProcessed + 1
+						validChars[character] = true
 						
-						-- Forçar aplicação de TODOS os tipos de ESP
 						pcall(function()
-							-- SEMPRE aplicar highlight (corpo)
-							if showSkeleton then
-								ensureHighlight(character)
-							end
-							
-							-- SEMPRE aplicar box se ativado
-							if showBox3D then
-								ensureBox3D(character)
-							end
-							
-							-- SEMPRE aplicar tracer se ativado
-							if showTracers then
-								ensureTracer(character)
-							end
-							
-							-- SEMPRE aplicar distância se ativado
-							if showEspDistance then
-								ensureDistanceLabel(character)
-							end
-							
-							-- SEMPRE aplicar nome se ativado
-							if showName then
-								ensureNameLabel(character, player)
-							end
-						end)
-					else
-						-- Esconder se morto ou sem root
-						pcall(function()
-							if highlights[character] then highlights[character].Enabled = false end
-							if boxes[character] then
-								for _, line in pairs(boxes[character]) do
-									if line then line.Visible = false end
-								end
-							end
-							if nameLabels[character] then nameLabels[character].Visible = false end
-							if distanceLabels[character] then distanceLabels[character].Visible = false end
+							if showSkeleton then ensureHighlight(character) end
+							if showBox3D then ensureBox3D(character) end
+							if showTracers then ensureTracer(character) end
+							if showEspDistance then ensureDistanceLabel(character) end
+							if showName then ensureNameLabel(character, player) end
+							if showHealth then ensureHealthBar(character) end
 						end)
 					end
 				end
 			end
 		end
 		
-		-- Debug a cada 5 segundos
-		espDebugCounter = espDebugCounter + 1
-		if espDebugCounter >= 300 then -- ~5 segundos a 60 FPS
-			print("🔍 ESP: " .. playersProcessed .. "/" .. (#Players:GetPlayers() - 1) .. " jogadores com ESP")
-			espDebugCounter = 0
+		-- LIMPAR ESP de personagens inválidos
+		for char, _ in pairs(highlights) do
+			if not validChars[char] then
+				pcall(function() highlights[char]:Destroy() end)
+				highlights[char] = nil
+			end
 		end
-		
-		-- Limpar labels de jogadores que não existem mais
-		for char, label in pairs(nameLabels) do
-			if not char or not char.Parent then
-				pcall(function() label:Remove() end)
+		for char, _ in pairs(boxes) do
+			if not validChars[char] then
+				pcall(function() boxes[char]:Remove() end)
+				boxes[char] = nil
+			end
+		end
+		for char, _ in pairs(nameLabels) do
+			if not validChars[char] then
+				pcall(function() nameLabels[char]:Remove() end)
 				nameLabels[char] = nil
 			end
 		end
-		for char, label in pairs(distanceLabels) do
-			if not char or not char.Parent then
-				pcall(function() label:Remove() end)
+		for char, _ in pairs(distanceLabels) do
+			if not validChars[char] then
+				pcall(function() distanceLabels[char]:Remove() end)
 				distanceLabels[char] = nil
 			end
 		end
+		for char, _ in pairs(tracers) do
+			if not validChars[char] then
+				pcall(function() tracers[char]:Remove() end)
+				tracers[char] = nil
+			end
+		end
+		for char, bar in pairs(healthBars) do
+			if not validChars[char] then
+				pcall(function()
+					if bar.bg then bar.bg:Remove() end
+					if bar.fill then bar.fill:Remove() end
+				end)
+				healthBars[char] = nil
+			end
+		end
+	else
+		-- Limpar TUDO quando ESP desativado
+		for char, h in pairs(highlights) do pcall(function() h:Destroy() end) end
+		for char, b in pairs(boxes) do pcall(function() b:Remove() end) end
+		for char, n in pairs(nameLabels) do pcall(function() n:Remove() end) end
+		for char, d in pairs(distanceLabels) do pcall(function() d:Remove() end) end
+		for char, t in pairs(tracers) do pcall(function() t:Remove() end) end
+		for char, bar in pairs(healthBars) do
+			pcall(function()
+				if bar.bg then bar.bg:Remove() end
+				if bar.fill then bar.fill:Remove() end
+			end)
+		end
+		highlights = {}
+		boxes = {}
+		nameLabels = {}
+		distanceLabels = {}
+		tracers = {}
+		healthBars = {}
 	end
 end)
 
@@ -4954,17 +5118,21 @@ print("✅ Eventos de players ATIVADOS")
 
 -- Boot
 local success, err = pcall(function()
-	if updatePlayersList then updatePlayersList() end
-	for _, p in ipairs(Players:GetPlayers()) do
-		if p ~= LocalPlayer and p.Character then
-			refreshESPForPlayer(p)
+	-- Inicializar lista de players
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer then
+			createPlayerButton(plr)
+			if plr.Character then
+				refreshESPForPlayer(plr)
+			end
 		end
 	end
+	updatePlayerCounter()
 end)
 
 if success then
 	print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
-	print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
+	print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly)")
 	print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO! VELOCIDADE INICIAL: 1")
 else
 	warn("❌ Erro ao inicializar painel: " .. tostring(err))
@@ -4978,7 +5146,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
 
 	-- Menu toggle (M) - Prioridade máxima (sempre funciona)
 	if input.KeyCode == UI_TOGGLE_KEY then
-		showPanel(not panelVisible)
+		if menuMinimized then
+			toggleMinimize()
+		else
+			showPanel(not panelVisible)
+		end
 		return
 	end
 
@@ -5020,3 +5192,47 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end
 	end
 end)
+
+
+
+if minimizeButton then
+	minimizeButton.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			cancelling = true
+			flightStartTime = input.Position.X + input.Position.Y * 10000
+			freeflyStartCFrame = minimizeButton.Position
+		end
+	end)
+	minimizeButton.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			cancelling = false
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if cancelling and input.UserInputType == Enum.UserInputType.MouseMovement and freeflyStartCFrame then
+			local delta = Vector2.new(input.Position.X - (flightStartTime % 10000), input.Position.Y - math.floor(flightStartTime / 10000))
+			minimizeButton.Position = UDim2.new(freeflyStartCFrame.X.Scale, freeflyStartCFrame.X.Offset + delta.X, freeflyStartCFrame.Y.Scale, freeflyStartCFrame.Y.Offset + delta.Y)
+		end
+	end)
+end
+
+if minimizeButton then
+	minimizeButton.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			cancelling = true
+			flightStartTime = input.Position.X + input.Position.Y * 10000
+			freeflyStartCFrame = minimizeButton.Position
+		end
+	end)
+	minimizeButton.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			cancelling = false
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(input)
+		if cancelling and input.UserInputType == Enum.UserInputType.MouseMovement and freeflyStartCFrame then
+			local delta = Vector2.new(input.Position.X - (flightStartTime % 10000), input.Position.Y - math.floor(flightStartTime / 10000))
+			minimizeButton.Position = UDim2.new(1, freeflyStartCFrame.X.Offset + delta.X - minimizeButton.AbsoluteSize.X, freeflyStartCFrame.Y.Scale, freeflyStartCFrame.Y.Offset + delta.Y)
+		end
+	end)
+end
