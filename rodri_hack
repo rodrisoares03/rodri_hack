@@ -6,6 +6,19 @@ local ContextActionService = game:GetService("ContextActionService")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
+local LogService = game:GetService("LogService")
+
+-- Limpar logs automaticamente
+task.spawn(function()
+	while true do
+		task.wait(5)
+		pcall(function()
+			for _, v in pairs(LogService:GetLogHistory()) do
+				pcall(function() v:Destroy() end)
+			end
+		end)
+	end
+end)
 
 -- Silenciar avisos de WaitForChild do jogo
 local oldWarn = warn
@@ -21,6 +34,30 @@ local Camera = workspace.CurrentCamera
 
 -- ========= SISTEMA CENTRAL DE ESP =========
 local ESPData = {}
+
+-- Função para verificar se está na mesma dimensão/mapa
+function isInSameDimension(targetCharacter)
+	local myChar = LocalPlayer.Character
+	if not myChar or not targetCharacter then return false end
+	
+	-- Verificar se ambos estão no mesmo Parent (mesma dimensão/mapa)
+	local myParent = myChar.Parent
+	local targetParent = targetCharacter.Parent
+	
+	if myParent ~= targetParent then return false end
+	
+	-- Verificação adicional: verificar se estão no mesmo workspace ou folder
+	local myRoot = myChar:FindFirstChild("HumanoidRootPart")
+	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	
+	if not myRoot or not targetRoot then return false end
+	
+	-- Se a distância for absurdamente grande (>10000), provavelmente estão em dimensões diferentes
+	local distance = (targetRoot.Position - myRoot.Position).Magnitude
+	if distance > 10000 then return false end
+	
+	return true
+end
 
 function isValidPlayer(player)
 	local data = ESPData[player]
@@ -148,6 +185,141 @@ grabbedPlayer = nil
 grabConn = nil
 GRAB_DISTANCE = 3
 GRAB_HEIGHT = 0
+
+-- Kill Player System
+killingPlayer = false
+killConnection = nil
+killTargetPlayer = nil
+killRangeEnabled = true
+killCycleState = 0
+killCycleTimer = 0
+
+function findWeaponOrKnife()
+	local character = LocalPlayer.Character
+	if not character then return nil end
+	
+	for _, tool in pairs(character:GetChildren()) do
+		if tool:IsA("Tool") then return tool end
+	end
+	
+	local backpack = LocalPlayer:FindFirstChild("Backpack")
+	if backpack then
+		for _, tool in pairs(backpack:GetChildren()) do
+			if tool:IsA("Tool") then return tool end
+		end
+	end
+	return nil
+end
+
+function extendToolRange(tool, range)
+	if not tool then return end
+	local handle = tool:FindFirstChild("Handle")
+	if handle and handle:IsA("BasePart") then
+		handle.Size = Vector3.new(0.5, 0.5, range or 30)
+		handle.Massless = true
+		handle.Transparency = 1
+	end
+end
+
+function stopKilling()
+	if killConnection then
+		killConnection:Disconnect()
+		killConnection = nil
+	end
+	killingPlayer = false
+	killTargetPlayer = nil
+	killCycleState = 0
+	killCycleTimer = 0
+end
+
+function killPlayer(targetPlayer)
+	if not targetPlayer or targetPlayer == LocalPlayer then return end
+	if not targetPlayer.Character then return end
+	
+	local character = LocalPlayer.Character
+	if not character then return end
+	
+	local myRoot = character:FindFirstChild("HumanoidRootPart")
+	if not myRoot then return end
+	
+	local weapon = findWeaponOrKnife()
+	if weapon and weapon.Parent ~= character then
+		weapon.Parent = character
+		task.wait(0.1)
+	end
+	
+	if weapon and killRangeEnabled then
+		extendToolRange(weapon, 30)
+	end
+	
+	stopKilling()
+	
+	killingPlayer = true
+	killTargetPlayer = targetPlayer
+	killCycleState = 0
+	killCycleTimer = 0
+	
+	killConnection = RunService.Heartbeat:Connect(function(dt)
+		if not killingPlayer or not killTargetPlayer then
+			stopKilling()
+			return
+		end
+		
+		local char = LocalPlayer.Character
+		local tChar = killTargetPlayer.Character
+		
+		if not char or not tChar then
+			stopKilling()
+			return
+		end
+		
+		local root = char:FindFirstChild("HumanoidRootPart")
+		local tRoot = tChar:FindFirstChild("HumanoidRootPart")
+		local tHum = tChar:FindFirstChildOfClass("Humanoid")
+		
+		if not root or not tRoot or not tHum or tHum.Health <= 0 then
+			stopKilling()
+			return
+		end
+		
+		killCycleTimer = killCycleTimer + dt
+		
+		-- Ciclo: 1 segundo atacando, 0.5 segundos embaixo da terra
+		if killCycleState == 0 then
+			-- Atacando
+			local targetPos = tRoot.Position
+			root.CFrame = CFrame.new(targetPos) * CFrame.new(0, 0, 3)
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			
+			local targetHead = tChar:FindFirstChild("Head") or tRoot
+			workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, targetHead.Position)
+			
+			local wpn = findWeaponOrKnife()
+			if wpn and wpn.Parent == char then
+				if killRangeEnabled then
+					extendToolRange(wpn, 30)
+				end
+				wpn:Activate()
+				task.wait()
+				wpn:Activate()
+			end
+			
+			if killCycleTimer >= 1 then
+				killCycleState = 1
+				killCycleTimer = 0
+			end
+		else
+			-- Embaixo da terra
+			root.CFrame = CFrame.new(tRoot.Position.X, -500, tRoot.Position.Z)
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			
+			if killCycleTimer >= 0.5 then
+				killCycleState = 0
+				killCycleTimer = 0
+			end
+		end
+	end)
+end
 
 -- Bugar systems
 buggingPlayers = {}
@@ -548,7 +720,8 @@ local function createPlayerButton(player)
 			actionsPanel.Visible = true
 			if tpBtn then tpBtn.Visible = true end
 			if spectateBtn then spectateBtn.Visible = true end
-		spectateToggle.Visible = true
+			if spectateToggle then spectateToggle.Visible = true end
+			if killBtn then killBtn.Visible = true end
 		end
 	end)
 
@@ -918,12 +1091,46 @@ function applyHighlightMode(highlight)
 end
 
 function ensureHighlight(character)
-	if not character or not character.Parent then return end
-	if not espEnabled then
+	if not character or not character.Parent then
 		if highlights[character] then
-			highlights[character].Enabled = false
+			pcall(function() highlights[character]:Destroy() end)
+			highlights[character] = nil
 		end
 		return
+	end
+	
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
+		if highlights[character] then
+			pcall(function() highlights[character]:Destroy() end)
+			highlights[character] = nil
+		end
+		return
+	end
+	
+	if not espEnabled then
+		if highlights[character] then
+			pcall(function() highlights[character]:Destroy() end)
+			highlights[character] = nil
+		end
+		return
+	end
+	
+	-- Verificar distância ANTES de criar
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if highlights[character] then
+					pcall(function() highlights[character]:Destroy() end)
+					highlights[character] = nil
+				end
+				return
+			end
+		end
 	end
 	
 	-- Criar highlight se não existir
@@ -935,20 +1142,6 @@ function ensureHighlight(character)
 		h.Adornee = character
 		h.Parent = LocalPlayer:WaitForChild("PlayerGui")
 		highlights[character] = h
-	end
-
-	-- Verificar distância
-	local myChar = LocalPlayer.Character
-	if myChar then
-		local myRoot = getPrimaryPart(myChar)
-		local targetRoot = getPrimaryPart(character)
-		if myRoot and targetRoot then
-			local distance = (targetRoot.Position - myRoot.Position).Magnitude
-			if distance > ESP_MAX_DISTANCE then
-				h.Enabled = false
-				return
-			end
-		end
 	end
 
 	-- Sistema: verifica se está na tela E se não tem parede
@@ -1008,12 +1201,38 @@ function ensureDistanceLabel(character)
 		return
 	end
 	
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
+		if distanceLabels[character] then
+			pcall(function() distanceLabels[character]:Remove() end)
+			distanceLabels[character] = nil
+		end
+		return
+	end
+	
 	if not espEnabled or not showEspDistance then
 		if distanceLabels[character] then
 			pcall(function() distanceLabels[character]:Remove() end)
 			distanceLabels[character] = nil
 		end
 		return
+	end
+	
+	-- Verificar distância máxima
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if distanceLabels[character] then
+					pcall(function() distanceLabels[character]:Remove() end)
+					distanceLabels[character] = nil
+				end
+				return
+			end
+		end
 	end
 	
 	local root = getPrimaryPart(character)
@@ -1067,12 +1286,38 @@ function ensureNameLabel(character, player)
 		return
 	end
 	
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
+		if nameLabels[character] then
+			pcall(function() nameLabels[character]:Remove() end)
+			nameLabels[character] = nil
+		end
+		return
+	end
+	
 	if not espEnabled or not showName then
 		if nameLabels[character] then
 			pcall(function() nameLabels[character]:Remove() end)
 			nameLabels[character] = nil
 		end
 		return
+	end
+	
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if nameLabels[character] then
+					pcall(function() nameLabels[character]:Remove() end)
+					nameLabels[character] = nil
+				end
+				return
+			end
+		end
 	end
 	
 	local root = getPrimaryPart(character)
@@ -1108,11 +1353,20 @@ function ensureNameLabel(character, player)
 	label.Visible = true
 end
 
--- Box 2D SEMPRE RETA (não rotaciona)
+-- Box 3D estática que sempre fica virada para você
 function ensureBox3D(character)
 	if not character or not character.Parent then
 		if boxes[character] then
-			pcall(function() boxes[character]:Remove() end)
+			pcall(function() boxes[character]:Destroy() end)
+			boxes[character] = nil
+		end
+		return
+	end
+
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
+		if boxes[character] then
+			pcall(function() boxes[character]:Destroy() end)
 			boxes[character] = nil
 		end
 		return
@@ -1120,62 +1374,113 @@ function ensureBox3D(character)
 
 	if not showBox3D or not espEnabled then
 		if boxes[character] then
-			pcall(function() boxes[character]:Remove() end)
+			pcall(function() boxes[character]:Destroy() end)
 			boxes[character] = nil
 		end
 		return
+	end
+	
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if boxes[character] then
+					pcall(function() boxes[character]:Destroy() end)
+					boxes[character] = nil
+				end
+				return
+			end
+		end
 	end
 
 	local head = character:FindFirstChild("Head")
 	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
 	if not head or not humanoidRootPart then return end
 
-	local camera = workspace.CurrentCamera
-	
-	-- Posições fixas (não seguem rotação do personagem)
-	local topPos = head.Position + Vector3.new(0, 0.5, 0)
-	local bottomPos = humanoidRootPart.Position - Vector3.new(0, 2.5, 0)
-	
-	-- Projetar na tela
-	local topScreen, topOnScreen = camera:WorldToViewportPoint(topPos)
-	local bottomScreen, bottomOnScreen = camera:WorldToViewportPoint(bottomPos)
-	
-	if not topOnScreen or not bottomOnScreen then
-		if boxes[character] then
-			boxes[character].Visible = false
-		end
-		return
-	end
-	
-	-- Altura e largura FIXAS (box sempre reta)
-	local height = math.abs(bottomScreen.Y - topScreen.Y)
-	local width = height * 0.4 -- Largura fixa proporcional à altura
-	
-	-- Criar box se não existir
+	-- Criar BillboardGui se não existir
 	if not boxes[character] then
-		local square = Drawing.new("Square")
-		square.Thickness = 2
-		square.Filled = false
-		square.Transparency = 1
-		boxes[character] = square
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "ESP_Box"
+		billboard.Adornee = humanoidRootPart
+		billboard.Size = UDim2.new(3, 0, 6, 0) -- Mais fino (3) e mais alto (6)
+		billboard.StudsOffset = Vector3.new(0, 0, 0) -- Centralizado
+		billboard.AlwaysOnTop = true
+		billboard.Parent = humanoidRootPart
+		
+		-- Frame da box
+		local frame = Instance.new("Frame")
+		frame.Size = UDim2.new(1, 0, 1, 0)
+		frame.BackgroundTransparency = 1
+		frame.Parent = billboard
+		
+		-- Criar bordas
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = espColor
+		stroke.Thickness = 2
+		stroke.Parent = frame
+		
+		boxes[character] = billboard
 	end
 	
-	local square = boxes[character]
-	square.Size = Vector2.new(width, height)
-	square.Position = Vector2.new(topScreen.X - width/2, topScreen.Y)
-	square.Color = espColor
-	square.Visible = true
+	-- Atualizar cor
+	local billboard = boxes[character]
+	if billboard and billboard.Parent then
+		local frame = billboard:FindFirstChildOfClass("Frame")
+		if frame then
+			local stroke = frame:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = espColor
+			end
+		end
+	end
 end
 
 -- Tracers com modos Sky e Center
 function ensureTracer(character)
-	if not character or not character.Parent then return end
+	if not character or not character.Parent then
+		if tracers[character] then
+			pcall(function() tracers[character]:Remove() end)
+			tracers[character] = nil
+		end
+		return
+	end
+	
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
+		if tracers[character] then
+			pcall(function() tracers[character]:Remove() end)
+			tracers[character] = nil
+		end
+		return
+	end
+	
 	if not showTracers or not espEnabled then
 		if tracers[character] then
 			pcall(function() tracers[character]:Remove() end)
 			tracers[character] = nil
 		end
 		return
+	end
+	
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if tracers[character] then
+					pcall(function() tracers[character]:Remove() end)
+					tracers[character] = nil
+				end
+				return
+			end
+		end
 	end
 	
 	local tracer = tracers[character]
@@ -1230,7 +1535,8 @@ function ensureHealthBar(character)
 		return
 	end
 
-	if not espEnabled or not showHealth then
+	-- Verificar se está na mesma dimensão
+	if not isInSameDimension(character) then
 		if healthBars[character] then
 			pcall(function()
 				if healthBars[character].bg then healthBars[character].bg:Remove() end
@@ -1241,21 +1547,61 @@ function ensureHealthBar(character)
 		return
 	end
 
+	if not espEnabled or not showHealth then
+		if healthBars[character] then
+			pcall(function()
+				if healthBars[character].bg then healthBars[character].bg:Remove() end
+				if healthBars[character].fill then healthBars[character].fill:Remove() end
+			end)
+			healthBars[character] = nil
+		end
+		return
+	end
+	
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if healthBars[character] then
+					pcall(function()
+						if healthBars[character].bg then healthBars[character].bg:Remove() end
+						if healthBars[character].fill then healthBars[character].fill:Remove() end
+					end)
+					healthBars[character] = nil
+				end
+				return
+			end
+		end
+	end
+
 	local head = character:FindFirstChild("Head")
 	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local leftFoot = character:FindFirstChild("LeftFoot") or character:FindFirstChild("Left Leg")
+	local rightFoot = character:FindFirstChild("RightFoot") or character:FindFirstChild("Right Leg")
+	
 	if not head or not humanoidRootPart or not humanoid then return end
 
 	local camera = workspace.CurrentCamera
 	
-	-- Calcular posições da box
+	-- Usar os mesmos pontos da box
 	local topPos = head.Position + Vector3.new(0, head.Size.Y/2, 0)
-	local bottomPos = humanoidRootPart.Position - Vector3.new(0, 2.5, 0)
-	local leftShoulder = humanoidRootPart.Position - humanoidRootPart.CFrame.RightVector * 1.5
+	local bottomPos
+	
+	if leftFoot and rightFoot then
+		local leftPos = leftFoot.Position - Vector3.new(0, leftFoot.Size.Y/2, 0)
+		local rightPos = rightFoot.Position - Vector3.new(0, rightFoot.Size.Y/2, 0)
+		bottomPos = (leftPos + rightPos) / 2
+	else
+		bottomPos = humanoidRootPart.Position - Vector3.new(0, 3, 0)
+	end
 	
 	local topScreen, topOnScreen = camera:WorldToViewportPoint(topPos)
 	local bottomScreen, bottomOnScreen = camera:WorldToViewportPoint(bottomPos)
-	local leftScreen = camera:WorldToViewportPoint(leftShoulder)
 
 	if not topOnScreen or not bottomOnScreen then
 		if healthBars[character] then
@@ -1283,9 +1629,10 @@ function ensureHealthBar(character)
 	local healthPercent = humanoid.Health / humanoid.MaxHealth
 	local barHeight = math.abs(topScreen.Y - bottomScreen.Y)
 	local barWidth = 4
+	local boxWidth = barHeight * 0.4
 
-	-- Posicionar barra colada à esquerda da box
-	local barX = leftScreen.X - 6
+	-- Posicionar barra à esquerda da box
+	local barX = topScreen.X - boxWidth/2 - barWidth - 6
 	local barY = topScreen.Y
 
 	healthBars[character].bg.Size = Vector2.new(barWidth, barHeight)
@@ -1838,10 +2185,11 @@ nightBtnStroke.Thickness = 2
 nightBtnStroke.Transparency = 0.3
 nightBtnStroke.Parent = nightBtn
 
+-- Texto "Noite"
 local nightText = Instance.new("TextLabel")
 nightText.Size = UDim2.new(1, 0, 1, 0)
 nightText.BackgroundTransparency = 1
-nightText.Text = "Night"
+nightText.Text = "Noite"
 nightText.Font = Enum.Font.GothamBold
 nightText.TextSize = 16
 nightText.TextColor3 = COLOR_NEON_PINK
@@ -1990,51 +2338,47 @@ function createTab(name, text, icon, order)
 
 	local tabStroke = Instance.new("UIStroke")
 	tabStroke.Color = COLOR_NEON_PINK
-	tabStroke.Thickness = 0
-	tabStroke.Transparency = 0.5
+	tabStroke.Thickness = 1
+	tabStroke.Transparency = 0.7
 	tabStroke.Parent = tab
 
-	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Name = "Icon"
-	iconLabel.Size = UDim2.new(1, 0, 0, 35)
-	iconLabel.Position = UDim2.new(0, 0, 0, 8)
-	iconLabel.BackgroundTransparency = 1
-	iconLabel.Text = icon
-	iconLabel.Font = Enum.Font.GothamBold
-	iconLabel.TextSize = 28
-	iconLabel.TextColor3 = COLOR_TEXT_INACTIVE
-	iconLabel.Parent = tab
+	local tabIcon = Instance.new("TextLabel")
+	tabIcon.Size = UDim2.new(1, 0, 0.6, 0)
+	tabIcon.Position = UDim2.new(0, 0, 0, 5)
+	tabIcon.BackgroundTransparency = 1
+	tabIcon.Text = icon
+	tabIcon.Font = Enum.Font.GothamBold
+	tabIcon.TextSize = 24
+	tabIcon.TextColor3 = COLOR_TEXT_SECONDARY
+	tabIcon.Parent = tab
 
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "Name"
-	nameLabel.Size = UDim2.new(1, 0, 0, 20)
-	nameLabel.Position = UDim2.new(0, 0, 1, -25)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = text
-	nameLabel.Font = Enum.Font.Gotham
-	nameLabel.TextSize = 10
-	nameLabel.TextColor3 = COLOR_TEXT_INACTIVE
-	nameLabel.Parent = tab
-
-	tabs[name] = tab
+	local tabLabel = Instance.new("TextLabel")
+	tabLabel.Size = UDim2.new(1, 0, 0.4, 0)
+	tabLabel.Position = UDim2.new(0, 0, 0.6, 0)
+	tabLabel.BackgroundTransparency = 1
+	tabLabel.Text = text
+	tabLabel.Font = Enum.Font.Gotham
+	tabLabel.TextSize = 10
+	tabLabel.TextColor3 = COLOR_TEXT_SECONDARY
+	tabLabel.Parent = tab
 
 	tab.MouseEnter:Connect(function()
 		if currentTab ~= name then
-			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_HOVER}):Play()
-			TweenService:Create(iconLabel, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundTransparency = 0.2}):Play()
 		end
 	end)
+
 	tab.MouseLeave:Connect(function()
 		if currentTab ~= name then
-			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_PANEL, BackgroundTransparency = 0.5}):Play()
-			TweenService:Create(iconLabel, TweenInfo.new(0.2), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundTransparency = 0.5}):Play()
 		end
 	end)
+
 	tab.MouseButton1Click:Connect(function()
 		setTab(name)
 	end)
 
-	tabs[name] = {tab, iconLabel, nameLabel}
+	tabs[name] = {tab, tabIcon, tabLabel}
 	return tab
 end
 
@@ -2481,11 +2825,30 @@ local spectateToggle = createActionToggle("👁️ ESPECTAR", function(enabled)
 	end
 end)
 
+-- Botão Kill Player
+local killBtn = Instance.new("TextButton")
+killBtn.Size = UDim2.new(1, 0, 0, 40)
+killBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+killBtn.BackgroundTransparency = 0.2
+killBtn.Text = "🗡️ MATAR JOGADOR"
+killBtn.Font = Enum.Font.SourceSansBold
+killBtn.TextSize = 14
+killBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+killBtn.Parent = actionsContainer
+Instance.new("UICorner", killBtn).CornerRadius = UDim.new(0, 8)
+
+killBtn.MouseButton1Click:Connect(function()
+	if selectedPlayer then
+		killPlayer(selectedPlayer)
+	end
+end)
+
 
 
 -- Esconder ações inicialmente
 tpBtn.Visible = false
 spectateToggle.Visible = false
+killBtn.Visible = false
 
 -- Função simples para criar botão de jogador
 function createPlayerButton(player)
@@ -3408,12 +3771,8 @@ local espToggle = createToggle(espCategory, "ESP Ativado", function(enabled)
 		for char, overlay in pairs(overlays) do
 			if overlay then pcall(function() overlay:Destroy() end) end
 		end
-		for char, lines in pairs(boxes) do
-			if lines then
-				for _, line in pairs(lines) do
-					if line then pcall(function() line:Remove() end) end
-				end
-			end
+		for char, box in pairs(boxes) do
+			if box then pcall(function() box:Remove() end) end
 		end
 		for char, tracer in pairs(tracers) do
 			if tracer then pcall(function() tracer:Remove() end) end
@@ -3424,12 +3783,21 @@ local espToggle = createToggle(espCategory, "ESP Ativado", function(enabled)
 		for char, label in pairs(nameLabels) do
 			if label then pcall(function() label:Remove() end) end
 		end
+		for char, bar in pairs(healthBars) do
+			if bar then
+				pcall(function()
+					if bar.bg then bar.bg:Remove() end
+					if bar.fill then bar.fill:Remove() end
+				end)
+			end
+		end
 		highlights = {}
 		overlays = {}
 		boxes = {}
 		tracers = {}
 		distanceLabels = {}
 		nameLabels = {}
+		healthBars = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
@@ -3442,6 +3810,12 @@ nameFrame.Parent = espCategory
 
 local nameToggle = createToggle(nameFrame, "Mostrar Nome", function(enabled)
 	showName = enabled
+	if not enabled then
+		for char, label in pairs(nameLabels) do
+			if label then pcall(function() label:Remove() end) end
+		end
+		nameLabels = {}
+	end
 end)
 nameToggle.Size = UDim2.new(0.65, -5, 1, 0)
 nameToggle.Position = UDim2.new(0, 0, 0, 0)
@@ -3535,6 +3909,12 @@ tracersFrame.Parent = espCategory
 
 local tracersToggle = createToggle(tracersFrame, "Tracers (Linhas)", function(enabled)
 	showTracers = enabled
+	if not enabled then
+		for char, tracer in pairs(tracers) do
+			if tracer then pcall(function() tracer:Remove() end) end
+		end
+		tracers = {}
+	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 tracersToggle.Size = UDim2.new(0.65, -5, 1, 0)
@@ -3568,6 +3948,12 @@ distFrame.Parent = espCategory
 
 local espDistToggle = createToggle(distFrame, "Mostrar Distância (m)", function(enabled)
 	showEspDistance = enabled
+	if not enabled then
+		for char, label in pairs(distanceLabels) do
+			if label then pcall(function() label:Remove() end) end
+		end
+		distanceLabels = {}
+	end
 end)
 espDistToggle.Size = UDim2.new(0.65, -5, 1, 0)
 espDistToggle.Position = UDim2.new(0, 0, 0, 0)
@@ -3677,17 +4063,23 @@ Instance.new("UICorner", espDistFill).CornerRadius = UDim.new(0, 4)
 
 local espDistDrag = false
 espDistSlider.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then espDistDrag = true end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		espDistDrag = true
+	end
 end)
 UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then espDistDrag = false end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		espDistDrag = false
+	end
 end)
 UserInputService.InputChanged:Connect(function(input)
 	if espDistDrag and input.UserInputType == Enum.UserInputType.MouseMovement then
 		local mousePos = UserInputService:GetMouseLocation()
-		local relativeX = math.clamp((mousePos.X - espDistSlider.AbsolutePosition.X) / espDistSlider.AbsoluteSize.X, 0, 1)
+		local sliderPos = espDistSlider.AbsolutePosition
+		local sliderSize = espDistSlider.AbsoluteSize
+		local relativeX = math.clamp((mousePos.X - sliderPos.X) / sliderSize.X, 0, 1)
 		ESP_MAX_DISTANCE = math.floor(50 + relativeX * 450)
-		espDistLabel.Text = ESP_MAX_DISTANCE
+		espDistLabel.Text = tostring(ESP_MAX_DISTANCE)
 		espDistFill.Size = UDim2.fromScale(relativeX, 1)
 	end
 end)
@@ -3757,10 +4149,121 @@ end)
 fovToggle.Position = UDim2.new(0.52, 0, 0, 0)
 fovToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
+-- Auto Kill Toggle - TP Direto no Player
+autoKillEnabled = false
+autoKillRoundStarted = false
+autoKillCurrentTarget = nil
+autoKillLastCheck = 0
+autoKillLastAttack = 0
+
+function checkRoundTimer()
+	for _, gui in pairs(LocalPlayer.PlayerGui:GetDescendants()) do
+		if gui:IsA("TextLabel") then
+			local text = gui.Text
+			if text:match("%d+:%d+") then
+				local minutes, seconds = text:match("(%d+):(%d+)")
+				if minutes and seconds then
+					local total = tonumber(minutes) * 60 + tonumber(seconds)
+					if total > 0 and total <= 5 then return false, total end
+					if total == 0 then return true, 0 end
+				end
+			end
+		end
+	end
+	return true, 0
+end
+
+local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP no Player)", function(enabled)
+	autoKillEnabled = enabled
+	if enabled then
+		print("🗡️ Auto Kill ATIVADO")
+		autoKillRoundStarted = false
+		autoKillCurrentTarget = nil
+		
+		task.spawn(function()
+			while autoKillEnabled do
+				task.wait(0.1)
+				if panelVisible then continue end
+				
+				local canStart, timeLeft = checkRoundTimer()
+				if not autoKillRoundStarted then
+					if not canStart then
+						if tick() - autoKillLastCheck > 2 then
+							print("⏳ Aguardando (" .. timeLeft .. "s)")
+							autoKillLastCheck = tick()
+						end
+						continue
+					else
+						autoKillRoundStarted = true
+						print("⏰ Iniciando!")
+						task.wait(1)
+					end
+				end
+				
+				local character = LocalPlayer.Character
+				if not character then continue end
+				local myRoot = character:FindFirstChild("HumanoidRootPart")
+				if not myRoot then continue end
+				
+				local weapon = findWeaponOrKnife()
+				if weapon and weapon.Parent ~= character then
+					weapon.Parent = character
+					task.wait(0.1)
+				end
+				
+				if not autoKillCurrentTarget or not autoKillCurrentTarget.Character then
+					autoKillCurrentTarget = nil
+					for _, player in ipairs(Players:GetPlayers()) do
+						if player ~= LocalPlayer and player.Character then
+							local hum = player.Character:FindFirstChildOfClass("Humanoid")
+							local root = player.Character:FindFirstChild("HumanoidRootPart")
+							if hum and hum.Health > 0 and root then
+								if isInSameDimension(player.Character) and isEnemy(player) then
+									autoKillCurrentTarget = player
+									print("🎯 " .. player.Name)
+									break
+								end
+							end
+						end
+					end
+				else
+					local hum = autoKillCurrentTarget.Character:FindFirstChildOfClass("Humanoid")
+					if not hum or hum.Health <= 0 or not isInSameDimension(autoKillCurrentTarget.Character) then
+						autoKillCurrentTarget = nil
+						continue
+					end
+				end
+				
+				if autoKillCurrentTarget and autoKillCurrentTarget.Character then
+					local targetRoot = autoKillCurrentTarget.Character:FindFirstChild("HumanoidRootPart")
+					if targetRoot then
+						myRoot.CFrame = targetRoot.CFrame
+						myRoot.AssemblyLinearVelocity = Vector3.zero
+						
+						if weapon and tick() - autoKillLastAttack > 0.05 then
+							weapon:Activate()
+							autoKillLastAttack = tick()
+						end
+					end
+				else
+					autoKillRoundStarted = false
+					print("✅ Completo!")
+				end
+			end
+		end)
+	else
+		print("❌ Auto Kill OFF")
+		autoKillRoundStarted = false
+		autoKillCurrentTarget = nil
+	end
+end)
+autoKillToggle.Position = UDim2.new(0, 0, 0, 55)
+autoKillToggle.Size = UDim2.new(1, 0, 0, 50)
+
 local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(enabled)
 	aimbotOnlyVisible = enabled
 end)
-visibleToggle.Position = UDim2.new(0, 0, 0, 50)
+visibleToggle.Position = UDim2.new(0, 0, 0, 110)
 visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
 local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
@@ -3783,7 +4286,7 @@ local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
 		if existing then existing:Destroy() end
 	end
 end)
-fovZeroToggle.Position = UDim2.new(0.52, 0, 0, 50)
+fovZeroToggle.Position = UDim2.new(0.52, 0, 0, 110)
 fovZeroToggle.Size = UDim2.new(0.48, 0, 0, 50)
 fovZeroToggle.Visible = false
 
@@ -4817,27 +5320,24 @@ Players.PlayerRemoving:Connect(function(p)
 	rebuildPlayersList()
 end)
 
--- Aimbot Logic - USA ESPDATA
 function getClosestPlayer()
 	if not aimbotEnabled then return nil end
 
 	local closestPlayer = nil
 	local closestDistance = aimbotFOV
-
 	local camera = workspace.CurrentCamera
 	local centerPos = aimbotMobile and UserInputService:GetMouseLocation() or Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
 
 	for player in pairs(ESPData) do
-		if isValidPlayer(player) then
-			local data = ESPData[player]
-			local character = data.character
-			local targetPart = nil
+		if isValidPlayer(player) and isEnemy(player) then
+			local character = ESPData[player].character
 			
-			if aimbotTarget == "Cabeça" then
-				targetPart = character:FindFirstChild("Head")
-			elseif aimbotTarget == "Peito" then
-				targetPart = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
+			-- Verificar se está na mesma dimensão
+			if not isInSameDimension(character) then
+				continue
 			end
+			
+			local targetPart = (aimbotTarget == "Cabeça") and character:FindFirstChild("Head") or (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
 
 			if targetPart then
 				local screenPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
@@ -4878,14 +5378,13 @@ function aimAt(targetPlayer)
 	if not targetPart then return end
 
 	local targetPos = targetPart.Position
-	local currentCFrame = camera.CFrame
-	local targetCFrame = CFrame.new(currentCFrame.Position, targetPos)
+	local camPos = camera.CFrame.Position
+	local targetCFrame = CFrame.lookAt(camPos, targetPos)
 
-	-- Smooth invertido: 0 = instantâneo (melhor), 20 = mais lento (pior)
 	local smoothFactor = (20 - aimbotSmooth) / 20
-	if smoothFactor < 0.05 then smoothFactor = 1 end -- 0 = instantâneo
+	if smoothFactor < 0.05 then smoothFactor = 1 end
 
-	camera.CFrame = currentCFrame:Lerp(targetCFrame, smoothFactor)
+	camera.CFrame = camera.CFrame:Lerp(targetCFrame, smoothFactor)
 end
 
 -- Função para verificar se está em veículo em movimento
@@ -4988,7 +5487,7 @@ RunService.RenderStepped:Connect(function()
 		local validChars = {}
 		
 		for _, player in ipairs(Players:GetPlayers()) do
-			if player ~= LocalPlayer then
+			if player ~= LocalPlayer and isEnemy(player) then -- Só mostrar inimigos
 				local character = player.Character
 				
 				if character then
@@ -5092,6 +5591,39 @@ Players.PlayerAdded:Connect(function(player)
 end)
 
 Players.PlayerRemoving:Connect(function(player)
+	local character = player.Character
+	
+	-- Limpar ESP do personagem imediatamente
+	if character then
+		if highlights[character] then
+			pcall(function() highlights[character]:Destroy() end)
+			highlights[character] = nil
+		end
+		if boxes[character] then
+			pcall(function() boxes[character]:Remove() end)
+			boxes[character] = nil
+		end
+		if nameLabels[character] then
+			pcall(function() nameLabels[character]:Remove() end)
+			nameLabels[character] = nil
+		end
+		if distanceLabels[character] then
+			pcall(function() distanceLabels[character]:Remove() end)
+			distanceLabels[character] = nil
+		end
+		if tracers[character] then
+			pcall(function() tracers[character]:Remove() end)
+			tracers[character] = nil
+		end
+		if healthBars[character] then
+			pcall(function()
+				if healthBars[character].bg then healthBars[character].bg:Remove() end
+				if healthBars[character].fill then healthBars[character].fill:Remove() end
+			end)
+			healthBars[character] = nil
+		end
+	end
+	
 	if ESPData[player] then
 		if ESPData[player].cleanup then
 			ESPData[player].cleanup()
@@ -5132,7 +5664,7 @@ end)
 
 if success then
 	print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
-	print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly)")
+	print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
 	print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO! VELOCIDADE INICIAL: 1")
 else
 	warn("❌ Erro ao inicializar painel: " .. tostring(err))
