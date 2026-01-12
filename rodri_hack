@@ -8,14 +8,12 @@ local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local LogService = game:GetService("LogService")
 
--- Limpar logs automaticamente
+-- Limpar logs F9 a cada 25 segundos
 task.spawn(function()
 	while true do
-		task.wait(5)
+		task.wait(25)
 		pcall(function()
-			for _, v in pairs(LogService:GetLogHistory()) do
-				pcall(function() v:Destroy() end)
-			end
+			LogService:ClearOutput()
 		end)
 	end
 end)
@@ -4151,54 +4149,20 @@ fovToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
 -- Auto Kill Toggle - TP Direto no Player
 autoKillEnabled = false
-autoKillRoundStarted = false
 autoKillCurrentTarget = nil
-autoKillLastCheck = 0
 autoKillLastAttack = 0
+autoKillClickActive = false
 
-function checkRoundTimer()
-	for _, gui in pairs(LocalPlayer.PlayerGui:GetDescendants()) do
-		if gui:IsA("TextLabel") then
-			local text = gui.Text
-			if text:match("%d+:%d+") then
-				local minutes, seconds = text:match("(%d+):(%d+)")
-				if minutes and seconds then
-					local total = tonumber(minutes) * 60 + tonumber(seconds)
-					if total > 0 and total <= 5 then return false, total end
-					if total == 0 then return true, 0 end
-				end
-			end
-		end
-	end
-	return true, 0
-end
-
-local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP no Player)", function(enabled)
+local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP + Multi Kill)", function(enabled)
 	autoKillEnabled = enabled
 	if enabled then
-		print("🗡️ Auto Kill ATIVADO")
-		autoKillRoundStarted = false
+		print("🗡️ Auto Kill ATIVADO - Mata automaticamente ao spawnar")
 		autoKillCurrentTarget = nil
 		
 		task.spawn(function()
 			while autoKillEnabled do
 				task.wait(0.1)
 				if panelVisible then continue end
-				
-				local canStart, timeLeft = checkRoundTimer()
-				if not autoKillRoundStarted then
-					if not canStart then
-						if tick() - autoKillLastCheck > 2 then
-							print("⏳ Aguardando (" .. timeLeft .. "s)")
-							autoKillLastCheck = tick()
-						end
-						continue
-					else
-						autoKillRoundStarted = true
-						print("⏰ Iniciando!")
-						task.wait(1)
-					end
-				end
 				
 				local character = LocalPlayer.Character
 				if not character then continue end
@@ -4220,7 +4184,6 @@ local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP no Play
 							if hum and hum.Health > 0 and root then
 								if isInSameDimension(player.Character) and isEnemy(player) then
 									autoKillCurrentTarget = player
-									print("🎯 " .. player.Name)
 									break
 								end
 							end
@@ -4245,15 +4208,11 @@ local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP no Play
 							autoKillLastAttack = tick()
 						end
 					end
-				else
-					autoKillRoundStarted = false
-					print("✅ Completo!")
 				end
 			end
 		end)
 	else
 		print("❌ Auto Kill OFF")
-		autoKillRoundStarted = false
 		autoKillCurrentTarget = nil
 	end
 end)
@@ -4265,6 +4224,79 @@ local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(en
 end)
 visibleToggle.Position = UDim2.new(0, 0, 0, 110)
 visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
+
+-- Sistema de clique para multi kill (5 metros)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed or not autoKillEnabled then return end
+	
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and not autoKillClickActive then
+		autoKillClickActive = true
+		
+		task.spawn(function()
+			local character = LocalPlayer.Character
+			if not character then
+				autoKillClickActive = false
+				return
+			end
+			
+			local myRoot = character:FindFirstChild("HumanoidRootPart")
+			if not myRoot then
+				autoKillClickActive = false
+				return
+			end
+			
+			local weapon = findWeaponOrKnife()
+			if weapon and weapon.Parent ~= character then
+				weapon.Parent = character
+				task.wait(0.05)
+			end
+			
+			-- Pegar todos dentro de 5 metros
+			local targets = {}
+			for _, player in ipairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and player.Character then
+					local hum = player.Character:FindFirstChildOfClass("Humanoid")
+					local root = player.Character:FindFirstChild("HumanoidRootPart")
+					if hum and hum.Health > 0 and root and isInSameDimension(player.Character) and isEnemy(player) then
+						local dist = (root.Position - myRoot.Position).Magnitude
+						if dist <= 5 then
+							table.insert(targets, player)
+						end
+					end
+				end
+			end
+			
+			if #targets == 0 then
+				autoKillClickActive = false
+				return
+			end
+			
+			print("💀 Multi Kill: " .. #targets .. " alvos")
+			
+			for _, target in ipairs(targets) do
+				if target.Character then
+					local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
+					
+					if targetRoot then
+						for i = 1, 2 do
+							myRoot.CFrame = CFrame.new(targetRoot.Position.X, -500, targetRoot.Position.Z)
+							myRoot.AssemblyLinearVelocity = Vector3.zero
+							
+							if weapon then
+								weapon:Activate()
+							end
+							
+							task.wait(0.03)
+						end
+					end
+				end
+			end
+			
+			task.wait(0.1)
+			autoKillClickActive = false
+		end)
+	end
+end)
 
 local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
 	aimbotShowFOVZero = enabled
