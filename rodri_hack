@@ -8,10 +8,10 @@ local HttpService = game:GetService("HttpService")
 local Lighting = game:GetService("Lighting")
 local LogService = game:GetService("LogService")
 
--- Limpar logs F9 a cada 25 segundos
+-- Limpar logs F9 a cada 5 segundos
 task.spawn(function()
 	while true do
-		task.wait(25)
+		task.wait(5)
 		pcall(function()
 			LogService:ClearOutput()
 		end)
@@ -106,8 +106,8 @@ FREEFLY_SPRINT_MULT = 2
 FREEFLY_VERTICAL_SPEED = 30
 
 -- Limites do painel
-PANEL_MIN = Vector2.new(500, 400)
-PANEL_MAX = Vector2.new(900, 700)
+PANEL_MIN = Vector2.new(500, 600)
+PANEL_MAX = Vector2.new(900, 800)
 
 -- ========= Estado Global (Otimização) =========
 espEnabled = ESP_DEFAULT_ON
@@ -192,6 +192,43 @@ killRangeEnabled = true
 killCycleState = 0
 killCycleTimer = 0
 
+-- Auto Kill Stats
+autoKillStats = {
+	enemiesAlive = 0,
+	enemiesKilled = 0,
+	roundTimer = 0,
+	waitingForRound = false
+}
+
+function countEnemies()
+	local count = 0
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character then
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+			if hum and hum.Health > 0 and isInSameDimension(player.Character) and isEnemy(player) then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
+function getRoundTimer()
+	local gui = LocalPlayer:FindFirstChild("PlayerGui")
+	if not gui then return nil end
+	
+	for _, desc in ipairs(gui:GetDescendants()) do
+		if desc:IsA("TextLabel") or desc:IsA("TextBox") then
+			local text = desc.Text
+			local timer = tonumber(text:match("(%d+)"))
+			if timer and timer <= 60 then
+				return timer
+			end
+		end
+	end
+	return nil
+end
+
 function findWeaponOrKnife()
 	local character = LocalPlayer.Character
 	if not character then return nil end
@@ -243,11 +280,11 @@ function killPlayer(targetPlayer)
 	local weapon = findWeaponOrKnife()
 	if weapon and weapon.Parent ~= character then
 		weapon.Parent = character
-		task.wait(0.1)
+		task.wait(0.05)
 	end
 	
 	if weapon and killRangeEnabled then
-		extendToolRange(weapon, 30)
+		extendToolRange(weapon, 35)
 	end
 	
 	stopKilling()
@@ -282,36 +319,28 @@ function killPlayer(targetPlayer)
 		
 		killCycleTimer = killCycleTimer + dt
 		
-		-- Ciclo: 1 segundo atacando, 0.5 segundos embaixo da terra
 		if killCycleState == 0 then
-			-- Atacando
 			local targetPos = tRoot.Position
-			root.CFrame = CFrame.new(targetPos) * CFrame.new(0, 0, 3)
-			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
-			
-			local targetHead = tChar:FindFirstChild("Head") or tRoot
-			workspace.CurrentCamera.CFrame = CFrame.new(workspace.CurrentCamera.CFrame.Position, targetHead.Position)
+			root.CFrame = CFrame.new(targetPos) * CFrame.new(0, 0, 2)
+			root.AssemblyLinearVelocity = Vector3.zero
 			
 			local wpn = findWeaponOrKnife()
 			if wpn and wpn.Parent == char then
 				if killRangeEnabled then
-					extendToolRange(wpn, 30)
+					extendToolRange(wpn, 35)
 				end
-				wpn:Activate()
-				task.wait()
 				wpn:Activate()
 			end
 			
-			if killCycleTimer >= 1 then
+			if killCycleTimer >= 0.7 then
 				killCycleState = 1
 				killCycleTimer = 0
 			end
 		else
-			-- Embaixo da terra
-			root.CFrame = CFrame.new(tRoot.Position.X, -500, tRoot.Position.Z)
-			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+			root.CFrame = CFrame.new(tRoot.Position.X, -600, tRoot.Position.Z)
+			root.AssemblyLinearVelocity = Vector3.zero
 			
-			if killCycleTimer >= 0.5 then
+			if killCycleTimer >= 0.25 then
 				killCycleState = 0
 				killCycleTimer = 0
 			end
@@ -789,14 +818,6 @@ function FlySystem:toggleFly()
 
     -- Criar ou remover controles de voo
     if self.flying then
-        -- Tornar personagem transparente
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("MeshPart") then
-                part.Transparency = 0.7
-            elseif part:IsA("Decal") then
-                part.Transparency = 0.7
-            end
-        end
         -- Ativar Fly
         self.bodyGyro = Instance.new("BodyGyro", humanoidRootPart)
         self.bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
@@ -806,40 +827,23 @@ function FlySystem:toggleFly()
         self.bodyVelocity = Instance.new("BodyVelocity", humanoidRootPart)
         self.bodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
         self.bodyVelocity.Velocity = Vector3.new(0, 0, 0)
-
-        print("🪽 Fly ATIVADO (Velocidade: " .. self.speed .. ")")
     else
         -- Desativar Fly e restaurar transparência
         if self.bodyGyro then self.bodyGyro:Destroy() end
         if self.bodyVelocity then self.bodyVelocity:Destroy() end
         self.bodyGyro = nil
         self.bodyVelocity = nil
-        
-        -- Restaurar transparência original
-        for _, part in pairs(character:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("MeshPart") then
-                if part.Name ~= "HumanoidRootPart" then
-                    part.Transparency = 0
-                end
-            elseif part:IsA("Decal") then
-                part.Transparency = 0
-            end
-        end
-
-        print("🦶 Fly DESATIVADO")
     end
 end
 
 -- Função para ativar/desativar Noclip
 function FlySystem:toggleNoclip()
     self.noclip = not self.noclip
-    print(self.noclip and "🔓 Noclip ATIVADO" or "🔒 Noclip DESATIVADO")
 end
 
 -- Função para ajustar velocidade do Fly
 function FlySystem:setSpeed(newSpeed)
     self.speed = math.clamp(newSpeed, 1, 100)
-    print("⚡ Velocidade do Fly ajustada para: " .. self.speed)
 end
 
 -- Configurar controles de teclado
@@ -873,8 +877,6 @@ function FlySystem:setupControls()
         if input.KeyCode == Enum.KeyCode.Space then self.control.U = 0 end
         if input.KeyCode == Enum.KeyCode.LeftControl then self.control.D = 0 end
     end)
-
-    print("🎮 Controles do Fly configurados")
 end
 
 -- Loop principal de Fly
@@ -898,15 +900,6 @@ function FlySystem:startLoop()
 
         -- Sistema Fly
         if self.flying and humanoidRootPart then
-            -- Tornar personagem transparente durante fly
-            for _, part in pairs(character:GetDescendants()) do
-                if part:IsA("BasePart") or part:IsA("MeshPart") then
-                    part.Transparency = 0.7
-                elseif part:IsA("Decal") then
-                    part.Transparency = 0.7
-                end
-            end
-            
             -- Desabilitar animação de queda
             if humanoid then
                 humanoid:ChangeState(Enum.HumanoidStateType.Flying)
@@ -932,8 +925,6 @@ function FlySystem:startLoop()
             end
         end
     end)
-
-    print("🔄 Loop do Fly iniciado")
 end
 
 -- Função para resetar ao respawnar
@@ -948,8 +939,6 @@ function FlySystem:setupCharacterEvents()
         if self.bodyVelocity then self.bodyVelocity:Destroy() end
         self.bodyGyro = nil
         self.bodyVelocity = nil
-
-        print("🔄 Personagem respawnado - Fly/Noclip resetados")
     end
 
     LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
@@ -963,13 +952,6 @@ function FlySystem:init()
     self:setupControls()
     self:setupCharacterEvents()
     self:startLoop()
-
-    print("🚀 Sistema de Fly/Noclip inicializado com sucesso!")
-    print("🎮 CONTROLES:")
-    print("   F = Ativar/Desativar Fly")
-    print("   W/A/S/D = Movimentação")
-    print("   Espaço = Subir | Ctrl = Descer")
-    print("   +/- = Ajustar velocidade")
 
     return self
 end
@@ -996,20 +978,13 @@ end
 
 -- ========= Função para Destravar Mouse =========
 function unlockMouse()
-	-- Forçar o mouse a voltar ao normal
 	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 	UserInputService.MouseIconEnabled = true
 
-	-- Forçar fechar o painel se estiver aberto
 	if panelVisible then
 		showPanel(false)
-		print("🔓 Painel fechado forçadamente junto com o mouse!")
 	end
 
-	-- Mostrar mensagem de confirmação
-	print("🔓 Mouse destravado! (Tecla P)")
-
-	-- Criar notificação visual temporária
 	local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 	local notification = Instance.new("ScreenGui")
 	notification.Name = "MouseUnlockNotification"
@@ -1404,7 +1379,7 @@ function ensureBox3D(character)
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "ESP_Box"
 		billboard.Adornee = humanoidRootPart
-		billboard.Size = UDim2.new(3, 0, 6, 0) -- Mais fino (3) e mais alto (6)
+		billboard.Size = UDim2.new(4.5, 0, 7, 0) -- Maior para não cortar nas bordas
 		billboard.StudsOffset = Vector3.new(0, 0, 0) -- Centralizado
 		billboard.AlwaysOnTop = true
 		billboard.Parent = humanoidRootPart
@@ -1820,14 +1795,11 @@ task.spawn(function()
 			end
 		end
 		
-		-- Aplicar ESP para TODOS os jogadores (não apenas da lista)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player and player ~= LocalPlayer and player.Character then
 				refreshESPForPlayer(player)
 			end
 		end
-		
-		print("✅ ESP auto-atualizado (5s) - Total: " .. #Players:GetPlayers() - 1 .. " jogadores")
 	end
 end)
 
@@ -1966,457 +1938,325 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- ========= UI MODERNA E OTIMIZADA =========
+-- ========= SAKURA MENU - Japanese Style =========
+local SAKURA = {
+    primary = Color3.fromRGB(255, 105, 180),
+    secondary = Color3.fromRGB(255, 182, 193),
+    accent = Color3.fromRGB(138, 43, 226),
+    success = Color3.fromRGB(50, 205, 50),
+    danger = Color3.fromRGB(220, 20, 60),
+    background = Color3.fromRGB(15, 15, 25),
+    surface = Color3.fromRGB(25, 25, 40),
+    surfaceLight = Color3.fromRGB(40, 40, 60),
+    border = Color3.fromRGB(255, 105, 180),
+    text = Color3.fromRGB(255, 255, 255),
+    textMuted = Color3.fromRGB(180, 180, 200),
+    gold = Color3.fromRGB(255, 215, 0),
+    shadow = Color3.fromRGB(0, 0, 0)
+}
+
+-- Compatibility colors
+local COLOR_SLIDER_TRACK = SAKURA.background
+local COLOR_NEON_PINK = SAKURA.primary
+local COLOR_BG_MAIN = SAKURA.background
+local COLOR_BG_PANEL = SAKURA.surface
+local COLOR_TEXT_PRIMARY = SAKURA.text
+local COLOR_TOGGLE_OFF_BG = Color3.fromRGB(200, 200, 200)
+local COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(150, 150, 150)
+
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 local gui = Instance.new("ScreenGui")
-gui.Name = "AdminPanel"
+gui.Name = "SakuraMenuJapanese"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-gui.IgnoreGuiInset = false
-gui.DisplayOrder = 999999999 -- ZIndex MÁXIMO para ficar na frente de tudo
-gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets -- Respeita áreas seguras
+gui.DisplayOrder = 999999999
 gui.Parent = playerGui
 
--- Bloqueador AGRESSIVO - BLOQUEIA ABSOLUTAMENTE TUDO
-local inputBlocker = Instance.new("TextButton") -- TextButton bloqueia melhor que Frame
-inputBlocker.Name = "InputBlocker"
-inputBlocker.Size = UDim2.new(2, 0, 2, 0) -- 200% da tela para garantir
-inputBlocker.Position = UDim2.new(-0.5, 0, -0.5, 0) -- Centralizado e expandido
-inputBlocker.BackgroundTransparency = 0.3 -- Semi-transparente para ver que está bloqueando
-inputBlocker.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-inputBlocker.Text = ""
-inputBlocker.Modal = true -- CRÍTICO: Bloqueia TODOS os inputs
-inputBlocker.Visible = false
-inputBlocker.ZIndex = 10000000
-inputBlocker.AutoButtonColor = false
-inputBlocker.Parent = gui
-
--- ScreenGui separado para ESP (sempre visível, mas ATRÁS do menu)
-local espGui = Instance.new("ScreenGui")
-espGui.Name = "ESPOverlay"
-espGui.ResetOnSpawn = false
-espGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-espGui.DisplayOrder = 1 -- ESP fica atrás do menu
-espGui.Parent = playerGui
 
 
 
--- Main Frame - Estilo Dark Futurista
-MENU_WIDTH_EXPANDED = 900
-MENU_WIDTH_MINIMIZED = 80
-MENU_HEIGHT = 650
-menuMinimized = false
 
--- 🎨 PALETA DE CORES ROSA NEON
-COLOR_BG_MAIN = Color3.fromRGB(15, 15, 20)
-COLOR_BG_PANEL = Color3.fromRGB(23, 23, 32)
-COLOR_BG_HOVER = Color3.fromRGB(31, 31, 42)
-COLOR_DIVIDER = Color3.fromRGB(36, 36, 51)
-COLOR_NEON_PINK = Color3.fromRGB(224, 76, 255)
-COLOR_PINK_LIGHT = Color3.fromRGB(240, 108, 255)
-COLOR_PINK_DARK = Color3.fromRGB(184, 62, 217)
-COLOR_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255)
-COLOR_TEXT_SECONDARY = Color3.fromRGB(181, 181, 192)
-COLOR_TEXT_INACTIVE = Color3.fromRGB(122, 122, 136)
-COLOR_TOGGLE_OFF_BG = Color3.fromRGB(42, 42, 54)
-COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(138, 138, 150)
-COLOR_SLIDER_TRACK = Color3.fromRGB(44, 44, 58)
-
-local mainFrame = Instance.new("Frame")
+-- Main Sakura Frame
+mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, MENU_WIDTH_EXPANDED, 0, MENU_HEIGHT)
-mainFrame.Position = UDim2.new(0, 20, 0.5, -MENU_HEIGHT/2)
-mainFrame.BackgroundColor3 = COLOR_BG_MAIN
+mainFrame.Size = UDim2.new(0, 1000, 0, 750)
+mainFrame.Position = UDim2.new(0.5, -500, 0.5, -375)
+mainFrame.BackgroundColor3 = SAKURA.background
+mainFrame.Visible = true -- ABRIR DIRETO
 mainFrame.BorderSizePixel = 0
 mainFrame.ZIndex = 10000001
-mainFrame.ClipsDescendants = false
 mainFrame.Parent = gui
 
+-- Sistema de pétalas caindo
+local petalsContainer = Instance.new("Frame")
+petalsContainer.Size = UDim2.new(1, 0, 1, 0)
+petalsContainer.BackgroundTransparency = 1
+petalsContainer.ZIndex = 10000000
+petalsContainer.Parent = mainFrame
+
+task.spawn(function()
+    while true do
+        task.wait(0.3)
+        if mainFrame.Visible then
+            local petal = Instance.new("Frame")
+            petal.Size = UDim2.new(0, math.random(10, 20), 0, math.random(10, 20))
+            petal.Position = UDim2.new(math.random(), 0, 0, -30)
+            petal.BackgroundColor3 = Color3.fromRGB(255, math.random(100, 180), math.random(150, 220))
+            petal.BackgroundTransparency = 0.2
+            petal.BorderSizePixel = 0
+            petal.Rotation = math.random(0, 360)
+            petal.ZIndex = 10000000
+            petal.Parent = petalsContainer
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(1, 0)
+            corner.Parent = petal
+            
+            local fallTime = math.random(4, 8)
+            local endX = math.random(-80, 80)
+            
+            TweenService:Create(petal, TweenInfo.new(fallTime, Enum.EasingStyle.Sine), {
+                Position = UDim2.new(petal.Position.X.Scale, endX, 1, 50),
+                Rotation = petal.Rotation + math.random(360, 720),
+                BackgroundTransparency = 1
+            }):Play()
+            
+            task.delay(fallTime, function()
+                petal:Destroy()
+            end)
+        end
+    end
+end)
+
 local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.CornerRadius = UDim.new(0, 15)
 mainCorner.Parent = mainFrame
 
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = COLOR_NEON_PINK
-mainStroke.Thickness = 1
-mainStroke.Transparency = 0.85
-mainStroke.Parent = mainFrame
+local mainBorder = Instance.new("UIStroke")
+mainBorder.Color = SAKURA.border
+mainBorder.Thickness = 3
+mainBorder.Parent = mainFrame
 
--- Gradient futurista
-local bgGradient = Instance.new("UIGradient")
-bgGradient.Color = ColorSequence.new{
-    ColorSequenceKeypoint.new(0, COLOR_BG_MAIN),
-    ColorSequenceKeypoint.new(1, COLOR_BG_PANEL)
-}
-bgGradient.Rotation = 90
-bgGradient.Parent = mainFrame
-
--- Header dark
+-- Sakura Header
 local header = Instance.new("Frame")
-header.Size = UDim2.new(1, 0, 0, 60)
-header.BackgroundColor3 = COLOR_BG_PANEL
+header.Size = UDim2.new(1, 0, 0, 90)
+header.BackgroundColor3 = SAKURA.surface
 header.BorderSizePixel = 0
 header.Parent = mainFrame
 
 local headerCorner = Instance.new("UICorner")
-headerCorner.CornerRadius = UDim.new(0, 12)
+headerCorner.CornerRadius = UDim.new(0, 15)
 headerCorner.Parent = header
 
-local headerFix = Instance.new("Frame")
-headerFix.Size = UDim2.new(1, 0, 0, 20)
-headerFix.Position = UDim2.new(0, 0, 1, -20)
-headerFix.BackgroundColor3 = COLOR_BG_PANEL
-headerFix.BorderSizePixel = 0
-headerFix.Parent = header
-
-local headerStroke = Instance.new("UIStroke")
-headerStroke.Color = COLOR_DIVIDER
-headerStroke.Thickness = 1
-headerStroke.Transparency = 0.5
-headerStroke.Parent = header
+local headerBorder = Instance.new("UIStroke")
+headerBorder.Color = SAKURA.border
+headerBorder.Thickness = 2
+headerBorder.Parent = header
 
 local title = Instance.new("TextLabel")
 title.Name = "Title"
 title.Size = UDim2.new(1, -120, 1, 0)
-title.Position = UDim2.new(0, 80, 0, 0)
+title.Position = UDim2.new(0, 30, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = "Night Menu"
+title.Text = "SAKURA // MOD MENU"
 title.Font = Enum.Font.GothamBold
-title.TextSize = 22
-title.TextColor3 = COLOR_TEXT_PRIMARY
+title.TextSize = 20
+title.TextColor3 = SAKURA.text
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Parent = header
 
-local titleGlow = Instance.new("UIStroke")
-titleGlow.Color = COLOR_NEON_PINK
-titleGlow.Thickness = 1
-titleGlow.Transparency = 0.3
-titleGlow.Parent = title
+local subtitle = Instance.new("TextLabel")
+subtitle.Size = UDim2.new(1, -120, 0, 20)
+subtitle.Position = UDim2.new(0, 30, 0, 50)
+subtitle.BackgroundTransparency = 1
+subtitle.Text = "v1.0 | Premium Edition"
+subtitle.Font = Enum.Font.Gotham
+subtitle.TextSize = 11
+subtitle.TextColor3 = SAKURA.textMuted
+subtitle.TextXAlignment = Enum.TextXAlignment.Left
+subtitle.Parent = header
 
-local titleShadow = Instance.new("UIStroke")
-titleShadow.Color = Color3.fromRGB(0, 0, 0)
-titleShadow.Thickness = 2
-titleShadow.Transparency = 0.5
-titleShadow.Parent = title
+local closeBtn = Instance.new("TextButton")
+closeBtn.Parent = header
+closeBtn.BackgroundColor3 = SAKURA.danger
+closeBtn.Position = UDim2.new(1, -60, 0.5, -20)
+closeBtn.Size = UDim2.new(0, 40, 0, 40)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Text = "×"
+closeBtn.TextColor3 = SAKURA.surface
+closeBtn.TextSize = 20
+closeBtn.BorderSizePixel = 0
+
+local closeBtnCorner = Instance.new("UICorner")
+closeBtnCorner.Parent = closeBtn
+closeBtnCorner.CornerRadius = UDim.new(0, 8)
+
+closeBtn.MouseButton1Click:Connect(function()
+	showPanel(false)
+end)
 
 
 
--- Sidebar dark
+-- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 70, 1, -60)
-sidebar.Position = UDim2.new(0, 0, 0, 60)
-sidebar.BackgroundColor3 = COLOR_BG_MAIN
+sidebar.Size = UDim2.new(0, 280, 1, -90)
+sidebar.Position = UDim2.new(0, 0, 0, 90)
+sidebar.BackgroundColor3 = SAKURA.surface
 sidebar.BorderSizePixel = 0
-sidebar.ClipsDescendants = true
 sidebar.Parent = mainFrame
 
-local sidebarStroke = Instance.new("UIStroke")
-sidebarStroke.Color = COLOR_DIVIDER
-sidebarStroke.Thickness = 1
-sidebarStroke.Transparency = 0.7
-sidebarStroke.Parent = sidebar
+local sidebarBorder = Instance.new("UIStroke")
+sidebarBorder.Color = SAKURA.border
+sidebarBorder.Thickness = 2
+sidebarBorder.Parent = sidebar
 
 local sidebarLayout = Instance.new("UIListLayout")
 sidebarLayout.SortOrder = Enum.SortOrder.LayoutOrder
-sidebarLayout.Padding = UDim.new(0, 8)
+sidebarLayout.Padding = UDim.new(0, 12)
 sidebarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 sidebarLayout.Parent = sidebar
 
 local sidebarPadding = Instance.new("UIPadding")
-sidebarPadding.PaddingTop = UDim.new(0, 10)
+sidebarPadding.PaddingTop = UDim.new(0, 20)
 sidebarPadding.Parent = sidebar
 
--- Botão Minimizar
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Name = "MinimizeBtn"
-minimizeBtn.Size = UDim2.new(0, 45, 0, 45)
-minimizeBtn.Position = UDim2.new(0, 8, 0.5, -22)
-minimizeBtn.BackgroundColor3 = COLOR_BG_PANEL
-minimizeBtn.Text = "◄"
-minimizeBtn.Font = Enum.Font.GothamBold
-minimizeBtn.TextSize = 18
-minimizeBtn.TextColor3 = COLOR_NEON_PINK
-minimizeBtn.BorderSizePixel = 0
-minimizeBtn.ZIndex = 10000002
-minimizeBtn.Parent = header
-
-local minimizeBtnCorner = Instance.new("UICorner")
-minimizeBtnCorner.CornerRadius = UDim.new(0, 8)
-minimizeBtnCorner.Parent = minimizeBtn
-
-local minimizeBtnStroke = Instance.new("UIStroke")
-minimizeBtnStroke.Color = COLOR_NEON_PINK
-minimizeBtnStroke.Thickness = 1
-minimizeBtnStroke.Transparency = 0.6
-minimizeBtnStroke.Parent = minimizeBtn
-
-minimizeBtn.MouseEnter:Connect(function()
-	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
-	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {TextColor3 = COLOR_BG_MAIN}):Play()
-	minimizeBtnStroke.Transparency = 0.3
-end)
-minimizeBtn.MouseLeave:Connect(function()
-	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_PANEL}):Play()
-	TweenService:Create(minimizeBtn, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
-	minimizeBtnStroke.Transparency = 0.6
-end)
-
--- Botão redondo "Night" (aparece quando minimizado)
-local nightBtn = Instance.new("Frame")
-nightBtn.Name = "NightBtn"
-nightBtn.Size = UDim2.new(0, 80, 0, 80)
-nightBtn.Position = UDim2.new(0.25, -40, 0.25, -40)
-nightBtn.BackgroundColor3 = COLOR_BG_MAIN
-nightBtn.BorderSizePixel = 0
-nightBtn.ZIndex = 10000002
-nightBtn.Visible = false
-nightBtn.Parent = gui
-
-local nightBtnCorner = Instance.new("UICorner")
-nightBtnCorner.CornerRadius = UDim.new(1, 0)
-nightBtnCorner.Parent = nightBtn
-
-local nightBtnStroke = Instance.new("UIStroke")
-nightBtnStroke.Color = COLOR_NEON_PINK
-nightBtnStroke.Thickness = 2
-nightBtnStroke.Transparency = 0.3
-nightBtnStroke.Parent = nightBtn
-
--- Texto "Noite"
-local nightText = Instance.new("TextLabel")
-nightText.Size = UDim2.new(1, 0, 1, 0)
-nightText.BackgroundTransparency = 1
-nightText.Text = "Noite"
-nightText.Font = Enum.Font.GothamBold
-nightText.TextSize = 16
-nightText.TextColor3 = COLOR_NEON_PINK
-nightText.Parent = nightBtn
-
--- Ícone de arrastar (fora do botão, canto inferior esquerdo)
-local dragIcon = Instance.new("Frame")
-dragIcon.Size = UDim2.new(0, 24, 0, 24)
-dragIcon.Position = UDim2.new(0, -5, 1, 5)
-dragIcon.BackgroundColor3 = COLOR_BG_MAIN
-dragIcon.BorderSizePixel = 0
-dragIcon.ZIndex = 10000004
-dragIcon.Parent = nightBtn
-
-local dragIconCorner = Instance.new("UICorner")
-dragIconCorner.CornerRadius = UDim.new(0, 6)
-dragIconCorner.Parent = dragIcon
-
-local dragIconStroke = Instance.new("UIStroke")
-dragIconStroke.Color = COLOR_NEON_PINK
-dragIconStroke.Thickness = 1
-dragIconStroke.Transparency = 0.5
-dragIconStroke.Parent = dragIcon
-
--- Setas do ícone de mover
-local arrows = {
-	{pos = UDim2.new(0.5, -1, 0, 0), size = UDim2.new(0, 2, 0, 6)}, -- Cima
-	{pos = UDim2.new(0.5, -1, 1, -6), size = UDim2.new(0, 2, 0, 6)}, -- Baixo
-	{pos = UDim2.new(0, 0, 0.5, -1), size = UDim2.new(0, 6, 0, 2)}, -- Esquerda
-	{pos = UDim2.new(1, -6, 0.5, -1), size = UDim2.new(0, 6, 0, 2)} -- Direita
-}
-
-for _, arrow in ipairs(arrows) do
-	local line = Instance.new("Frame")
-	line.Size = arrow.size
-	line.Position = arrow.pos
-	line.BackgroundColor3 = COLOR_NEON_PINK
-	line.BorderSizePixel = 0
-	line.Parent = dragIcon
-end
-
--- Botão clicável
-local nightClickBtn = Instance.new("TextButton")
-nightClickBtn.Size = UDim2.new(1, 0, 1, 0)
-nightClickBtn.BackgroundTransparency = 1
-nightClickBtn.Text = ""
-nightClickBtn.ZIndex = 10000003
-nightClickBtn.Parent = nightBtn
-
-nightClickBtn.MouseEnter:Connect(function()
-	TweenService:Create(nightBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
-	TweenService:Create(nightText, TweenInfo.new(0.2), {TextColor3 = COLOR_BG_MAIN}):Play()
-	for _, line in ipairs(dragIcon:GetChildren()) do
-		if line:IsA("Frame") then
-			TweenService:Create(line, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_MAIN}):Play()
-		end
-	end
-end)
-nightClickBtn.MouseLeave:Connect(function()
-	TweenService:Create(nightBtn, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_BG_MAIN}):Play()
-	TweenService:Create(nightText, TweenInfo.new(0.2), {TextColor3 = COLOR_NEON_PINK}):Play()
-	for _, line in ipairs(dragIcon:GetChildren()) do
-		if line:IsA("Frame") then
-			TweenService:Create(line, TweenInfo.new(0.2), {BackgroundColor3 = COLOR_NEON_PINK}):Play()
-		end
-	end
-end)
-
--- Tornar o botão Night arrastável pelo ícone
-local nightDragging = false
-local nightDragStart = nil
-local nightStartPos = nil
-
-dragIcon.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		nightDragging = true
-		nightDragStart = input.Position
-		nightStartPos = nightBtn.Position
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if nightDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - nightDragStart
-		nightBtn.Position = UDim2.new(nightStartPos.X.Scale, nightStartPos.X.Offset + delta.X, nightStartPos.Y.Scale, nightStartPos.Y.Offset + delta.Y)
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		nightDragging = false
-	end
-end)
-
-nightClickBtn.MouseButton1Click:Connect(function()
-	if not nightDragging then
-		toggleMinimize()
-	end
-end)
-
--- Função para minimizar/maximizar
-local menuMinimized = false
-function toggleMinimize()
-	menuMinimized = not menuMinimized
-	if menuMinimized then
-		-- Minimizar: esconder menu e mostrar botão Night
-		mainFrame.Visible = false
-		nightBtn.Visible = true
-		panelVisible = false
-		-- Restaurar mouse
-		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		UserInputService.MouseIconEnabled = true
-	else
-		-- Maximizar: mostrar menu e esconder botão Night
-		mainFrame.Visible = true
-		nightBtn.Visible = false
-		panelVisible = true
-		-- Liberar cursor
-		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		UserInputService.MouseIconEnabled = true
-	end
-end
-
-minimizeBtn.MouseButton1Click:Connect(function()
-	toggleMinimize()
-end)
-
--- Tabs
-tabs = {}
-currentTab = "PLAYERS"
-
-function createTab(name, text, icon, order)
-	local tab = Instance.new("TextButton")
-	tab.Name = name .. "Tab"
-	tab.Size = UDim2.new(0, 70, 0, 70)
-	tab.BackgroundColor3 = COLOR_BG_PANEL
-	tab.BackgroundTransparency = 0.5
-	tab.Text = ""
-	tab.BorderSizePixel = 0
-	tab.LayoutOrder = order
-	tab.Parent = sidebar
-
-	local tabCorner = Instance.new("UICorner")
-	tabCorner.CornerRadius = UDim.new(0, 14)
-	tabCorner.Parent = tab
-
-	local tabStroke = Instance.new("UIStroke")
-	tabStroke.Color = COLOR_NEON_PINK
-	tabStroke.Thickness = 1
-	tabStroke.Transparency = 0.7
-	tabStroke.Parent = tab
-
-	local tabIcon = Instance.new("TextLabel")
-	tabIcon.Size = UDim2.new(1, 0, 0.6, 0)
-	tabIcon.Position = UDim2.new(0, 0, 0, 5)
-	tabIcon.BackgroundTransparency = 1
-	tabIcon.Text = icon
-	tabIcon.Font = Enum.Font.GothamBold
-	tabIcon.TextSize = 24
-	tabIcon.TextColor3 = COLOR_TEXT_SECONDARY
-	tabIcon.Parent = tab
-
-	local tabLabel = Instance.new("TextLabel")
-	tabLabel.Size = UDim2.new(1, 0, 0.4, 0)
-	tabLabel.Position = UDim2.new(0, 0, 0.6, 0)
-	tabLabel.BackgroundTransparency = 1
-	tabLabel.Text = text
-	tabLabel.Font = Enum.Font.Gotham
-	tabLabel.TextSize = 10
-	tabLabel.TextColor3 = COLOR_TEXT_SECONDARY
-	tabLabel.Parent = tab
-
-	tab.MouseEnter:Connect(function()
-		if currentTab ~= name then
-			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundTransparency = 0.2}):Play()
-		end
-	end)
-
-	tab.MouseLeave:Connect(function()
-		if currentTab ~= name then
-			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundTransparency = 0.5}):Play()
-		end
-	end)
-
-	tab.MouseButton1Click:Connect(function()
-		setTab(name)
-	end)
-
-	tabs[name] = {tab, tabIcon, tabLabel}
-	return tab
-end
-
-local tabPlayers = createTab("PLAYERS", "PLAYERS", "👥", 1)
-local tabESP = createTab("ESP", "VISUAL", "👁️", 2)
-local tabAimbot = createTab("AIMBOT", "AIMBOT", "🎯", 3)
-local tabUtil = createTab("UTIL", "MISC", "⚙️", 4)
-local tabConfig = createTab("CONFIG", "CONFIG", "💾", 5)
-
--- Content Area
-local content = Instance.new("Frame")
+-- Content Panel
+local content = Instance.new("ScrollingFrame")
 content.Name = "Content"
-content.Size = UDim2.new(1, -80, 1, -70)
-content.Position = UDim2.new(0, 75, 0, 65)
+content.Size = UDim2.new(1, -290, 1, -100)
+content.Position = UDim2.new(0, 285, 0, 95)
 content.BackgroundTransparency = 1
-content.ClipsDescendants = true
+content.ScrollBarThickness = 10
+content.ScrollBarImageColor3 = SAKURA.primary
+content.CanvasSize = UDim2.new(0, 0, 0, 2000)
+content.BorderSizePixel = 0
 content.Parent = mainFrame
+
+local contentLayout = Instance.new("UIListLayout")
+contentLayout.Padding = UDim.new(0, 15)
+contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
+contentLayout.Parent = content
+
+local contentPadding = Instance.new("UIPadding")
+contentPadding.PaddingTop = UDim.new(0, 20)
+contentPadding.PaddingLeft = UDim.new(0, 20)
+contentPadding.PaddingRight = UDim.new(0, 20)
+contentPadding.Parent = content
+
+
 
 -- Pages
 pages = {}
+tabs = {}
+currentTab = "PLAYERS"
 
 function createPage(name)
 	local page = Instance.new("ScrollingFrame")
 	page.Size = UDim2.new(1, 0, 1, 0)
 	page.BackgroundTransparency = 1
-	page.ScrollBarThickness = 6
-	page.ScrollBarImageColor3 = COLOR_NEON_PINK
-	page.ScrollBarImageTransparency = 0.3
-	page.BorderSizePixel = 0
 	page.Visible = false
-	page.ClipsDescendants = true -- Cortar conteúdo que sai dos limites
+	page.ScrollBarThickness = 4
+	page.ScrollBarImageColor3 = SAKURA.primary
+	page.BorderSizePixel = 0
+	page.CanvasSize = UDim2.new(0, 0, 0, 0)
+	page.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	page.Parent = content
-
+	
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 12)
 	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	layout.Parent = page
-
+	
+	local padding = Instance.new("UIPadding")
+	padding.PaddingTop = UDim.new(0, 12)
+	padding.PaddingBottom = UDim.new(0, 12)
+	padding.Parent = page
+	
 	pages[name] = page
 	return page
+end
+
+function createTab(name, text, icon, order)
+	local tab = Instance.new("TextButton")
+	tab.Name = name .. "Tab"
+	tab.Size = UDim2.new(1, -20, 0, 48)
+	tab.BackgroundColor3 = SAKURA.surface
+	tab.Text = ""
+	tab.BorderSizePixel = 0
+	tab.LayoutOrder = order
+	tab.Parent = sidebar
+	
+	local tabCorner = Instance.new("UICorner")
+	tabCorner.CornerRadius = UDim.new(0, 6)
+	tabCorner.Parent = tab
+	
+	local tabBorder = Instance.new("UIStroke")
+	tabBorder.Color = SAKURA.border
+	tabBorder.Thickness = 1
+	tabBorder.Transparency = 0.8
+	tabBorder.Parent = tab
+	
+	local tabIcon = Instance.new("TextLabel")
+	tabIcon.Size = UDim2.new(0, 25, 1, 0)
+	tabIcon.Position = UDim2.new(0, 12, 0, 0)
+	tabIcon.BackgroundTransparency = 1
+	tabIcon.Text = icon
+	tabIcon.Font = Enum.Font.GothamBold
+	tabIcon.TextSize = 16
+	tabIcon.TextColor3 = SAKURA.textMuted
+	tabIcon.TextXAlignment = Enum.TextXAlignment.Center
+	tabIcon.Parent = tab
+	
+	local tabLabel = Instance.new("TextLabel")
+	tabLabel.Size = UDim2.new(1, -50, 1, 0)
+	tabLabel.Position = UDim2.new(0, 42, 0, 0)
+	tabLabel.BackgroundTransparency = 1
+	tabLabel.Text = text:upper()
+	tabLabel.Font = Enum.Font.GothamBold
+	tabLabel.TextSize = 12
+	tabLabel.TextColor3 = SAKURA.textMuted
+	tabLabel.TextXAlignment = Enum.TextXAlignment.Left
+	tabLabel.Parent = tab
+	
+	tab.MouseEnter:Connect(function()
+		if currentTab ~= name then
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = SAKURA.surfaceLight}):Play()
+		end
+	end)
+	
+	tab.MouseLeave:Connect(function()
+		if currentTab ~= name then
+			TweenService:Create(tab, TweenInfo.new(0.2), {BackgroundColor3 = SAKURA.surface}):Play()
+		end
+	end)
+	
+	tab.MouseButton1Click:Connect(function()
+		setTab(name)
+	end)
+	
+	tabs[name] = {tab, tabIcon, tabLabel, tabBorder}
+	return tab
+end
+
+function setTab(tabName)
+	for name, tabData in pairs(tabs) do
+		local tab, icon, label, border = tabData[1], tabData[2], tabData[3], tabData[4]
+		if name == tabName then
+			TweenService:Create(tab, TweenInfo.new(0.3), {BackgroundColor3 = SAKURA.surfaceLight}):Play()
+			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = SAKURA.primary}):Play()
+			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = SAKURA.primary}):Play()
+			TweenService:Create(border, TweenInfo.new(0.3), {Transparency = 0.3, Color = SAKURA.primary}):Play()
+			pages[name].Visible = true
+			currentTab = name
+		else
+			TweenService:Create(tab, TweenInfo.new(0.3), {BackgroundColor3 = SAKURA.surface}):Play()
+			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = SAKURA.textMuted}):Play()
+			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = SAKURA.textMuted}):Play()
+			TweenService:Create(border, TweenInfo.new(0.3), {Transparency = 0.8, Color = SAKURA.border}):Play()
+			pages[name].Visible = false
+		end
+	end
 end
 
 local playersPage = createPage("PLAYERS")
@@ -2425,88 +2265,102 @@ local aimbotPage = createPage("AIMBOT")
 local utilPage = createPage("UTIL")
 local configPage = createPage("CONFIG")
 
--- Set initial tab com animação
-function setTab(tabName)
-	for name, tabData in pairs(tabs) do
-		local tab, icon, label = tabData[1], tabData[2], tabData[3]
-		local tabStroke = tab:FindFirstChildOfClass("UIStroke")
-		if name == tabName then
-			TweenService:Create(tab, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundColor3 = COLOR_NEON_PINK, BackgroundTransparency = 0}):Play()
-			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = COLOR_BG_MAIN}):Play()
-			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = COLOR_BG_MAIN}):Play()
-			if tabStroke then tabStroke.Thickness = 3 end
-			pages[name].Visible = true
-			currentTab = name
-		else
-			TweenService:Create(tab, TweenInfo.new(0.3, Enum.EasingStyle.Quint), {BackgroundColor3 = COLOR_BG_PANEL, BackgroundTransparency = 0.5}):Play()
-			TweenService:Create(icon, TweenInfo.new(0.3), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
-			TweenService:Create(label, TweenInfo.new(0.3), {TextColor3 = COLOR_TEXT_INACTIVE}):Play()
-			if tabStroke then tabStroke.Thickness = 0 end
-			pages[name].Visible = false
-		end
-	end
-end
+local tabPlayers = createTab("PLAYERS", "Players", "👥", 1)
+local tabESP = createTab("ESP", "ESP", "👁️", 2)
+local tabAimbot = createTab("AIMBOT", "RAGE", "🎯", 3)
+local tabUtil = createTab("UTIL", "Misc", "⚙️", 4)
+local tabConfig = createTab("CONFIG", "Config", "💾", 5)
 
 setTab("PLAYERS")
 
--- Create categories com visual moderno e botão de minimizar
+-- Make draggable
+local dragging = false
+local dragStart = nil
+local startPos = nil
+
+header.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = mainFrame.Position
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+
+
+
 function createCategory(parent, title)
 	local category = Instance.new("Frame")
 	category.Size = UDim2.new(0.98, 0, 0, 0)
-	category.BackgroundColor3 = COLOR_BG_PANEL
-	category.BackgroundTransparency = 0.2
+	category.BackgroundColor3 = SAKURA.surface
+	category.BackgroundTransparency = 0
 	category.BorderSizePixel = 0
 	category.Parent = parent
 
 	local categoryCorner = Instance.new("UICorner")
-	categoryCorner.CornerRadius = UDim.new(0, 12)
+	categoryCorner.CornerRadius = UDim.new(0, 8)
 	categoryCorner.Parent = category
 
-	local categoryStroke = Instance.new("UIStroke")
-	categoryStroke.Color = COLOR_DIVIDER
-	categoryStroke.Thickness = 1
-	categoryStroke.Transparency = 0.6
-	categoryStroke.Parent = category
+	local categoryBorder = Instance.new("UIStroke")
+	categoryBorder.Color = SAKURA.border
+	categoryBorder.Thickness = 1
+	categoryBorder.Transparency = 0.7
+	categoryBorder.Parent = category
 
-	local categoryGradient = Instance.new("UIGradient")
-	categoryGradient.Color = ColorSequence.new{
-		ColorSequenceKeypoint.new(0, Color3.fromRGB(25, 25, 40)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 25, 45))
-	}
-	categoryGradient.Rotation = 90
-	categoryGradient.Parent = category
+	local titleBar = Instance.new("Frame")
+	titleBar.Size = UDim2.new(1, 0, 0, 32)
+	titleBar.BackgroundColor3 = SAKURA.surfaceLight
+	titleBar.BorderSizePixel = 0
+	titleBar.Parent = category
+	
+	local titleCorner = Instance.new("UICorner")
+	titleCorner.CornerRadius = UDim.new(0, 8)
+	titleCorner.Parent = titleBar
+	
+	local titleFix = Instance.new("Frame")
+	titleFix.Size = UDim2.new(1, 0, 0, 8)
+	titleFix.Position = UDim2.new(0, 0, 1, -8)
+	titleFix.BackgroundColor3 = SAKURA.surfaceLight
+	titleFix.BorderSizePixel = 0
+	titleFix.Parent = titleBar
 
 	local titleLabel = Instance.new("TextLabel")
-	titleLabel.Size = UDim2.new(1, -70, 0, 35)
-	titleLabel.Position = UDim2.new(0, 25, 0, 10)
+	titleLabel.Size = UDim2.new(1, -20, 1, 0)
+	titleLabel.Position = UDim2.new(0, 10, 0, 0)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = title
+	titleLabel.Text = "// " .. title:upper()
 	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.TextSize = 16
-	titleLabel.TextColor3 = COLOR_NEON_PINK
+	titleLabel.TextSize = 13
+	titleLabel.TextColor3 = SAKURA.text
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Parent = category
-
-	local titleStroke = Instance.new("UIStroke")
-	titleStroke.Color = Color3.fromRGB(0, 0, 0)
-	titleStroke.Thickness = 0.5
-	titleStroke.Transparency = 0.7
-	titleStroke.Parent = titleLabel
+	titleLabel.Parent = titleBar
 
 	local contentFrame = Instance.new("Frame")
-	contentFrame.Size = UDim2.new(1, -30, 1, -55)
-	contentFrame.Position = UDim2.new(0, 15, 0, 45)
+	contentFrame.Size = UDim2.new(1, -20, 1, -42)
+	contentFrame.Position = UDim2.new(0, 10, 0, 37)
 	contentFrame.BackgroundTransparency = 1
 	contentFrame.ClipsDescendants = true
 	contentFrame.Parent = category
 
 	local contentLayout = Instance.new("UIListLayout")
-	contentLayout.Padding = UDim.new(0, 8)
+	contentLayout.Padding = UDim.new(0, 6)
 	contentLayout.Parent = contentFrame
 
 	local function updateSize()
 		local contentSize = contentLayout.AbsoluteContentSize
-		local newHeight = contentSize.Y + 65
+		local newHeight = contentSize.Y + 48
 		category.Size = UDim2.new(0.98, 0, 0, newHeight)
 	end
 
@@ -2516,103 +2370,108 @@ function createCategory(parent, title)
 end
 
 function createToggle(parent, text, callback)
-	local toggleFrame = Instance.new("Frame")
-	toggleFrame.Size = UDim2.new(1, 0, 0, 42)
-	toggleFrame.BackgroundColor3 = COLOR_BG_HOVER
-	toggleFrame.BackgroundTransparency = 0.3
-	toggleFrame.BorderSizePixel = 0
-	toggleFrame.Parent = parent
-
-	local toggleCorner = Instance.new("UICorner")
-	toggleCorner.CornerRadius = UDim.new(0, 10)
-	toggleCorner.Parent = toggleFrame
-
-	local toggleStroke = Instance.new("UIStroke")
-	toggleStroke.Color = Color3.fromRGB(60, 60, 80)
-	toggleStroke.Thickness = 1
-	toggleStroke.Transparency = 0.5
-	toggleStroke.Parent = toggleFrame
-
+	local container = Instance.new("Frame")
+	container.Parent = parent
+	container.BackgroundColor3 = SAKURA.surfaceLight
+	container.Size = UDim2.new(1, -10, 0, 40)
+	container.BorderSizePixel = 0
+	
+	local corner = Instance.new("UICorner")
+	corner.Parent = container
+	corner.CornerRadius = UDim.new(0, 6)
+	
+	local border = Instance.new("UIStroke")
+	border.Parent = container
+	border.Color = SAKURA.border
+	border.Thickness = 1
+	border.Transparency = 0.8
+	
+	local glow = Instance.new("UIStroke")
+	glow.Parent = container
+	glow.Color = SAKURA.primary
+	glow.Thickness = 0
+	glow.Transparency = 0.5
+	glow.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	
 	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, -70, 1, 0)
-	label.Position = UDim2.new(0, 15, 0, 0)
+	label.Parent = container
 	label.BackgroundTransparency = 1
+	label.Position = UDim2.new(0, 10, 0, 0)
+	label.Size = UDim2.new(0.65, 0, 1, 0)
+	label.Font = Enum.Font.GothamBold
 	label.Text = text
-	label.Font = Enum.Font.GothamMedium
-	label.TextSize = 14
-	label.TextColor3 = COLOR_TEXT_PRIMARY
+	label.TextColor3 = SAKURA.text
+	label.TextSize = 12
 	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Parent = toggleFrame
-
-	-- Toggle switch moderno
+	
 	local switchBg = Instance.new("Frame")
-	switchBg.Name = "SwitchBg"
-	switchBg.Size = UDim2.new(0, 50, 0, 26)
-	switchBg.Position = UDim2.new(1, -60, 0.5, -13)
-	switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
+	switchBg.Parent = container
+	switchBg.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+	switchBg.Position = UDim2.new(1, -45, 0.5, -9)
+	switchBg.Size = UDim2.new(0, 38, 0, 18)
 	switchBg.BorderSizePixel = 0
-	switchBg.Parent = toggleFrame
-
+	
 	local switchCorner = Instance.new("UICorner")
-	switchCorner.CornerRadius = UDim.new(1, 0)
 	switchCorner.Parent = switchBg
-
-	local switchBtn = Instance.new("TextButton")
-	switchBtn.Name = "SwitchBtn"
-	switchBtn.Size = UDim2.new(0, 22, 0, 22)
-	switchBtn.Position = UDim2.new(0, 2, 0.5, -11)
-	switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-	switchBtn.Text = ""
-	switchBtn.BorderSizePixel = 0
+	switchCorner.CornerRadius = UDim.new(1, 0)
+	
+	local switchBtn = Instance.new("Frame")
 	switchBtn.Parent = switchBg
-
+	switchBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 85)
+	switchBtn.Position = UDim2.new(0, 2, 0, 2)
+	switchBtn.Size = UDim2.new(0, 14, 0, 14)
+	switchBtn.BorderSizePixel = 0
+	
 	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(1, 0)
 	btnCorner.Parent = switchBtn
-
-	local btnStroke = Instance.new("UIStroke")
-	btnStroke.Color = Color3.fromRGB(255, 255, 255)
-	btnStroke.Thickness = 2
-	btnStroke.Transparency = 0.5
-	btnStroke.Parent = switchBtn
-
+	btnCorner.CornerRadius = UDim.new(1, 0)
+	
+	local btnGlow = Instance.new("UIStroke")
+	btnGlow.Parent = switchBtn
+	btnGlow.Color = SAKURA.primary
+	btnGlow.Thickness = 0
+	btnGlow.Transparency = 0
+	
 	local enabled = false
 	
-	-- Botão invisível que cobre TODA a área do toggle
 	local clickArea = Instance.new("TextButton")
-	clickArea.Size = UDim2.new(1, 0, 1, 0)
-	clickArea.Position = UDim2.new(0, 0, 0, 0)
+	clickArea.Parent = container
 	clickArea.BackgroundTransparency = 1
+	clickArea.Size = UDim2.new(1, 0, 1, 0)
 	clickArea.Text = ""
-	clickArea.ZIndex = toggleFrame.ZIndex + 1
-	clickArea.Parent = toggleFrame
-
+	
+	clickArea.MouseEnter:Connect(function()
+		TweenService:Create(glow, TweenInfo.new(0.2), {Thickness = 2}):Play()
+		TweenService:Create(container, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(40, 40, 50)}):Play()
+	end)
+	
+	clickArea.MouseLeave:Connect(function()
+		TweenService:Create(glow, TweenInfo.new(0.2), {Thickness = 0}):Play()
+		TweenService:Create(container, TweenInfo.new(0.2), {BackgroundColor3 = SAKURA.surfaceLight}):Play()
+	end)
+	
 	clickArea.MouseButton1Click:Connect(function()
 		enabled = not enabled
-		if enabled then
-			switchBg.BackgroundColor3 = COLOR_NEON_PINK
-			switchBtn.Position = UDim2.new(1, -24, 0.5, -11)
-			switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			toggleStroke.Color = COLOR_NEON_PINK
-			toggleStroke.Transparency = 0.3
-		else
-			switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-			switchBtn.Position = UDim2.new(0, 2, 0.5, -11)
-			switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			toggleStroke.Color = COLOR_DIVIDER
-			toggleStroke.Transparency = 0.5
-		end
+		local targetPos = enabled and UDim2.new(1, -16, 0, 2) or UDim2.new(0, 2, 0, 2)
+		local targetBgColor = enabled and SAKURA.primary or Color3.fromRGB(40, 40, 45)
+		local targetBtnColor = enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(80, 80, 85)
+		local targetGlow = enabled and 3 or 0
+		
+		TweenService:Create(switchBtn, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+			Position = targetPos,
+			BackgroundColor3 = targetBtnColor
+		}):Play()
+		
+		TweenService:Create(switchBg, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+			BackgroundColor3 = targetBgColor
+		}):Play()
+		
+		TweenService:Create(btnGlow, TweenInfo.new(0.3), {Thickness = targetGlow}):Play()
+		
 		if callback then callback(enabled) end
 	end)
-
-	toggleFrame.MouseEnter:Connect(function()
-		toggleFrame.BackgroundTransparency = 0.1
-	end)
-	toggleFrame.MouseLeave:Connect(function()
-		toggleFrame.BackgroundTransparency = 0.3
-	end)
-
-	return toggleFrame, switchBg, switchBtn
+	
+	return container
 end
 
 -- 🔧 VERSÃO MELHORADA: Players Page com melhorias visuais e sistema de toggles
@@ -2679,15 +2538,15 @@ playerCounter.Text = "0 jogadores"
 playerCounter.Parent = topContainer
 Instance.new("UICorner", playerCounter).CornerRadius = UDim.new(0, 8)
 
--- Container para lista e ações
+-- Container para lista e ações - MAIOR
 local playersContainer = Instance.new("Frame")
-playersContainer.Size = UDim2.new(1, 0, 0, 350)
+playersContainer.Size = UDim2.new(1, 0, 0, 550)
 playersContainer.BackgroundTransparency = 1
 playersContainer.Parent = playersCategory
 
--- Lista de jogadores simples
+-- Lista de jogadores - 55% da largura
 local playersList = Instance.new("ScrollingFrame")
-playersList.Size = UDim2.new(0.6, -5, 1, 0)
+playersList.Size = UDim2.new(0.55, -5, 1, 0)
 playersList.Position = UDim2.new(0, 0, 0, 0)
 playersList.BackgroundColor3 = Color3.fromRGB(32, 32, 38)
 playersList.BorderSizePixel = 0
@@ -2699,13 +2558,12 @@ local playersLayout = Instance.new("UIListLayout")
 playersLayout.Padding = UDim.new(0, 4)
 playersLayout.Parent = playersList
 
--- Desabilitar atualização automática para evitar tremida
 playersList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
--- Painel de ações simples
+-- Painel de ações - 43% da largura
 local actionsPanel = Instance.new("Frame")
-actionsPanel.Size = UDim2.new(0.35, -5, 1, 0)
-actionsPanel.Position = UDim2.new(0.65, 5, 0, 0)
+actionsPanel.Size = UDim2.new(0.43, -5, 1, 0)
+actionsPanel.Position = UDim2.new(0.57, 5, 0, 0)
 actionsPanel.BackgroundColor3 = Color3.fromRGB(30, 30, 70)
 actionsPanel.BackgroundTransparency = 0.4
 actionsPanel.Parent = playersContainer
@@ -2772,7 +2630,6 @@ function createActionToggle(text, callback)
 
 	checkbox.MouseButton1Click:Connect(function()
 		if not selectedPlayer then
-			print("❌ Selecione um jogador primeiro!")
 			return
 		end
 
@@ -2816,10 +2673,8 @@ local spectateToggle = createActionToggle("👁️ ESPECTAR", function(enabled)
 	spectateActive = enabled
 	if enabled and selectedPlayer then
 		startSpectate(selectedPlayer)
-		print("👁️ Spectate ATIVADO para " .. selectedPlayer.Name)
 	else
 		stopSpectate()
-		print("👁️ Spectate DESATIVADO")
 	end
 end)
 
@@ -2866,15 +2721,15 @@ function createPlayerButton(player)
 
 	local btn = Instance.new("TextButton")
 	btn.Name = player.Name .. "_Simple"
-	btn.Size = UDim2.new(1, -8, 0, 50)
+	btn.Size = UDim2.new(1, -8, 0, 40) -- MENOR
 	btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
 	btn.Text = ""
 	btn.Parent = playersList
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
 
 	local avatar = Instance.new("ImageLabel")
-	avatar.Size = UDim2.new(0, 40, 0, 40)
-	avatar.Position = UDim2.new(0, 5, 0, 5)
+	avatar.Size = UDim2.new(0, 32, 0, 32) -- MENOR
+	avatar.Position = UDim2.new(0, 4, 0, 4)
 	avatar.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 	avatar.BorderSizePixel = 0
 	avatar.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150)
@@ -2883,11 +2738,11 @@ function createPlayerButton(player)
 
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
-	nameLabel.Size = UDim2.new(1, -55, 1, 0)
-	nameLabel.Position = UDim2.new(0, 50, 0, 0)
+	nameLabel.Size = UDim2.new(1, -45, 1, 0)
+	nameLabel.Position = UDim2.new(0, 40, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Font = Enum.Font.SourceSansBold
-	nameLabel.TextSize = 14
+	nameLabel.TextSize = 12 -- MENOR
 	nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.Text = player.DisplayName .. " (@" .. player.Name .. ")"
@@ -2945,7 +2800,6 @@ function updatePlayerCounter()
 	if playerCounter then
 		playerCounter.Text = playerCount .. " jogadores"
 	end
-	print("👥 Total de jogadores: " .. playerCount)
 end
 
 -- Inicializar lista simples
@@ -2959,7 +2813,6 @@ task.spawn(function()
 		end
 	end
 	updatePlayerCounter()
-	print("✅ Lista de players carregada: " .. #playerButtons .. " jogadores")
 end)
 
 -- Atualizar contador quando players entram/saem
@@ -2981,7 +2834,7 @@ Players.PlayerRemoving:Connect(function(player)
 	end
 end)
 
-print("✅ DEBUG: Players Page SIMPLIFICADA reimplementada com sucesso")
+
 
 -- Config Page - Sistema de Salvar/Carregar com Biblioteca
 local configCategory = createCategory(configPage, "💾 Gerenciar Configurações")
@@ -3032,309 +2885,11 @@ end
 
 -- Função para forçar atualização visual de todos os toggles
 function forceUpdateAllToggles()
-	-- ESP Toggles
-	if espToggle then
-		local switchBg = espToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if espEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
+	-- Simplified - just refresh ESP
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= LocalPlayer then
+			refreshESPForPlayer(p)
 		end
-	end
-
-	if nameToggle then
-		local switchBg = nameToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if showName then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if healthToggle then
-		local switchBg = healthToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if showHealth then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if autoEspToggle then
-		local switchBg = autoEspToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if espAutoEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if skeletonToggle then
-		local switchBg = skeletonToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if showSkeleton then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	-- Aimbot Toggles
-	if aimbotToggle then
-		local switchBg = aimbotToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if aimbotEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if fovToggle then
-		local switchBg = fovToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if aimbotShowFOV then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if visibleToggle then
-		local switchBg = visibleToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if aimbotOnlyVisible then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if mobileToggle then
-		local switchBg = mobileToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if aimbotMobile then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	-- Util Toggles
-	if flyToggle then
-		local switchBg = flyToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if FlySystem.flying then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if noclipToggle then
-		local switchBg = noclipToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if noclip then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if speedToggle then
-		local switchBg = speedToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if speedBoostEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if jumpToggle then
-		local switchBg = jumpToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if jumpPowerBoostEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if infiniteJumpToggle then
-		local switchBg = infiniteJumpToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if infiniteJumpEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	if antiKickToggle then
-		local switchBg = antiKickToggle:FindFirstChildOfClass("Frame")
-		local switchBtn = switchBg and switchBg:FindFirstChildOfClass("TextButton")
-		if switchBg and switchBtn then
-			if antiKickEnabled then
-				switchBg.BackgroundColor3 = COLOR_NEON_PINK
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(1, -24, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-			else
-				switchBg.BackgroundColor3 = COLOR_TOGGLE_OFF_BG
-				TweenService:Create(switchBtn, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {Position = UDim2.new(0, 2, 0.5, -11)}):Play()
-				switchBtn.BackgroundColor3 = COLOR_TOGGLE_OFF_CIRCLE
-			end
-		end
-	end
-
-	-- Atualizar textos e valores
-	if modeBtn then modeBtn.Text = "Modo: " .. espMode end
-	if espDistLabel then espDistLabel.Text = ESP_MAX_DISTANCE end
-	if espDistFill then espDistFill.Size = UDim2.fromScale(ESP_MAX_DISTANCE / 500, 1) end
-	if positionBtn then positionBtn.Text = "Posição: " .. espPosition end
-	if targetDropdownBtn then targetDropdownBtn.Text = "Alvo: " .. aimbotTarget .. " ▼" end
-	if fovLabel then fovLabel.Text = aimbotFOV end
-	if fovInput then fovInput.Text = tostring(aimbotFOV) end
-	if fovFill then fovFill.Size = UDim2.fromScale(aimbotFOV / 200, 1) end
-	if smoothLabel then smoothLabel.Text = aimbotSmooth end
-	if smoothFill then smoothFill.Size = UDim2.fromScale(aimbotSmooth / 20, 1) end
-	if bindBtn then bindBtn.Text = "Bind: " .. aimbotBindString end
-	if speedTitle then speedTitle.Text = "Velocidade: " .. speedBoostValue end
-	if speedFill then speedFill.Size = UDim2.fromScale(speedBoostValue / 200, 1) end
-	if jumpTitle then jumpTitle.Text = "Pulo: " .. jumpPowerBoostValue end
-	if jumpFill then jumpFill.Size = UDim2.fromScale(jumpPowerBoostValue / 200, 1) end
-	if flySpeedInput then flySpeedInput.Text = tostring(FlySystem.speed) end
-
-	-- FOV Circle
-	local existingFOV = gui:FindFirstChild("FOVCircle")
-	if aimbotShowFOV then
-		if not existingFOV then
-			local fovCircle = Instance.new("Frame")
-			fovCircle.Name = "FOVCircle"
-			fovCircle.Size = UDim2.fromOffset(aimbotFOV * 3, aimbotFOV * 3)
-			fovCircle.Position = UDim2.new(0.5, -aimbotFOV * 1.5, 0.5, -aimbotFOV * 1.5)
-			fovCircle.BackgroundTransparency = 1
-			fovCircle.BorderSizePixel = 0
-			fovCircle.ZIndex = 10
-			Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
-			local stroke = Instance.new("UIStroke")
-			stroke.Color = Color3.new(1, 1, 1)
-			stroke.Thickness = 2
-			stroke.Parent = fovCircle
-			fovCircle.Parent = gui
-		else
-			existingFOV.Size = UDim2.fromOffset(aimbotFOV * 3, aimbotFOV * 3)
-			existingFOV.Position = UDim2.new(0.5, -aimbotFOV * 1.5, 0.5, -aimbotFOV * 1.5)
-		end
-	else
-		if existingFOV then existingFOV:Destroy() end
-	end
-
-	-- FOV Zero Circle
-	local existingFOVZero = gui:FindFirstChild("FOVZeroCircle")
-	if aimbotShowFOVZero then
-		if not existingFOVZero then
-			local fovZeroCircle = Instance.new("Frame")
-			fovZeroCircle.Name = "FOVZeroCircle"
-			fovZeroCircle.Size = UDim2.fromOffset(aimbotFOVZero * 2, aimbotFOVZero * 2)
-			fovZeroCircle.Position = UDim2.new(0.5, -aimbotFOVZero, 0.5, -aimbotFOVZero)
-			fovZeroCircle.BackgroundTransparency = 0.8
-			fovZeroCircle.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
-			fovZeroCircle.BorderSizePixel = 0
-			fovZeroCircle.ZIndex = 10
-			Instance.new("UICorner", fovZeroCircle).CornerRadius = UDim.new(1, 0)
-			fovZeroCircle.Parent = gui
-		end
-	else
-		if existingFOVZero then existingFOVZero:Destroy() end
 	end
 end
 
@@ -3411,24 +2966,6 @@ function loadConfig(configName)
 			end
 		end
 
-		print("✅ Config '" .. configName .. "' carregada com sucesso - UI sincronizada!")
-		
-		-- Aplicar callbacks dos toggles para ativar funcionalidades
-		if speedBoostEnabled then
-			local character = LocalPlayer.Character
-			if character then
-				local humanoid = character:FindFirstChildOfClass("Humanoid")
-				if humanoid then humanoid.WalkSpeed = speedBoostValue end
-			end
-		end
-		
-		if jumpPowerBoostEnabled then
-			local character = LocalPlayer.Character
-			if character then
-				local humanoid = character:FindFirstChildOfClass("Humanoid")
-				if humanoid then humanoid.JumpPower = jumpPowerBoostValue end
-			end
-		end
 		
 		return true
 	end
@@ -4106,12 +3643,12 @@ positionBtn.MouseButton1Click:Connect(function()
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
--- Aimbot Page - Melhorado
+-- Aimbot Page - Reorganizado e Melhorado
 local rageCategory = createCategory(aimbotPage, "Aimbot")
 
--- Toggles organizados em grid
+-- Toggles organizados em grid 2x2
 local togglesFrame = Instance.new("Frame")
-togglesFrame.Size = UDim2.new(1, 0, 0, 160)
+togglesFrame.Size = UDim2.new(1, 0, 0, 110)
 togglesFrame.BackgroundTransparency = 1
 togglesFrame.Parent = rageCategory
 
@@ -4147,22 +3684,123 @@ end)
 fovToggle.Position = UDim2.new(0.52, 0, 0, 0)
 fovToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
--- Auto Kill Toggle - TP Direto no Player
+local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(enabled)
+	aimbotOnlyVisible = enabled
+end)
+visibleToggle.Position = UDim2.new(0, 0, 0, 55)
+visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
+
+local mobileToggle = createToggle(togglesFrame, "FOV Móvel", function(enabled)
+	aimbotMobile = enabled
+end)
+mobileToggle.Position = UDim2.new(0.52, 0, 0, 55)
+mobileToggle.Size = UDim2.new(0.48, 0, 0, 50)
+
+-- Auto Kill Toggle - Sistema Ultra Agressivo
 autoKillEnabled = false
 autoKillCurrentTarget = nil
 autoKillLastAttack = 0
 autoKillClickActive = false
+autoKillCycleState = 0
+autoKillCycleTimer = 0
+autoKillAttackSpeed = 0.3 -- Velocidade de ataque ultra rápida
+autoKillAttackPosition = 0 -- 0=trás, 1=frente, 2=lado esquerdo, 3=lado direito
+autoKillCooldownActive = false -- Cooldown após kills
+autoKillLastEnemyCount = 0 -- Contador de inimigos anterior
+autoKillAttackCount = 0 -- Contador de ataques no alvo atual
 
-local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP + Multi Kill)", function(enabled)
+local autoKillToggle = createToggle(rageCategory, "🗡️ Auto Kill Ultra Agressivo", function(enabled)
 	autoKillEnabled = enabled
 	if enabled then
-		print("🗡️ Auto Kill ATIVADO - Mata automaticamente ao spawnar")
 		autoKillCurrentTarget = nil
+		autoKillStats.enemiesKilled = 0
+		autoKillStats.waitingForRound = false
 		
 		task.spawn(function()
 			while autoKillEnabled do
-				task.wait(0.1)
-				if panelVisible then continue end
+				task.wait(0.05)
+				
+				-- Verificar se está em cooldown
+				if autoKillCooldownActive then
+					if autoKillStatusLabel then
+						autoKillStatusLabel.Text = "⏳ Aguardando 8s após kills..."
+						autoKillStatusLabel.TextColor3 = Color3.fromRGB(255, 150, 0)
+					end
+					continue
+				end
+				
+				autoKillStats.enemiesAlive = countEnemies()
+				autoKillStats.roundTimer = getRoundTimer() or 0
+				
+				-- Detectar se matou todos os inimigos
+				if autoKillLastEnemyCount > 0 and autoKillStats.enemiesAlive == 0 and not autoKillCooldownActive then
+					autoKillCooldownActive = true
+					autoKillCurrentTarget = nil
+					autoKillCycleState = 0
+					autoKillCycleTimer = 0
+					autoKillAttackPosition = 0
+					autoKillStats.enemiesKilled = autoKillStats.enemiesKilled + autoKillLastEnemyCount
+					
+					if autoKillStatusLabel then
+						autoKillStatusLabel.Text = "✅ Todos mortos! Aguardando 8s..."
+						autoKillStatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+					end
+					
+					-- Esperar 8 segundos
+					task.wait(8)
+					autoKillCooldownActive = false
+					autoKillLastEnemyCount = 0
+					
+					-- Resetar completamente o sistema
+					autoKillCurrentTarget = nil
+					autoKillCycleState = 0
+					autoKillCycleTimer = 0
+					autoKillAttackPosition = 0
+					continue
+				end
+				
+				-- Atualizar contador anterior
+				autoKillLastEnemyCount = autoKillStats.enemiesAlive
+				
+				if autoKillStatusLabel then
+					if autoKillStats.waitingForRound then
+						autoKillStatusLabel.Text = string.format("⏳ Aguardando | Timer: %ds | Inimigos: %d", autoKillStats.roundTimer, autoKillStats.enemiesAlive)
+						autoKillStatusLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+					else
+						autoKillStatusLabel.Text = string.format("⚔️ Matando | Inimigos: %d | Mortos: %d", autoKillStats.enemiesAlive, autoKillStats.enemiesKilled)
+						autoKillStatusLabel.TextColor3 = Color3.fromRGB(0, 255, 100)
+					end
+				end
+				
+				if autoKillStats.enemiesAlive == 0 and not autoKillStats.waitingForRound and not autoKillCooldownActive then
+					autoKillStats.waitingForRound = true
+					autoKillStats.enemiesKilled = 0
+					continue
+				end
+				
+				if autoKillStats.waitingForRound then
+					if autoKillStats.roundTimer <= 1 and autoKillStats.roundTimer > 0 then
+						local char = LocalPlayer.Character
+						if char then
+							local root = char:FindFirstChild("HumanoidRootPart")
+							if root then
+								root.CFrame = CFrame.new(0, 100, 0)
+							end
+						end
+						task.wait(3)
+						autoKillStats.waitingForRound = false
+						autoKillStats.enemiesKilled = 0
+					end
+					if autoKillStats.enemiesAlive > 0 then
+						autoKillStats.waitingForRound = false
+					end
+					continue
+				end
+				
+				-- Não fazer nada se estiver em cooldown
+				if autoKillCooldownActive then
+					continue
+				end
 				
 				local character = LocalPlayer.Character
 				if not character then continue end
@@ -4172,20 +3810,31 @@ local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP + Multi
 				local weapon = findWeaponOrKnife()
 				if weapon and weapon.Parent ~= character then
 					weapon.Parent = character
-					task.wait(0.1)
+					task.wait(0.05)
+				end
+				
+				if weapon and killRangeEnabled then
+					extendToolRange(weapon, 35)
 				end
 				
 				if not autoKillCurrentTarget or not autoKillCurrentTarget.Character then
 					autoKillCurrentTarget = nil
+					autoKillCycleState = 0
+					autoKillCycleTimer = 0
+					autoKillAttackPosition = 0
+					autoKillAttackCount = 0
+					
 					for _, player in ipairs(Players:GetPlayers()) do
 						if player ~= LocalPlayer and player.Character then
 							local hum = player.Character:FindFirstChildOfClass("Humanoid")
 							local root = player.Character:FindFirstChild("HumanoidRootPart")
-							if hum and hum.Health > 0 and root then
-								if isInSameDimension(player.Character) and isEnemy(player) then
-									autoKillCurrentTarget = player
-									break
-								end
+							if hum and hum.Health > 0 and root and isInSameDimension(player.Character) and isEnemy(player) then
+								autoKillCurrentTarget = player
+								autoKillCycleState = 0
+								autoKillCycleTimer = 0
+								autoKillAttackPosition = 0
+								autoKillAttackCount = 0
+								break
 							end
 						end
 					end
@@ -4193,6 +3842,11 @@ local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP + Multi
 					local hum = autoKillCurrentTarget.Character:FindFirstChildOfClass("Humanoid")
 					if not hum or hum.Health <= 0 or not isInSameDimension(autoKillCurrentTarget.Character) then
 						autoKillCurrentTarget = nil
+						autoKillCycleState = 0
+						autoKillCycleTimer = 0
+						autoKillAttackPosition = 0
+						autoKillAttackCount = 0
+						autoKillStats.enemiesKilled = autoKillStats.enemiesKilled + 1
 						continue
 					end
 				end
@@ -4200,34 +3854,90 @@ local autoKillToggle = createToggle(togglesFrame, "🗡️ Auto Kill (TP + Multi
 				if autoKillCurrentTarget and autoKillCurrentTarget.Character then
 					local targetRoot = autoKillCurrentTarget.Character:FindFirstChild("HumanoidRootPart")
 					if targetRoot then
-						myRoot.CFrame = targetRoot.CFrame
-						myRoot.AssemblyLinearVelocity = Vector3.zero
+						autoKillCycleTimer = autoKillCycleTimer + 0.05
 						
-						if weapon and tick() - autoKillLastAttack > 0.05 then
-							weapon:Activate()
-							autoKillLastAttack = tick()
+						if autoKillCycleState == 0 then
+							-- Fase de ataque: TP instantâneo e ataque triplo
+							local attackOffset
+							if autoKillAttackPosition == 0 then
+								attackOffset = CFrame.new(0, 0, 1) -- Trás (mais perto)
+							elseif autoKillAttackPosition == 1 then
+								attackOffset = CFrame.new(0, 0, -1) -- Frente
+							elseif autoKillAttackPosition == 2 then
+								attackOffset = CFrame.new(-1, 0, 0) -- Esquerda
+							else
+								attackOffset = CFrame.new(1, 0, 0) -- Direita
+							end
+							
+							-- TP instantâneo
+							myRoot.CFrame = CFrame.new(targetRoot.Position) * attackOffset
+							myRoot.AssemblyLinearVelocity = Vector3.zero
+							
+							-- Ataque triplo ultra rápido
+							if weapon then
+								for i = 1, 3 do
+									weapon:Activate()
+									task.wait(0.01)
+								end
+							end
+							
+							autoKillAttackCount = autoKillAttackCount + 1
+							
+							if autoKillCycleTimer >= autoKillAttackSpeed then
+								autoKillCycleState = 1
+								autoKillCycleTimer = 0
+								-- Alternar posição para próximo ataque
+								autoKillAttackPosition = (autoKillAttackPosition + 1) % 4
+							end
+						else
+							-- Fase de escape: teleportar para baixo ultra rápido
+							myRoot.CFrame = CFrame.new(targetRoot.Position.X, -800, targetRoot.Position.Z)
+							myRoot.AssemblyLinearVelocity = Vector3.zero
+							
+							if autoKillCycleTimer >= 0.1 then
+								autoKillCycleState = 0
+								autoKillCycleTimer = 0
+								
+								-- Se já atacou 5 vezes, trocar de alvo
+								if autoKillAttackCount >= 5 then
+									autoKillCurrentTarget = nil
+									autoKillAttackCount = 0
+								end
+							end
 						end
 					end
 				end
 			end
 		end)
 	else
-		print("❌ Auto Kill OFF")
 		autoKillCurrentTarget = nil
+		autoKillCooldownActive = false
+		autoKillLastEnemyCount = 0
+		autoKillCycleState = 0
+		autoKillCycleTimer = 0
+		autoKillAttackPosition = 0
+		autoKillAttackCount = 0
+		if autoKillStatusLabel then
+			autoKillStatusLabel.Text = "Status: Desativado"
+			autoKillStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+		end
 	end
 end)
-autoKillToggle.Position = UDim2.new(0, 0, 0, 55)
-autoKillToggle.Size = UDim2.new(1, 0, 0, 50)
-
-local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(enabled)
-	aimbotOnlyVisible = enabled
-end)
-visibleToggle.Position = UDim2.new(0, 0, 0, 110)
-visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
+-- Status Display
+local autoKillStatusLabel = Instance.new("TextLabel")
+autoKillStatusLabel.Size = UDim2.new(1, 0, 0, 30)
+autoKillStatusLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+autoKillStatusLabel.BackgroundTransparency = 0.3
+autoKillStatusLabel.Text = "Status: Desativado"
+autoKillStatusLabel.Font = Enum.Font.GothamBold
+autoKillStatusLabel.TextSize = 12
+autoKillStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+autoKillStatusLabel.Parent = rageCategory
+Instance.new("UICorner", autoKillStatusLabel).CornerRadius = UDim.new(0, 6)
 
 -- Sistema de clique para multi kill (5 metros)
 UserInputService.InputBegan:Connect(function(input, processed)
-	if processed or not autoKillEnabled then return end
+	if not autoKillEnabled then return end
 	
 	if input.UserInputType == Enum.UserInputType.MouseButton1 and not autoKillClickActive then
 		autoKillClickActive = true
@@ -4251,7 +3961,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 				task.wait(0.05)
 			end
 			
-			-- Pegar todos dentro de 5 metros
+			-- Pegar todos dentro de 10 metros (aumentado)
 			local targets = {}
 			for _, player in ipairs(Players:GetPlayers()) do
 				if player ~= LocalPlayer and player.Character then
@@ -4259,7 +3969,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 					local root = player.Character:FindFirstChild("HumanoidRootPart")
 					if hum and hum.Health > 0 and root and isInSameDimension(player.Character) and isEnemy(player) then
 						local dist = (root.Position - myRoot.Position).Magnitude
-						if dist <= 5 then
+						if dist <= 10 then
 							table.insert(targets, player)
 						end
 					end
@@ -4271,22 +3981,21 @@ UserInputService.InputBegan:Connect(function(input, processed)
 				return
 			end
 			
-			print("💀 Multi Kill: " .. #targets .. " alvos")
-			
 			for _, target in ipairs(targets) do
 				if target.Character then
 					local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
 					
 					if targetRoot then
-						for i = 1, 2 do
-							myRoot.CFrame = CFrame.new(targetRoot.Position.X, -500, targetRoot.Position.Z)
+						-- Ataque quádruplo instantâneo
+						for i = 1, 4 do
+							myRoot.CFrame = CFrame.new(targetRoot.Position.X, -700, targetRoot.Position.Z)
 							myRoot.AssemblyLinearVelocity = Vector3.zero
 							
 							if weapon then
 								weapon:Activate()
 							end
 							
-							task.wait(0.03)
+							task.wait(0.01)
 						end
 					end
 				end
@@ -4297,30 +4006,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end)
 	end
 end)
-
-local fovZeroToggle = createToggle(togglesFrame, "FOV Zero", function(enabled)
-	aimbotShowFOVZero = enabled
-	local existing = gui:FindFirstChild("FOVZeroCircle")
-	if aimbotShowFOVZero then
-		if not existing then
-			local fovZeroCircle = Instance.new("Frame")
-			fovZeroCircle.Name = "FOVZeroCircle"
-			fovZeroCircle.Size = UDim2.fromOffset(aimbotFOVZero * 2, aimbotFOVZero * 2)
-			fovZeroCircle.Position = UDim2.new(0.5, -aimbotFOVZero, 0.5, -aimbotFOVZero)
-			fovZeroCircle.BackgroundTransparency = 0.8
-			fovZeroCircle.BackgroundColor3 = Color3.fromRGB(255, 0, 255)
-			fovZeroCircle.BorderSizePixel = 0
-			fovZeroCircle.ZIndex = 10
-			Instance.new("UICorner", fovZeroCircle).CornerRadius = UDim.new(1, 0)
-			fovZeroCircle.Parent = gui
-		end
-	else
-		if existing then existing:Destroy() end
-	end
-end)
-fovZeroToggle.Position = UDim2.new(0.52, 0, 0, 110)
-fovZeroToggle.Size = UDim2.new(0.48, 0, 0, 50)
-fovZeroToggle.Visible = false
 
 -- Dropdown para alvo
 local targetDropdownFrame = Instance.new("Frame")
@@ -4376,10 +4061,7 @@ targetDropdownBtn.MouseButton1Click:Connect(function()
 	targetDropdownList.Visible = targetDropdownOpen
 end)
 
--- Toggle móvel
-local mobileToggle = createToggle(rageCategory, "Aimbot Móvel - FOV segue mouse", function(enabled)
-	aimbotMobile = enabled
-end)
+
 
 -- FOV Slider compacto - Mais pequeno e mais grosso
 local fovFrame = Instance.new("Frame")
@@ -4710,11 +4392,6 @@ end)
 
 local noclipToggle = createToggle(movementContent, "🔓 Noclip - Atravessa Tudo", function(enabled)
 	noclip = enabled
-	if enabled then
-		print("🔓 Noclip ATIVADO - Pode atravessar TODAS as paredes!")
-	else
-		print("🔒 Noclip DESATIVADO")
-	end
 end)
 
 -- Sistema Noclip Melhorado - Loop contínuo para garantir que atravessa TODAS as paredes
@@ -4809,16 +4486,24 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
 	if humanoid then
-		-- Reaplicar speed boost se estiver ativado
 		if speedBoostEnabled then
 			humanoid.WalkSpeed = speedBoostValue
-			print("⚡ Speed Boost reaplicado após respawn: " .. speedBoostValue)
 		end
 
-		-- Reaplicar jump boost se estiver ativado
 		if jumpPowerBoostEnabled then
 			humanoid.JumpPower = jumpPowerBoostValue
-			print("🦘 Jump Power reaplicado após respawn: " .. jumpPowerBoostValue)
+		end
+	end
+	
+	-- Reaplica ESP para todos os jogadores após respawn
+	if espEnabled then
+		task.wait(1) -- Aguardar mais um pouco para garantir
+		for _, player in ipairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer and player.Character then
+				pcall(function()
+					refreshESPForPlayer(player)
+				end)
+			end
 		end
 	end
 end)
@@ -5039,27 +4724,34 @@ end)
 -- Bind para trocar tecla do menu
 local menuBindBtn = Instance.new("TextButton")
 menuBindBtn.Size = UDim2.new(1, 0, 0, 45)
-menuBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+menuBindBtn.BackgroundColor3 = SAKURA.surface
 menuBindBtn.BackgroundTransparency = 0.2
-menuBindBtn.Text = "🔑 Menu Bind: " .. UI_TOGGLE_KEY.Name
-menuBindBtn.Font = Enum.Font.SourceSans
-menuBindBtn.TextSize = 14
-menuBindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+menuBindBtn.Text = "🔑 Menu Bind: M"
+menuBindBtn.Font = Enum.Font.Gotham
+menuBindBtn.TextSize = 13
+menuBindBtn.TextColor3 = SAKURA.text
+menuBindBtn.BorderSizePixel = 0
 menuBindBtn.Parent = utilsContent
 Instance.new("UICorner", menuBindBtn).CornerRadius = UDim.new(0, 8)
+
+local menuBindBorder = Instance.new("UIStroke")
+menuBindBorder.Color = SAKURA.border
+menuBindBorder.Thickness = 1
+menuBindBorder.Transparency = 0.6
+menuBindBorder.Parent = menuBindBtn
 
 local menuBindListening = false
 menuBindBtn.MouseButton1Click:Connect(function()
 	menuBindListening = true
 	menuBindBtn.Text = "Press any key..."
-	menuBindBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+	menuBindBtn.BackgroundColor3 = SAKURA.gold
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if menuBindListening and not processed and input.UserInputType == Enum.UserInputType.Keyboard then
 		UI_TOGGLE_KEY = input.KeyCode
-		menuBindBtn.Text = "🔑 Menu Bind: " .. UI_TOGGLE_KEY.Name
-		menuBindBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 150)
+		menuBindBtn.Text = "🔑 Menu Bind: " .. input.KeyCode.Name
+		menuBindBtn.BackgroundColor3 = SAKURA.surface
 		menuBindListening = false
 	end
 end)
@@ -5127,8 +4819,6 @@ function resizeUI(newWidth, newHeight)
 			end
 		end
 	end
-	
-	print("🔄 UI redimensionada proporcionalmente para " .. newWidth .. "x" .. newHeight)
 end
 
 menuSizeBtn.MouseButton1Click:Connect(function()
@@ -5143,8 +4833,6 @@ menuSizeBtn.MouseButton1Click:Connect(function()
 	
 	-- Atualizar texto do botão
 	menuSizeBtn.Text = "📐 Tamanho: " .. size.name
-	
-	print("🔄 Resolução alterada para: " .. size.name)
 end)
 
 -- Ajustar tamanhos das subcategorias
@@ -5152,92 +4840,20 @@ movementSubCategory.Size = UDim2.new(1, -20, 0, movementLayout.AbsoluteContentSi
 boostsSubCategory.Size = UDim2.new(1, -20, 0, boostsLayout.AbsoluteContentSize.Y + 40)
 utilsSubCategory.Size = UDim2.new(1, -20, 0, utilsLayout.AbsoluteContentSize.Y + 40)
 
--- Make draggable
-local dragging = false
-local dragStart = nil
-local startPos = nil
-
-header.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = input.Position
-		startPos = mainFrame.Position
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = false
-	end
-end)
 
 
-
--- Tab connections
-tabPlayers.MouseButton1Click:Connect(function() setTab("PLAYERS") end)
-tabESP.MouseButton1Click:Connect(function() setTab("ESP") end)
-tabAimbot.MouseButton1Click:Connect(function() setTab("AIMBOT") end)
-tabUtil.MouseButton1Click:Connect(function() setTab("UTIL") end)
-tabConfig.MouseButton1Click:Connect(function() setTab("CONFIG") end)
-
--- Mostrar/ocultar painel
-local cursorForceLoop = nil
+-- Mostrar/ocultar painel Sakura
 function showPanel(show)
 	if panelVisible == show then return end
 	panelVisible = show
 	mainFrame.Visible = show
-	inputBlocker.Visible = false
 
 	if show then
-		-- Forçar visibilidade das páginas
-		task.wait(0.05)
-		for name, page in pairs(pages) do
-			if page then page.Visible = (name == currentTab) end
-		end
-		
-		-- Salvar estado atual do mouse
-		prevMouseBehavior = UserInputService.MouseBehavior
-		prevMouseIconEnabled = UserInputService.MouseIconEnabled
-
-		-- Forçar liberação do cursor SEMPRE
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
-		
-		-- Loop para garantir que cursor fica sempre livre
-		if cursorForceLoop then cursorForceLoop:Disconnect() end
-		cursorForceLoop = RunService.RenderStepped:Connect(function()
-			if panelVisible then
-				UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-				UserInputService.MouseIconEnabled = true
-			end
-		end)
-
-		-- Atualizar lista de players quando abrir o painel
-		if updatePlayersList then updatePlayersList() end
-		print("📜 Menu ABERTO (Tecla M para fechar)")
 	else
-		-- Parar loop de forçar cursor
-		if cursorForceLoop then
-			cursorForceLoop:Disconnect()
-			cursorForceLoop = nil
-		end
-		
-		-- Restaurar completamente o comportamento do mouse
 		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 		UserInputService.MouseIconEnabled = true
-		
-		-- Garantir que o jogo volta ao normal
-		task.wait(0.1)
-		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
-		UserInputService.MouseIconEnabled = true
-		print("📝 Menu FECHADO (Tecla M para abrir)")
 	end
 end
 
@@ -5313,17 +4929,14 @@ end
 function rebuildPlayersList()
     if isTypingInSearch then return end
     
-    -- Limpar lista atual
     for _, child in ipairs(playersList:GetChildren()) do
         if child:IsA("Frame") or child:IsA("TextButton") then
             child:Destroy()
         end
     end
 
-    -- Limpar tabela de botões
     playerButtons = {}
 
-    -- Criar botões para todos os players
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             pcall(function()
@@ -5332,13 +4945,11 @@ function rebuildPlayersList()
         end
     end
 
-    -- Aplicar filtro de pesquisa se houver
     if searchBox and searchBox.Text and searchBox.Text ~= "" then
         applySearch(searchBox.Text)
     end
     
     updatePlayerCounter()
-    print("✅ Lista atualizada: " .. #playerButtons .. " jogadores")
 end
 
 Players.PlayerAdded:Connect(function(p)
@@ -5677,8 +5288,7 @@ Players.PlayerRemoving:Connect(function(player)
 	updatePlayerCounter()
 end)
 
-print("✅ Sistema de atualização automática ATIVADO")
-print("✅ Eventos de players ATIVADOS")
+
 
 -- Boot
 local success, err = pcall(function()
@@ -5694,11 +5304,7 @@ local success, err = pcall(function()
 	updatePlayerCounter()
 end)
 
-if success then
-	print("✅ Painel pronto! Sistema de Biblioteca - Selecione jogadores para ver ações!")
-	print("🔑 CONTROLES: M (Abrir/Fechar) | P (Destravar Mouse) | F (Fly) | H (Agarrar) | X (Cancelar)")
-	print("☁️ SISTEMA FLY/NOCLIP ORIGINAL INTEGRADO! VELOCIDADE INICIAL: 1")
-else
+if not success then
 	warn("❌ Erro ao inicializar painel: " .. tostring(err))
 end
 
@@ -5710,11 +5316,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 
 	-- Menu toggle (M) - Prioridade máxima (sempre funciona)
 	if input.KeyCode == UI_TOGGLE_KEY then
-		if menuMinimized then
-			toggleMinimize()
-		else
-			showPanel(not panelVisible)
-		end
+		showPanel(not panelVisible)
 		return
 	end
 
@@ -5756,47 +5358,3 @@ UserInputService.InputBegan:Connect(function(input, processed)
 		end
 	end
 end)
-
-
-
-if minimizeButton then
-	minimizeButton.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			cancelling = true
-			flightStartTime = input.Position.X + input.Position.Y * 10000
-			freeflyStartCFrame = minimizeButton.Position
-		end
-	end)
-	minimizeButton.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			cancelling = false
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if cancelling and input.UserInputType == Enum.UserInputType.MouseMovement and freeflyStartCFrame then
-			local delta = Vector2.new(input.Position.X - (flightStartTime % 10000), input.Position.Y - math.floor(flightStartTime / 10000))
-			minimizeButton.Position = UDim2.new(freeflyStartCFrame.X.Scale, freeflyStartCFrame.X.Offset + delta.X, freeflyStartCFrame.Y.Scale, freeflyStartCFrame.Y.Offset + delta.Y)
-		end
-	end)
-end
-
-if minimizeButton then
-	minimizeButton.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			cancelling = true
-			flightStartTime = input.Position.X + input.Position.Y * 10000
-			freeflyStartCFrame = minimizeButton.Position
-		end
-	end)
-	minimizeButton.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			cancelling = false
-		end
-	end)
-	UserInputService.InputChanged:Connect(function(input)
-		if cancelling and input.UserInputType == Enum.UserInputType.MouseMovement and freeflyStartCFrame then
-			local delta = Vector2.new(input.Position.X - (flightStartTime % 10000), input.Position.Y - math.floor(flightStartTime / 10000))
-			minimizeButton.Position = UDim2.new(1, freeflyStartCFrame.X.Offset + delta.X - minimizeButton.AbsoluteSize.X, freeflyStartCFrame.Y.Scale, freeflyStartCFrame.Y.Offset + delta.Y)
-		end
-	end)
-end
