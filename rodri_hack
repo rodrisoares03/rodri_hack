@@ -1979,8 +1979,8 @@ gui.Parent = playerGui
 -- Main Sakura Frame
 mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 1000, 0, 750)
-mainFrame.Position = UDim2.new(0.5, -500, 0.5, -375)
+mainFrame.Size = UDim2.new(0, 800, 0, 700)
+mainFrame.Position = UDim2.new(0.5, -400, 0.5, -350)
 mainFrame.BackgroundColor3 = SAKURA.background
 mainFrame.Visible = true -- ABRIR DIRETO
 mainFrame.BorderSizePixel = 0
@@ -2100,7 +2100,7 @@ end)
 -- Sidebar
 local sidebar = Instance.new("Frame")
 sidebar.Name = "Sidebar"
-sidebar.Size = UDim2.new(0, 280, 1, -90)
+sidebar.Size = UDim2.new(0, 220, 1, -90)
 sidebar.Position = UDim2.new(0, 0, 0, 90)
 sidebar.BackgroundColor3 = SAKURA.surface
 sidebar.BorderSizePixel = 0
@@ -2124,10 +2124,10 @@ sidebarPadding.Parent = sidebar
 -- Content Panel
 local content = Instance.new("ScrollingFrame")
 content.Name = "Content"
-content.Size = UDim2.new(1, -290, 1, -100)
-content.Position = UDim2.new(0, 285, 0, 95)
+content.Size = UDim2.new(1, -230, 1, -100)
+content.Position = UDim2.new(0, 225, 0, 95)
 content.BackgroundTransparency = 1
-content.ScrollBarThickness = 10
+content.ScrollBarThickness = 8
 content.ScrollBarImageColor3 = SAKURA.primary
 content.CanvasSize = UDim2.new(0, 0, 0, 2000)
 content.BorderSizePixel = 0
@@ -3683,6 +3683,7 @@ local fovToggle = createToggle(togglesFrame, "Mostrar FOV", function(enabled)
 end)
 fovToggle.Position = UDim2.new(0.52, 0, 0, 0)
 fovToggle.Size = UDim2.new(0.48, 0, 0, 50)
+fovToggle.Visible = false -- ESCONDER FOV TOGGLE
 
 local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(enabled)
 	aimbotOnlyVisible = enabled
@@ -4758,10 +4759,11 @@ end)
 
 -- Seletor de tamanho do menu
 local menuSizes = {
-	{name = "Grande (1100x750)", width = 1100, height = 750},
-	{name = "Médio (900x600)", width = 900, height = 600}
+	{name = "Grande (900x750)", width = 900, height = 750},
+	{name = "Médio (800x700)", width = 800, height = 700},
+	{name = "Pequeno (700x600)", width = 700, height = 600}
 }
-local currentSizeIndex = 1
+local currentSizeIndex = 2
 
 local menuSizeBtn = Instance.new("TextButton")
 menuSizeBtn.Size = UDim2.new(1, 0, 0, 45)
@@ -4772,6 +4774,7 @@ menuSizeBtn.Font = Enum.Font.SourceSans
 menuSizeBtn.TextSize = 14
 menuSizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 menuSizeBtn.Parent = utilsContent
+menuSizeBtn.Visible = false -- ESCONDER SELETOR DE TAMANHO
 Instance.new("UICorner", menuSizeBtn).CornerRadius = UDim.new(0, 8)
 
 -- Função para redimensionar UI proporcionalmente
