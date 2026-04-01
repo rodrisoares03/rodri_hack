@@ -4,7 +4,9 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ContextActionService = game:GetService("ContextActionService")
 local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
+local VirtualUser = game:GetService("VirtualUser")
 local Lighting = game:GetService("Lighting")
 local LogService = game:GetService("LogService")
 
@@ -933,18 +935,32 @@ function FlySystem:startLoop()
     end)
 end
 
--- Função para resetar ao respawnar
+-- Função para resetar/restaurar ao respawnar
 function FlySystem:setupCharacterEvents()
     local function onCharacterAdded(char)
-        -- Resetar fly e noclip ao respawnar
-        self.flying = false
-        self.noclip = false
-
-        -- Limpar controles antigos
+        -- Limpar controles antigos se existirem
         if self.bodyGyro then self.bodyGyro:Destroy() end
         if self.bodyVelocity then self.bodyVelocity:Destroy() end
         self.bodyGyro = nil
         self.bodyVelocity = nil
+
+        -- Se o fly estava ativo, restaurá-lo no novo personagem
+        if self.flying then
+            task.spawn(function()
+                task.wait(0.5) -- Esperar carregar
+                local newRoot = char:WaitForChild("HumanoidRootPart", 3)
+                if newRoot then
+                    self.bodyGyro = Instance.new("BodyGyro", newRoot)
+                    self.bodyGyro.MaxTorque = Vector3.new(400000, 400000, 400000)
+                    self.bodyGyro.D = 1000
+                    self.bodyGyro.CFrame = newRoot.CFrame
+
+                    self.bodyVelocity = Instance.new("BodyVelocity", newRoot)
+                    self.bodyVelocity.MaxForce = Vector3.new(400000, 400000, 400000)
+                    self.bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+                end
+            end)
+        end
     end
 
     LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
@@ -2030,6 +2046,48 @@ gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 999999999
 gui.Parent = playerGui
 
+-- Tooltip Global System
+local globalTooltip = New("TextLabel", {
+	Name = "GlobalTooltip",
+	BackgroundColor3 = C.BgCard,
+	BackgroundTransparency = 0.05,
+	BorderSizePixel = 0,
+	Size = UDim2.new(0, 200, 0, 30),
+	Text = "",
+	Font = Enum.Font.GothamMedium,
+	TextSize = 13,
+	TextColor3 = C.TxtWhite,
+	TextWrapped = true,
+	Visible = false,
+	ZIndex = 10000005,
+}, gui)
+Corner(6, globalTooltip)
+local tooltipStroke = Stroke(C.Purple, 1, globalTooltip)
+Pad(5, 5, 8, 8, globalTooltip)
+
+_G.showTooltip = function(text, element)
+	if text and text ~= "" then
+		globalTooltip.Text = text
+		local textBounds = globalTooltip.TextBounds
+		globalTooltip.Size = UDim2.new(0, math.max(150, textBounds.X + 16), 0, math.max(30, textBounds.Y + 10))
+		if element then
+			-- Posicionar ao lado do botão, na direita
+			globalTooltip.Position = UDim2.new(0, element.AbsolutePosition.X + element.AbsoluteSize.X + 15, 0, element.AbsolutePosition.Y)
+		else
+			local mousePos = UserInputService:GetMouseLocation()
+			globalTooltip.Position = UDim2.new(0, mousePos.X + 15, 0, mousePos.Y + 15)
+		end
+		globalTooltip.Visible = true
+	end
+end
+
+_G.hideTooltip = function()
+	globalTooltip.Visible = false
+end
+
+local function showTooltip(t, element) _G.showTooltip(t, element) end
+local function hideTooltip() _G.hideTooltip() end
+
 -- Main Frame com transparência e efeito de raios
 mainFrame = New("Frame", {
 	Name = "MainFrame",
@@ -2046,108 +2104,7 @@ Corner(12, mainFrame)
 local mainStroke = Stroke(C.Purple, 2, mainFrame)
 mainStroke.Transparency = 0.3
 
--- Efeito de raios de tempestade realistas
-local lightningBg = New("Frame", {
-	Size = UDim2.new(1, 0, 1, 0),
-	BackgroundTransparency = 1,
-	ZIndex = mainFrame.ZIndex - 1,
-}, mainFrame)
 
--- Função para criar raio de tempestade realista
-local function createLightningBolt(startX, startY)
-	local segments = {}
-	local currentX, currentY = startX, startY
-	local numSegments = math.random(8, 15)
-	
-	for i = 1, numSegments do
-		local nextX = currentX + math.random(-30, 30)
-		local nextY = currentY + math.random(30, 60)
-		
-		local segment = New("Frame", {
-			Size = UDim2.new(0, 2, 0, math.sqrt((nextX - currentX)^2 + (nextY - currentY)^2)),
-			Position = UDim2.new(0, currentX, 0, currentY),
-			BackgroundColor3 = C.Purple,
-			BackgroundTransparency = 0.3,
-			BorderSizePixel = 0,
-			Rotation = math.deg(math.atan2(nextY - currentY, nextX - currentX)) + 90,
-			ZIndex = lightningBg.ZIndex,
-		}, lightningBg)
-		
-		table.insert(segments, segment)
-		currentX, currentY = nextX, nextY
-		
-		if currentY > 600 then break end
-	end
-	
-	return segments
-end
-
--- Animação de raios de tempestade
-task.spawn(function()
-	while true do
-		task.wait(math.random(3, 8))
-		
-		local startX = math.random(20, 940)
-		local segments = createLightningBolt(startX, 0)
-		
-		for _, seg in ipairs(segments) do
-			UI_Tween(seg, {BackgroundTransparency = 0.1}, 0.05)
-		end
-		
-		task.wait(0.1)
-		
-		for _, seg in ipairs(segments) do
-			UI_Tween(seg, {BackgroundTransparency = 1}, 0.2)
-		end
-		
-		task.wait(0.3)
-		
-		for _, seg in ipairs(segments) do
-			seg:Destroy()
-		end
-	end
-end)
-
--- Raios decorativos nas laterais (sempre visíveis)
-for i = 1, 3 do
-	local lightning = New("Frame", {
-		Size = UDim2.new(0, 2, 0.15, 0),
-		Position = UDim2.new(0, 8, (i - 1) * 0.35, 0),
-		BackgroundColor3 = C.Purple,
-		BackgroundTransparency = 0.8,
-		BorderSizePixel = 0,
-		Rotation = math.random(-5, 5),
-	}, lightningBg)
-	
-	task.spawn(function()
-		while true do
-			task.wait(math.random(2, 4))
-			UI_Tween(lightning, {BackgroundTransparency = 0.4}, 0.1)
-			task.wait(0.1)
-			UI_Tween(lightning, {BackgroundTransparency = 0.9}, 0.3)
-		end
-	end)
-end
-
-for i = 1, 3 do
-	local lightning = New("Frame", {
-		Size = UDim2.new(0, 2, 0.15, 0),
-		Position = UDim2.new(1, -10, (i - 1) * 0.35, 0),
-		BackgroundColor3 = C.Purple,
-		BackgroundTransparency = 0.8,
-		BorderSizePixel = 0,
-		Rotation = math.random(-5, 5),
-	}, lightningBg)
-	
-	task.spawn(function()
-		while true do
-			task.wait(math.random(2, 4))
-			UI_Tween(lightning, {BackgroundTransparency = 0.4}, 0.1)
-			task.wait(0.1)
-			UI_Tween(lightning, {BackgroundTransparency = 0.9}, 0.3)
-		end
-	end)
-end
 
 -- Padding interno do mainFrame para melhor respiração visual
 local mainPadding = New("UIPadding", {
@@ -2331,17 +2288,13 @@ joinBtn.MouseLeave:Connect(function()
 end)
 
 -- Content (área central) – fundo com detalhe
-local content = New("ScrollingFrame", {
+local content = New("Frame", {
 	Name = "Content",
 	BackgroundColor3 = C.BgSection,
 	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 185, 0, 40),
 	Size = UDim2.new(1, -185, 1, -40),
-	ScrollBarThickness = 5,
-	ScrollBarImageColor3 = C.Purple,
-	CanvasSize = UDim2.new(0, 0, 0, 2000),
-	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 }, mainFrame)
 Pad(14, 18, 24, 24, content)
 
@@ -2365,7 +2318,7 @@ function createPage(name)
 		ScrollBarThickness = 4,
 		ScrollBarImageColor3 = C.Purple,
 		BorderSizePixel = 0,
-		CanvasSize = UDim2.new(0, 0, 0, 0),
+		CanvasSize = UDim2.new(0, 0, 0, 0), -- CanvasSize resetado para evitar scroll fantasma
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	}, content)
 	ListLayout(12, page)
@@ -2545,8 +2498,16 @@ function createCategory(parent, titleText)
 	return contentFrame
 end
 
+-- Nova Helper para auto-size das Subcategorias feitas manualmente
+function bindAutoSize(frame, layout)
+	layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		frame.Size = UDim2.new(1, -20, 0, layout.AbsoluteContentSize.Y + 40)
+	end)
+	frame.Size = UDim2.new(1, -20, 0, layout.AbsoluteContentSize.Y + 40)
+end
+
 -- Toggle com glow roxo
-function createToggle(parent, text, callback)
+function createToggle(parent, text, callback, tooltipText)
 	local state = false
 	local f = New("Frame", {
 		BackgroundColor3 = C.BgCard,
@@ -2557,15 +2518,7 @@ function createToggle(parent, text, callback)
 	local stroke = Stroke(C.Purple, 2, f)
 	stroke.Transparency = 0.6
 	
-	local glow = New("ImageLabel", {
-		Size = UDim2.new(1, 20, 1, 20),
-		Position = UDim2.new(0, -10, 0, -10),
-		BackgroundTransparency = 1,
-		Image = "rbxasset://textures/ui/GuiImagePlaceholder.png",
-		ImageColor3 = C.Purple,
-		ImageTransparency = 1,
-		ZIndex = f.ZIndex - 1,
-	}, f)
+	
 	
 	local padding = New("UIPadding", {
 		PaddingLeft = UDim.new(0, 16),
@@ -2628,13 +2581,11 @@ function createToggle(parent, text, callback)
 	
 	btn.MouseEnter:Connect(function()
 		UI_Tween(f, {BackgroundTransparency = 0.1}, 0.15)
-		UI_Tween(stroke, {Transparency = 0.3}, 0.15)
-		UI_Tween(glow, {ImageTransparency = 0.8}, 0.15)
+		if tooltipText then showTooltip(tooltipText, f) end
 	end)
 	btn.MouseLeave:Connect(function()
 		UI_Tween(f, {BackgroundTransparency = 0.3}, 0.15)
-		UI_Tween(stroke, {Transparency = state and 0.2 or 0.6}, 0.15)
-		UI_Tween(glow, {ImageTransparency = 1}, 0.15)
+		if tooltipText then hideTooltip() end
 	end)
 	
 	return f
@@ -3171,7 +3122,7 @@ espToggle = createToggle(espVisualContent, "Esp", function(enabled)
 		healthBars = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "Ativa/Desativa o sistema visual completo.")
 
 -- Nome: Toggle + Cor (com padding aumentado)
 local nameFrame = Instance.new("Frame")
@@ -3187,7 +3138,7 @@ local nameToggle = createToggle(nameFrame, "Mostrar Nome", function(enabled)
 		end
 		nameLabels = {}
 	end
-end)
+end, "Mostra o nome dos jogadores visíveis.")
 nameToggle.Size = UDim2.new(0.65, -5, 1, 0)
 nameToggle.Position = UDim2.new(0, 0, 0, 0)
 
@@ -3236,7 +3187,7 @@ local healthToggle = createToggle(healthFrame, "Health Bar", function(enabled)
 		healthBars = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "Exibe uma barra de vida 2D ao lado do jogador.")
 
 -- Atualizar tamanho da subcategoria visual
 espVisualSub.Size = UDim2.new(1, -20, 0, espVisualLayout.AbsoluteContentSize.Y + 40)
@@ -3286,7 +3237,7 @@ local box3DToggle = createToggle(boxFrame, "Box", function(enabled)
 		boxes = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "Desenha uma caixa 3D ao redor do corpo do inimigo.")
 box3DToggle.Size = UDim2.new(0.65, -5, 1, 0)
 box3DToggle.Position = UDim2.new(0, 0, 0, 0)
 
@@ -3324,7 +3275,7 @@ local tracersToggle = createToggle(tracersFrame, "Lines", function(enabled)
 		tracers = {}
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "Cria uma linha que indica a posição exata de cada jogador.")
 tracersToggle.Size = UDim2.new(0.65, -5, 1, 0)
 tracersToggle.Position = UDim2.new(0, 0, 0, 0)
 
@@ -3362,7 +3313,7 @@ local espDistToggle = createToggle(distFrame, "Mostrar Distância (m)", function
 		end
 		distanceLabels = {}
 	end
-end)
+end, "Exibe a distância matemática entre você e o alvo (em studs).")
 espDistToggle.Size = UDim2.new(0.65, -5, 1, 0)
 espDistToggle.Position = UDim2.new(0, 0, 0, 0)
 
@@ -3395,7 +3346,7 @@ skeletonFrame.Parent = espBoxesContent
 local skeletonToggle = createToggle(skeletonFrame, "Esqueleto (ESP de Corpo)", function(enabled)
 	showSkeleton = enabled
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "Destaca todo o corpo do jogador através das paredes com um contorno.")
 
 -- Atualizar tamanho da subcategoria boxes
 espBoxesSub.Size = UDim2.new(1, -20, 0, espBoxesLayout.AbsoluteContentSize.Y + 40)
@@ -3460,7 +3411,7 @@ autoEspFrame.Parent = espConfigContent
 local autoEspToggle = createToggle(autoEspFrame, "ESP Automático (Visível/Invisível)", function(enabled)
 	espAutoEnabled = enabled
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
-end)
+end, "A cor do ESP muda consoante o alvo esteja visível (verde) ou detrás de paredes (vermelho).")
 
 local tracerModeFrame = Instance.new("Frame")
 tracerModeFrame.Size = UDim2.new(1, 0, 0, 46)
@@ -3608,6 +3559,66 @@ local aimbotConfigLayout = Instance.new("UIListLayout")
 aimbotConfigLayout.Padding = UDim.new(0, 10)
 aimbotConfigLayout.Parent = aimbotConfigContent
 
+-- NOVO: Subcategoria Auto Kill
+local autoKillSub = Instance.new("Frame")
+autoKillSub.Size = UDim2.new(1, -20, 0, 0)
+autoKillSub.BackgroundColor3 = Color3.fromRGB(45, 25, 25)
+autoKillSub.BackgroundTransparency = 0.3
+autoKillSub.Parent = rageCategory
+autoKillSub.LayoutOrder = 2
+Instance.new("UICorner", autoKillSub).CornerRadius = UDim.new(0, 10)
+
+local autoKillTitle = Instance.new("TextLabel")
+autoKillTitle.Size = UDim2.new(1, -20, 0, 25)
+autoKillTitle.Position = UDim2.new(0, 10, 0, 5)
+autoKillTitle.BackgroundTransparency = 1
+autoKillTitle.Text = "🗡️ AUTO KILL SYSTEM"
+autoKillTitle.Font = Enum.Font.SourceSansBold
+autoKillTitle.TextSize = 14
+autoKillTitle.TextColor3 = Color3.fromRGB(246, 92, 92)
+autoKillTitle.TextXAlignment = Enum.TextXAlignment.Left
+autoKillTitle.Parent = autoKillSub
+
+local autoKillContent = Instance.new("Frame")
+autoKillContent.Size = UDim2.new(1, -20, 1, -35)
+autoKillContent.Position = UDim2.new(0, 10, 0, 30)
+autoKillContent.BackgroundTransparency = 1
+autoKillContent.Parent = autoKillSub
+
+local autoKillLayout = Instance.new("UIListLayout")
+autoKillLayout.Padding = UDim.new(0, 10)
+autoKillLayout.Parent = autoKillContent
+
+-- NOVO: Subcategoria Combat
+local combatSub = Instance.new("Frame")
+combatSub.Size = UDim2.new(1, -20, 0, 0)
+combatSub.BackgroundColor3 = Color3.fromRGB(25, 45, 45)
+combatSub.BackgroundTransparency = 0.3
+combatSub.Parent = rageCategory
+combatSub.LayoutOrder = 3
+Instance.new("UICorner", combatSub).CornerRadius = UDim.new(0, 10)
+
+local combatTitle = Instance.new("TextLabel")
+combatTitle.Size = UDim2.new(1, -20, 0, 25)
+combatTitle.Position = UDim2.new(0, 10, 0, 5)
+combatTitle.BackgroundTransparency = 1
+combatTitle.Text = "⚔️ COMBAT & EXPLOITS"
+combatTitle.Font = Enum.Font.SourceSansBold
+combatTitle.TextSize = 14
+combatTitle.TextColor3 = Color3.fromRGB(92, 246, 246)
+combatTitle.TextXAlignment = Enum.TextXAlignment.Left
+combatTitle.Parent = combatSub
+
+local combatContent = Instance.new("Frame")
+combatContent.Size = UDim2.new(1, -20, 1, -35)
+combatContent.Position = UDim2.new(0, 10, 0, 30)
+combatContent.BackgroundTransparency = 1
+combatContent.Parent = combatSub
+
+local combatLayout = Instance.new("UIListLayout")
+combatLayout.Padding = UDim.new(0, 10)
+combatLayout.Parent = combatContent
+
 -- Toggles organizados em grid 2x2
 local togglesFrame = Instance.new("Frame")
 togglesFrame.Size = UDim2.new(1, 0, 0, 110)
@@ -3618,14 +3629,14 @@ togglesFrame.Parent = aimbotConfigContent
 local aimbotToggle = createToggle(togglesFrame, "Aimbot", function(enabled)
 	aimbotEnabled = enabled
 	saveConfig()
-end)
+end, "Trava a mira automaticamente nos adversários mais próximos na tela.")
 aimbotToggle.Position = UDim2.new(0, 0, 0, 0)
 aimbotToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
 
 local visibleToggle = createToggle(togglesFrame, "Apenas Visíveis", function(enabled)
 	aimbotOnlyVisible = enabled
-end)
+end, "O Aimbot e Autofire irão ignorar os jogadores que estão cobertos por paredes.")
 visibleToggle.Position = UDim2.new(0, 0, 0, 55)
 visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
 
@@ -3690,7 +3701,7 @@ autoKillCooldownActive = false -- Cooldown após kills
 autoKillLastEnemyCount = 0 -- Contador de inimigos anterior
 autoKillAttackCount = 0 -- Contador de ataques no alvo atual
 
-local autoKillToggle = createToggle(aimbotConfigContent, "🗡️ Auto Kill", function(enabled)
+local autoKillToggle = createToggle(autoKillContent, "🗡️ Auto Kill", function(enabled)
 	autoKillEnabled = enabled
 	if enabled then
 		autoKillCurrentTarget = nil
@@ -3913,7 +3924,7 @@ autoKillStatusLabel.Text = "Status: Desativado"
 autoKillStatusLabel.Font = Enum.Font.GothamBold
 autoKillStatusLabel.TextSize = 12
 autoKillStatusLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-autoKillStatusLabel.Parent = aimbotConfigContent
+autoKillStatusLabel.Parent = autoKillContent
 Instance.new("UICorner", autoKillStatusLabel).CornerRadius = UDim.new(0, 6)
 
 -- Sistema de clique para multi kill (5 metros)
@@ -3992,7 +4003,7 @@ end)
 local targetDropdownFrame = Instance.new("Frame")
 targetDropdownFrame.Size = UDim2.new(1, 0, 0, 50)
 targetDropdownFrame.BackgroundTransparency = 1
-targetDropdownFrame.Parent = aimbotConfigContent
+targetDropdownFrame.Parent = autoKillContent
 
 local targetDropdownBtn = Instance.new("TextButton")
 targetDropdownBtn.Size = UDim2.new(1, 0, 0, 40)
@@ -4245,8 +4256,245 @@ bindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 bindBtn.Parent = aimbotConfigContent
 Instance.new("UICorner", bindBtn).CornerRadius = UDim.new(0, 8)
 
--- Atualizar tamanho da subcategoria aimbot
-aimbotConfigSub.Size = UDim2.new(1, -20, 0, aimbotConfigLayout.AbsoluteContentSize.Y + 40)
+bindAutoSize(aimbotConfigSub, aimbotConfigLayout)
+bindAutoSize(autoKillSub, autoKillLayout)
+bindAutoSize(combatSub, combatLayout)
+
+-- NOVO: Hitbox Expander
+hitboxSize = 15
+hitboxToggle = createToggle(combatContent, "Hitbox Expander", function(enabled)
+	if enabled then
+		_G.hitboxLoop = RunService.RenderStepped:Connect(function()
+			for _, player in pairs(Players:GetPlayers()) do
+				if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+					local root = player.Character.HumanoidRootPart
+					root.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+					root.Transparency = _G.hitboxVisible and 0.7 or 1 -- Invisível se ocultar estiver ativo
+					root.Color = _G.hitboxColor -- Cor dinâmica
+					root.Material = Enum.Material.Neon
+					root.CanCollide = false
+				end
+			end
+		end)
+	else
+		if _G.hitboxLoop then _G.hitboxLoop:Disconnect() end
+		for _, player in pairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+				local root = player.Character.HumanoidRootPart
+				root.Size = Vector3.new(2, 2, 1)
+				root.Transparency = 1
+				root.Material = Enum.Material.Plastic
+			end
+		end
+	end
+end, "Aumenta o tamanho invisível dos jogadores para facilitar o tiro (use o slider abaixo).")
+
+-- Hitbox Slider
+hitboxSliderFrame = Instance.new("Frame")
+hitboxSliderFrame.Size = UDim2.new(1, 0, 0, 35)
+hitboxSliderFrame.BackgroundTransparency = 1
+hitboxSliderFrame.Parent = combatContent
+
+hitboxSliderLabel = Instance.new("TextLabel")
+hitboxSliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
+hitboxSliderLabel.BackgroundTransparency = 1
+hitboxSliderLabel.Text = "Tamanho: " .. hitboxSize
+hitboxSliderLabel.Font = Enum.Font.SourceSansBold
+hitboxSliderLabel.TextSize = 13
+hitboxSliderLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+hitboxSliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+hitboxSliderLabel.Parent = hitboxSliderFrame
+
+hitboxSliderInput = Instance.new("TextBox")
+hitboxSliderInput.Size = UDim2.new(0.5, -5, 0, 30)
+hitboxSliderInput.Position = UDim2.new(0.5, 5, 0, 2)
+hitboxSliderInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+hitboxSliderInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+hitboxSliderInput.PlaceholderText = "1-100"
+hitboxSliderInput.Text = tostring(hitboxSize)
+hitboxSliderInput.Font = Enum.Font.SourceSans
+hitboxSliderInput.TextSize = 14
+hitboxSliderInput.ClearTextOnFocus = false
+hitboxSliderInput.Parent = hitboxSliderFrame
+Instance.new("UICorner", hitboxSliderInput).CornerRadius = UDim.new(0, 6)
+
+hitboxSliderInput:GetPropertyChangedSignal("Text"):Connect(function()
+	local newSize = tonumber(hitboxSliderInput.Text)
+	if newSize and newSize >= 1 and newSize <= 100 then
+		hitboxSize = newSize
+		hitboxSliderLabel.Text = "Tamanho: " .. hitboxSize
+	end
+end)
+
+-- NOVO: Customização de Hitbox (Cor e Visibilidade)
+_G.hitboxColor = Color3.fromRGB(0, 150, 255)
+_G.hitboxVisible = true
+
+local hitboxOptionsFrame = Instance.new("Frame")
+hitboxOptionsFrame.Size = UDim2.new(1, 0, 0, 40)
+hitboxOptionsFrame.BackgroundTransparency = 1
+hitboxOptionsFrame.Parent = combatContent
+
+local hitboxColorBtn = Instance.new("TextButton")
+hitboxColorBtn.Size = UDim2.new(0.5, -5, 0, 35)
+hitboxColorBtn.BackgroundColor3 = _G.hitboxColor
+hitboxColorBtn.Text = "Mudar Cor"
+hitboxColorBtn.Font = Enum.Font.SourceSansBold
+hitboxColorBtn.TextSize = 13
+hitboxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hitboxColorBtn.Parent = hitboxOptionsFrame
+Instance.new("UICorner", hitboxColorBtn).CornerRadius = UDim.new(0, 6)
+local hbColorStroke = Instance.new("UIStroke")
+hbColorStroke.Color = Color3.fromRGB(255, 255, 255)
+hbColorStroke.Thickness = 1
+hbColorStroke.Transparency = 0.7
+hbColorStroke.Parent = hitboxColorBtn
+
+local hitboxHiddenToggle = createToggle(hitboxOptionsFrame, "Ocultar Hitbox", function(enabled)
+	_G.hitboxVisible = not enabled
+end, "Torna a hitbox expandida invisível, mantendo-a funcional.")
+hitboxHiddenToggle.Size = UDim2.new(0.5, -5, 0, 40)
+hitboxHiddenToggle.Position = UDim2.new(0.5, 5, 0, -5)
+
+local hbColors = {
+	Color3.fromRGB(0, 150, 255), -- Azul
+	Color3.fromRGB(255, 0, 0),   -- Vermelho
+	Color3.fromRGB(0, 255, 0),   -- Verde
+	Color3.fromRGB(255, 255, 0), -- Amarelo
+	Color3.fromRGB(255, 0, 255), -- Rosa
+}
+local hbColorIdx = 1
+hitboxColorBtn.MouseButton1Click:Connect(function()
+	hbColorIdx = (hbColorIdx % #hbColors) + 1
+	_G.hitboxColor = hbColors[hbColorIdx]
+	hitboxColorBtn.BackgroundColor3 = _G.hitboxColor
+end)
+
+-- NOVO: Autofire
+autofireEnabled = false
+local VirtualInputManager = game:GetService("VirtualInputManager")
+autofireToggle = createToggle(combatContent, "Autofire (Triggerbot)", function(enabled)
+	autofireEnabled = enabled
+	if enabled then
+		_G.autofireLoop = RunService.RenderStepped:Connect(function()
+			-- SEGURANÇA: Não atirar se o menu estiver aberto
+			if panelVisible or not autofireEnabled then return end
+			
+			local origin = workspace.CurrentCamera.CFrame.Position
+			local dir = workspace.CurrentCamera.CFrame.LookVector * 1000
+			
+			local rayParams = RaycastParams.new()
+			rayParams.FilterDescendantsInstances = {LocalPlayer.Character, workspace.CurrentCamera}
+			rayParams.FilterType = Enum.RaycastFilterType.Exclude
+			rayParams.IgnoreWater = true
+			
+			local result = workspace:Raycast(origin, dir, rayParams)
+			if result and result.Instance then
+				-- Verificar se atingiu algum inimigo (incluindo hitbox expandida)
+				local char = result.Instance:FindFirstAncestorOfClass("Model")
+				local p = Players:GetPlayerFromCharacter(char)
+				
+				if p and p ~= LocalPlayer and isEnemy(p) then
+					local character = LocalPlayer.Character
+					if character then
+						local tool = character:FindFirstChildOfClass("Tool")
+						if tool then
+							tool:Activate()
+						end
+					end
+					
+					-- Métodos de clique simultâneos
+					if mouse1click then pcall(function() mouse1click() end) end
+					pcall(function()
+						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+						task.wait(0.01)
+						VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+						
+						if typeof(VirtualUser) == "Instance" then
+							VirtualUser:Button1Down(Vector2.new(0,0))
+							task.wait(0.01)
+							VirtualUser:Button1Up(Vector2.new(0,0))
+						end
+					end)
+				end
+			end
+		end)
+	else
+		if _G.autofireLoop then _G.autofireLoop:Disconnect() end
+	end
+end, "Atira automaticamente quando o Aimbot tem um alvo sem paredes no caminho.")
+
+-- NOVO: Terceira Pessoa
+thirdPersonToggle = createToggle(combatContent, "Terceira Pessoa (3rd Person)", function(enabled)
+	if enabled then
+		LocalPlayer.CameraMaxZoomDistance = 100
+		LocalPlayer.CameraMinZoomDistance = 12 -- Força visão externa
+	else
+		LocalPlayer.CameraMaxZoomDistance = 400
+		LocalPlayer.CameraMinZoomDistance = 0.5 -- Restaura padrão
+	end
+end, "Força a visualização do seu personagem por fora em qualquer jogo.")
+
+-- NOVO: Spinbot
+spinbotSpeed = 500 -- Velocidade MAIS SUAVE (Pedida pelo usuário)
+spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabled)
+	if enabled then
+		_G.spinAngle = 0
+		_G.spinLoop = RunService.RenderStepped:Connect(function()
+			local char = LocalPlayer.Character
+			if char and char:FindFirstChild("HumanoidRootPart") then
+				local hum = char:FindFirstChild("Humanoid")
+				local root = char.HumanoidRootPart
+				if hum then
+					-- SÓ ATIVA QUANDO O ROUND COMEÇA (WalkSpeed > 0)
+					if hum.WalkSpeed <= 0 then
+						hum.AutoRotate = true
+						return
+					end
+
+					hum.AutoRotate = false -- Previne a tentativa de ficar de pé da engine
+					if hum.FloorMaterial ~= Enum.Material.Air then
+						hum.Jump = true -- Força a saltar normal
+					else
+						-- BHOP CS2: Puxado para o chão suavemente na queda
+						local vel = root.AssemblyLinearVelocity
+						if vel.Y <= 0 then
+							root.AssemblyLinearVelocity = Vector3.new(vel.X, vel.Y - 2, vel.Z)
+						end
+					end
+					
+					-- Andar mais rápido enquanto gira (CFrame Speed EQUILIBRADO)
+					if hum.MoveDirection.Magnitude > 0 then
+						local rayParams = RaycastParams.new()
+						rayParams.FilterDescendantsInstances = {char}
+						rayParams.FilterType = Enum.RaycastFilterType.Exclude
+						
+						-- Verificar se há uma parede/barreira no caminho antes de teleportar
+						local rayResult = workspace:Raycast(root.Position, hum.MoveDirection * 2, rayParams)
+						if not rayResult then
+							root.CFrame = root.CFrame + (hum.MoveDirection * 0.15)
+						end
+					end
+				end
+				
+				-- Rotação Pura, Matemática (Impossível de deitar ou bugar física)
+				_G.spinAngle = _G.spinAngle + spinbotSpeed
+				if _G.spinAngle >= 360 then _G.spinAngle = _G.spinAngle - 360 end
+				
+				-- Mantém a posição (com o offset de movimento aplicado acima) rodado no eixo Y
+				root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(_G.spinAngle), 0)
+			end
+		end)
+	else
+		if _G.spinLoop then _G.spinLoop:Disconnect() end
+		
+		-- Restaurar estado natural do personagem
+		local char = LocalPlayer.Character
+		if char and char:FindFirstChild("Humanoid") then
+			char.Humanoid.AutoRotate = true
+		end
+	end
+end, "Faz o seu personagem girar rapidamente e saltitar para confundir a mira inimiga.")
 
 local bindListening = false
 bindBtn.MouseButton1Click:Connect(function()
@@ -4300,14 +4548,14 @@ end)
 local miscCategory = createCategory(utilPage, "Utilitários")
 
 -- ========= SUBCATEGORIA: MOVIMENTO =========
-local movementSubCategory = Instance.new("Frame")
+movementSubCategory = Instance.new("Frame")
 movementSubCategory.Size = UDim2.new(1, -20, 0, 0)
 movementSubCategory.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
 movementSubCategory.BackgroundTransparency = 0.3
 movementSubCategory.Parent = miscCategory
 Instance.new("UICorner", movementSubCategory).CornerRadius = UDim.new(0, 10)
 
-local movementTitle = Instance.new("TextLabel")
+movementTitle = Instance.new("TextLabel")
 movementTitle.Size = UDim2.new(1, -20, 0, 25)
 movementTitle.Position = UDim2.new(0, 10, 0, 5)
 movementTitle.BackgroundTransparency = 1
@@ -4318,13 +4566,13 @@ movementTitle.TextColor3 = Color3.fromRGB(139, 92, 246)
 movementTitle.TextXAlignment = Enum.TextXAlignment.Left
 movementTitle.Parent = movementSubCategory
 
-local movementContent = Instance.new("Frame")
+movementContent = Instance.new("Frame")
 movementContent.Size = UDim2.new(1, -20, 1, -35)
 movementContent.Position = UDim2.new(0, 10, 0, 30)
 movementContent.BackgroundTransparency = 1
 movementContent.Parent = movementSubCategory
 
-local movementLayout = Instance.new("UIListLayout")
+movementLayout = Instance.new("UIListLayout")
 movementLayout.Padding = UDim.new(0, 10)
 movementLayout.Parent = movementContent
 
@@ -4351,15 +4599,15 @@ flyToggle = createToggle(movementContent, "Fly", function(enabled)
 			flying = false
 		end
 	end
-end)
+end, "Permite voar livremente pelo mapa. (Ativa o Noclip automaticamente).")
 
 -- TextBox para velocidade do Fly
-local flySpeedFrame = Instance.new("Frame")
+flySpeedFrame = Instance.new("Frame")
 flySpeedFrame.Size = UDim2.new(1, 0, 0, 35)
 flySpeedFrame.BackgroundTransparency = 1
 flySpeedFrame.Parent = movementContent
 
-local flySpeedLabel = Instance.new("TextLabel")
+flySpeedLabel = Instance.new("TextLabel")
 flySpeedLabel.Size = UDim2.new(0.5, 0, 1, 0)
 flySpeedLabel.BackgroundTransparency = 1
 flySpeedLabel.Text = "⚡ Velocidade Fly:"
@@ -4369,7 +4617,7 @@ flySpeedLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
 flySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 flySpeedLabel.Parent = flySpeedFrame
 
-local flySpeedInput = Instance.new("TextBox")
+flySpeedInput = Instance.new("TextBox")
 flySpeedInput.Size = UDim2.new(0.5, -5, 0, 30)
 flySpeedInput.Position = UDim2.new(0.5, 5, 0, 2)
 flySpeedInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
@@ -4406,9 +4654,65 @@ task.spawn(function()
 	end
 end)
 
+-- NOVO: Bypass WalkSpeed (CFrame Speed)
+cframeMultiplicador = 1.5
+
+cframeSpeedToggle = createToggle(movementContent, "🏃 CFrame Speed (Bypass)", function(enabled)
+	if enabled then
+		_G.cframeSpeedLoop = RunService.RenderStepped:Connect(function()
+			local char = LocalPlayer.Character
+			if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
+				local hum = char.Humanoid
+				if hum.MoveDirection.Magnitude > 0 then
+					char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame + (hum.MoveDirection * cframeMultiplicador)
+				end
+			end
+		end)
+	else
+		if _G.cframeSpeedLoop then _G.cframeSpeedLoop:Disconnect() end
+	end
+end, "Move o personagem usando coordenadas CFrame, burlando a maioria dos Anti-Cheats de WalkSpeed.")
+
+-- CFrame Speed Slider
+cframeSliderFrame = Instance.new("Frame")
+cframeSliderFrame.Size = UDim2.new(1, 0, 0, 35)
+cframeSliderFrame.BackgroundTransparency = 1
+cframeSliderFrame.Parent = movementContent
+
+cframeSliderLabel = Instance.new("TextLabel")
+cframeSliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
+cframeSliderLabel.BackgroundTransparency = 1
+cframeSliderLabel.Text = "Velocidade: " .. cframeMultiplicador
+cframeSliderLabel.Font = Enum.Font.SourceSansBold
+cframeSliderLabel.TextSize = 13
+cframeSliderLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+cframeSliderLabel.TextXAlignment = Enum.TextXAlignment.Left
+cframeSliderLabel.Parent = cframeSliderFrame
+
+cframeSliderInput = Instance.new("TextBox")
+cframeSliderInput.Size = UDim2.new(0.5, -5, 0, 30)
+cframeSliderInput.Position = UDim2.new(0.5, 5, 0, 2)
+cframeSliderInput.BackgroundColor3 = Color3.fromRGB(40, 40, 48)
+cframeSliderInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+cframeSliderInput.PlaceholderText = "0.01-5.0"
+cframeSliderInput.Text = tostring(cframeMultiplicador)
+cframeSliderInput.Font = Enum.Font.SourceSans
+cframeSliderInput.TextSize = 14
+cframeSliderInput.ClearTextOnFocus = false
+cframeSliderInput.Parent = cframeSliderFrame
+Instance.new("UICorner", cframeSliderInput).CornerRadius = UDim.new(0, 6)
+
+cframeSliderInput:GetPropertyChangedSignal("Text"):Connect(function()
+	local newMult = tonumber(cframeSliderInput.Text)
+	if newMult and newMult >= 0.01 and newMult <= 5 then
+		cframeMultiplicador = newMult
+		cframeSliderLabel.Text = "Velocidade: " .. cframeMultiplicador
+	end
+end)
+
 noclipToggle = createToggle(movementContent, "Noclip", function(enabled)
 	noclip = enabled
-end)
+end, "Permite que o seu personagem atravesse paredes e objetos sólidos.")
 
 -- Sistema Noclip Melhorado - Loop contínuo para garantir que atravessa TODAS as paredes
 task.spawn(function()
@@ -4434,14 +4738,14 @@ task.spawn(function()
 end)
 
 -- ========= SUBCATEGORIA: BOOSTS =========
-local boostsSubCategory = Instance.new("Frame")
+boostsSubCategory = Instance.new("Frame")
 boostsSubCategory.Size = UDim2.new(1, -20, 0, 0)
 boostsSubCategory.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
 boostsSubCategory.BackgroundTransparency = 0.3
 boostsSubCategory.Parent = miscCategory
 Instance.new("UICorner", boostsSubCategory).CornerRadius = UDim.new(0, 10)
 
-local boostsTitle = Instance.new("TextLabel")
+boostsTitle = Instance.new("TextLabel")
 boostsTitle.Size = UDim2.new(1, -20, 0, 25)
 boostsTitle.Position = UDim2.new(0, 10, 0, 5)
 boostsTitle.BackgroundTransparency = 1
@@ -4452,13 +4756,13 @@ boostsTitle.TextColor3 = Color3.fromRGB(92, 246, 139)
 boostsTitle.TextXAlignment = Enum.TextXAlignment.Left
 boostsTitle.Parent = boostsSubCategory
 
-local boostsContent = Instance.new("Frame")
+boostsContent = Instance.new("Frame")
 boostsContent.Size = UDim2.new(1, -20, 1, -35)
 boostsContent.Position = UDim2.new(0, 10, 0, 30)
 boostsContent.BackgroundTransparency = 1
 boostsContent.Parent = boostsSubCategory
 
-local boostsLayout = Instance.new("UIListLayout")
+boostsLayout = Instance.new("UIListLayout")
 boostsLayout.Padding = UDim.new(0, 10)
 boostsLayout.Parent = boostsContent
 
@@ -4477,7 +4781,7 @@ speedToggle = createToggle(boostsContent, "🏃 Speed Boost", function(enabled)
 			end
 		end
 	end
-end)
+end, "Aumenta a velocidade de movimento regular do Roblox (não burla Anti-Cheats severos).")
 
 jumpToggle = createToggle(boostsContent, "🦘 Jump Power Boost", function(enabled)
 	jumpPowerBoostEnabled = enabled
@@ -4494,39 +4798,39 @@ jumpToggle = createToggle(boostsContent, "🦘 Jump Power Boost", function(enabl
 			end
 		end
 	end
-end)
+end, "Aumenta a altura dos saltos verticalmente.")
 
--- Sistema de Persistência - Reaplicar boosts após respawn
-LocalPlayer.CharacterAdded:Connect(function(character)
-	-- Aguardar o personagem carregar completamente
-	task.wait(0.5)
-
+-- Sistema de Persistência Implacável: Boosts e Noclip
+RunService.Stepped:Connect(function()
+	local character = LocalPlayer.Character
+	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		if speedBoostEnabled then
-			humanoid.WalkSpeed = speedBoostValue
-		end
+	if not humanoid then return end
 
-		if jumpPowerBoostEnabled then
-			humanoid.JumpPower = jumpPowerBoostValue
-		end
+	-- Persistência contínua: neutraliza magias ou sistemas que resetam walkspeed/jump
+	if speedBoostEnabled and humanoid.WalkSpeed ~= speedBoostValue then
+		humanoid.WalkSpeed = speedBoostValue
 	end
 	
-	-- Reaplica ESP para todos os jogadores após respawn
+	if jumpPowerBoostEnabled and humanoid.JumpPower ~= jumpPowerBoostValue then
+		humanoid.JumpPower = jumpPowerBoostValue
+	end
+end)
+
+-- Reaplica ESP após respawn
+LocalPlayer.CharacterAdded:Connect(function(character)
 	if espEnabled then
-		task.wait(1) -- Aguardar mais um pouco para garantir
+		task.wait(1)
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player ~= LocalPlayer and player.Character then
-				pcall(function()
-					refreshESPForPlayer(player)
-				end)
+				pcall(function() refreshESPForPlayer(player) end)
 			end
 		end
 	end
 end)
 
 -- Speed Boost Slider
-local speedTitle = Instance.new("TextLabel")
+speedTitle = Instance.new("TextLabel")
 speedTitle.BackgroundTransparency = 1
 speedTitle.Size = UDim2.new(1, 0, 0, 20)
 speedTitle.Font = Enum.Font.SourceSansBold
@@ -4535,19 +4839,19 @@ speedTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
 speedTitle.Text = "Velocidade: " .. speedBoostValue
 speedTitle.Parent = boostsContent
 
-local speedSlider = Instance.new("Frame")
+speedSlider = Instance.new("Frame")
 speedSlider.Size = UDim2.new(1, 0, 0, 16) -- AUMENTADO (igual ao Smooth)
 speedSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 speedSlider.Parent = boostsContent
 Instance.new("UICorner", speedSlider).CornerRadius = UDim.new(0, 5)
 
-local speedFill = Instance.new("Frame")
+speedFill = Instance.new("Frame")
 speedFill.Size = UDim2.fromScale(speedBoostValue / 200, 1)
 speedFill.BackgroundColor3 = COLOR_NEON_PINK
 speedFill.Parent = speedSlider
 Instance.new("UICorner", speedFill).CornerRadius = UDim.new(0, 4)
 
-local speedDragging = false
+speedDragging = false
 speedSlider.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		speedDragging = true
@@ -4580,7 +4884,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- Jump Power Slider
-local jumpTitle = Instance.new("TextLabel")
+jumpTitle = Instance.new("TextLabel")
 jumpTitle.BackgroundTransparency = 1
 jumpTitle.Size = UDim2.new(1, 0, 0, 20)
 jumpTitle.Font = Enum.Font.SourceSansBold
@@ -4589,19 +4893,19 @@ jumpTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
 jumpTitle.Text = "Pulo: " .. jumpPowerBoostValue
 jumpTitle.Parent = boostsContent
 
-local jumpSlider = Instance.new("Frame")
+jumpSlider = Instance.new("Frame")
 jumpSlider.Size = UDim2.new(1, 0, 0, 16) -- AUMENTADO (igual ao Smooth)
 jumpSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 jumpSlider.Parent = boostsContent
 Instance.new("UICorner", jumpSlider).CornerRadius = UDim.new(0, 5)
 
-local jumpFill = Instance.new("Frame")
+jumpFill = Instance.new("Frame")
 jumpFill.Size = UDim2.fromScale(jumpPowerBoostValue / 200, 1)
 jumpFill.BackgroundColor3 = COLOR_NEON_PINK
 jumpFill.Parent = jumpSlider
 Instance.new("UICorner", jumpFill).CornerRadius = UDim.new(0, 4)
 
-local jumpDragging = false
+jumpDragging = false
 jumpSlider.InputBegan:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		jumpDragging = true
@@ -4634,14 +4938,14 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ========= SUBCATEGORIA: UTILITÁRIOS =========
-local utilsSubCategory = Instance.new("Frame")
+utilsSubCategory = Instance.new("Frame")
 utilsSubCategory.Size = UDim2.new(1, -20, 0, 0)
 utilsSubCategory.BackgroundColor3 = Color3.fromRGB(45, 25, 25)
 utilsSubCategory.BackgroundTransparency = 0.3
 utilsSubCategory.Parent = miscCategory
 Instance.new("UICorner", utilsSubCategory).CornerRadius = UDim.new(0, 10)
 
-local utilsTitle = Instance.new("TextLabel")
+utilsTitle = Instance.new("TextLabel")
 utilsTitle.Size = UDim2.new(1, -20, 0, 25)
 utilsTitle.Position = UDim2.new(0, 10, 0, 5)
 utilsTitle.BackgroundTransparency = 1
@@ -4652,13 +4956,13 @@ utilsTitle.TextColor3 = Color3.fromRGB(246, 139, 92)
 utilsTitle.TextXAlignment = Enum.TextXAlignment.Left
 utilsTitle.Parent = utilsSubCategory
 
-local utilsContent = Instance.new("Frame")
+utilsContent = Instance.new("Frame")
 utilsContent.Size = UDim2.new(1, -20, 1, -35)
 utilsContent.Position = UDim2.new(0, 10, 0, 30)
 utilsContent.BackgroundTransparency = 1
 utilsContent.Parent = utilsSubCategory
 
-local utilsLayout = Instance.new("UIListLayout")
+utilsLayout = Instance.new("UIListLayout")
 utilsLayout.Padding = UDim.new(0, 10)
 utilsLayout.Parent = utilsContent
 
@@ -4684,7 +4988,7 @@ infiniteJumpToggle = createToggle(utilsContent, "🔄 Infinite Jump", function(e
 			infiniteJumpConnection = nil
 		end
 	end
-end)
+end, "Permite pular continuamente no ar sem restrições.")
 
 antiKickToggle = createToggle(utilsContent, "🛡️ Anti-Kick", function(enabled)
 	antiKickEnabled = enabled
@@ -4702,7 +5006,7 @@ antiKickToggle = createToggle(utilsContent, "🛡️ Anti-Kick", function(enable
 		end)
 		setreadonly(mt, true)
 	end
-end)
+end, "Intercepta tentativas de expulsão locais enviadas pelo servidor ou outros scripts (funciona apenas em client-sided kicks).")
 
 -- TP para Cursor com Bind
 tpToCursorBind = nil
@@ -4792,6 +5096,38 @@ menuSizeBtn.Parent = utilsContent
 menuSizeBtn.Visible = false -- ESCONDER SELETOR DE TAMANHO
 Instance.new("UICorner", menuSizeBtn).CornerRadius = UDim.new(0, 8)
 
+
+
+-- NOVO: Anti-Ragdoll / Anti-Fling
+antiRagdollToggle = createToggle(utilsContent, "🗿 Anti-Ragdoll", function(enabled)
+	local function applyAntiRagdoll(char)
+		local hum = char:FindFirstChild("Humanoid")
+		if hum then
+			hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, not enabled)
+			hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, not enabled)
+		end
+		for _, part in pairs(char:GetChildren()) do
+			if part:IsA("BasePart") then
+				if enabled then
+					part.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
+				else
+					part.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
+				end
+			end
+		end
+	end
+	if enabled then
+		if LocalPlayer.Character then applyAntiRagdoll(LocalPlayer.Character) end
+		_G.antiRagdollConn = LocalPlayer.CharacterAdded:Connect(function(newChar)
+			task.wait(1)
+			applyAntiRagdoll(newChar)
+		end)
+	else
+		if _G.antiRagdollConn then _G.antiRagdollConn:Disconnect() end
+		if LocalPlayer.Character then applyAntiRagdoll(LocalPlayer.Character) end
+	end
+end, "Impede que o seu personagem caia no chão (estado de ragdoll) e remove fricção extra.")
+
 -- Redimensionar UI (estilo Solix: mainFrame 960x600, topbar 38, sidebar 185)
 function resizeUI(newWidth, newHeight)
 	mainFrame.Position = UDim2.new(0.5, -newWidth/2, 0.5, -newHeight/2)
@@ -4840,10 +5176,9 @@ menuSizeBtn.MouseButton1Click:Connect(function()
 	menuSizeBtn.Text = "📐 Tamanho: " .. size.name
 end)
 
--- Ajustar tamanhos das subcategorias
-movementSubCategory.Size = UDim2.new(1, 0, 0, movementLayout.AbsoluteContentSize.Y + 40)
-boostsSubCategory.Size = UDim2.new(1, 0, 0, boostsLayout.AbsoluteContentSize.Y + 40)
-utilsSubCategory.Size = UDim2.new(1, 0, 0, utilsLayout.AbsoluteContentSize.Y + 40)
+bindAutoSize(movementSubCategory, movementLayout)
+bindAutoSize(boostsSubCategory, boostsLayout)
+bindAutoSize(utilsSubCategory, utilsLayout)
 
 
 
@@ -4976,7 +5311,7 @@ function getClosestPlayer()
 	if not aimbotEnabled then return nil end
 
 	local closestPlayer = nil
-	local closestDistance = aimbotFOV
+	local closestDistance = aimbotFOV * 1.5
 	local camera = workspace.CurrentCamera
 	local centerPos = aimbotMobile and UserInputService:GetMouseLocation() or Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
 
@@ -5132,18 +5467,17 @@ end
 
 -- Continuous aiming
 RunService.RenderStepped:Connect(function()
-	if (aimbotKeyHeld and aimbotEnabled) or isInMovingVehicle() then
+	if aimbotEnabled then
+		-- Sempre procurar alvo se o Aimbot estiver ligado (para o Autofire usar)
 		if tick() - lastTargetUpdateTime >= 0.15 then
-			if currentAimbotTarget then
-				if not currentAimbotTarget.Character or not currentAimbotTarget.Character:FindFirstChildOfClass("Humanoid") or currentAimbotTarget.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then
-					currentAimbotTarget = getClosestPlayer()
-				end
-			else
-				currentAimbotTarget = getClosestPlayer()
-			end
+			currentAimbotTarget = getClosestPlayer()
 			lastTargetUpdateTime = tick()
 		end
-		if currentAimbotTarget then aimAt(currentAimbotTarget) end
+		
+		-- Só trava a mira na tela se a tecla estiver segurada ou em veículo
+		if currentAimbotTarget and (aimbotKeyHeld or isInMovingVehicle()) then
+			aimAt(currentAimbotTarget)
+		end
 	else
 		currentAimbotTarget = nil
 	end
@@ -5383,4 +5717,12 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			end
 		end
 	end
+end)
+
+-- NOVO: Sistema Anti-AFK Aperfeiçoado
+LocalPlayer.Idled:Connect(function()
+	VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+	task.wait(1)
+	VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+	warn("[NIGHT MENU] Anti-AFK ativado para prevenir kick.")
 end)
