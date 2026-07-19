@@ -1,7 +1,9 @@
--- ========= ServiÃƒÂ§os =========
+-- ========= Serviços =========
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local StarterGui = game:GetService("StarterGui")
+local GuiService = game:GetService("GuiService")
 ContextActionService = game:GetService("ContextActionService")
 TweenService = game:GetService("TweenService")
 ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -34,13 +36,23 @@ warn = function(...)
 	end
 end
 
+task.defer(function()
+	pcall(function()
+		StarterGui:SetCore("TopbarEnabled", true)
+	end)
+
+	pcall(function()
+		GuiService:SetMenuIsOpen(false)
+	end)
+end)
+
 local LocalPlayer = Players.LocalPlayer
 Camera = workspace.CurrentCamera
 
 -- ========= SISTEMA CENTRAL DE ESP =========
 ESPData = {}
 
--- FunÃƒÂ§ÃƒÂ£o para verificar se estÃƒÂ¡ na mesma dimensÃƒÂ£o/mapa
+-- Função para verificar se está na mesma dimensão/mapa
 function isInSameDimension(targetCharacter)
 	local myChar = LocalPlayer.Character
 	if not myChar or not targetCharacter then return false end
@@ -51,7 +63,7 @@ function isInSameDimension(targetCharacter)
 	
 	if not myRoot or not targetRoot then return false end
 	
-	-- Se a distÃƒÂ¢ncia for absurdamente grande (>10000), provavelmente estÃƒÂ£o em dimensÃƒÂµes diferentes
+	-- Se a distância for absurdamente grande (>10000), provavelmente estÃƒÂ£o em dimensÃƒÂµes diferentes
 	local distance = (targetRoot.Position - myRoot.Position).Magnitude
 	if distance > 10000 then return false end
 	
@@ -66,7 +78,7 @@ function isValidPlayer(player)
 	return true
 end
 
--- ========= ConfiguraÃƒÂ§ÃƒÂµes Globais (OtimizaÃƒÂ§ÃƒÂ£o para reduzir registros locais) =========
+-- ========= Configurações Globais (Otimização para reduzir registros locais) =========
 ESP_DEFAULT_ON = false
 SHOW_NAME_DEFAULT = false
 SHOW_HEALTH_DEFAULT = false
@@ -78,14 +90,15 @@ TEAM_FILTER_DEFAULT = "Todos"
 ESP_MAX_DISTANCE = 500
 
 
--- Aimbot Config Global (FOV sempre visÃƒÂ­vel quando ativado)
+-- Aimbot Config Global (FOV sempre visivel quando ativado)
 aimbotEnabled = false
 aimbotFOV = 100
 aimbotFOVZero = 0
 aimbotSmooth = 5
 aimbotTarget = "Head"
 aimbotBind = nil
-aimbotBindString = "None"
+	aimbotBindString = "MouseRight"
+	aimbotBind = Enum.UserInputType.MouseButton2
 aimbotOnlyVisible = false
 aimbotOnNPCs = false
 aimbotMobile = false
@@ -113,6 +126,22 @@ kickPushBind = nil
 kickPushBindString = "None"
 waypointBind = nil
 waypointBindString = "None"
+
+-- Freecam Config & State
+freecamEnabled = false
+freecamBind = nil
+freecamBindString = "None"
+freecamSpeed = 120
+
+-- Auto Rejoin Config & State
+autoRejoinEnabled = false
+
+-- Chat Spammer Config & State
+chatSpammerEnabled = false
+chatSpammerMessage = "Night Menu"
+chatSpammerInterval = 2
+chatSpammerBind = nil
+chatSpammerBindString = "None"
 
 -- AutoClicker Config & State
 autoclickerEnabled = false
@@ -206,7 +235,7 @@ function createWaypointMarker(position)
 	marker.CanTouch = false
 	marker.CanQuery = false
 	marker.Material = Enum.Material.Neon
-	marker.Color = Color3.fromRGB(0, 170, 255)
+	marker.Color = Color3.fromRGB(35, 35, 42)
 	marker.Size = Vector3.new(1.2, 0.35, 1.2)
 	marker.CFrame = CFrame.new(position + Vector3.new(0, 0.2, 0))
 	marker.Parent = workspace
@@ -231,7 +260,7 @@ function createWaypointMarker(position)
 	arrow.Font = Enum.Font.GothamBlack
 	arrow.Text = "v"
 	arrow.TextScaled = true
-	arrow.TextColor3 = Color3.fromRGB(0, 170, 255)
+	arrow.TextColor3 = Color3.fromRGB(255, 255, 255)
 	arrow.TextStrokeTransparency = 0
 	arrow.TextStrokeColor3 = Color3.fromRGB(230, 245, 255)
 	arrow.Parent = billboard
@@ -342,6 +371,40 @@ function resetCharacterPoseNoDeath()
 	humanoid.AutoRotate = true
 	pcall(function()
 		humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+	end)
+	return true
+end
+
+function resetCharacterLikeRoblox()
+	local character = LocalPlayer.Character
+	if not character then
+		return false
+	end
+
+	pcall(function()
+		local humanoid = character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.PlatformStand = false
+			humanoid.Sit = false
+			humanoid.AutoRotate = true
+		end
+
+		local root = character:FindFirstChild("HumanoidRootPart")
+		if root then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.RotVelocity = Vector3.zero
+		end
+
+		character:BreakJoints()
+	end)
+
+	return true
+end
+
+function reviveCharacterLikeRoblox()
+	pcall(function()
+		LocalPlayer:LoadCharacter()
 	end)
 	return true
 end
@@ -916,7 +979,7 @@ kickPushMaxDistance = 15000
 kickPushDriveTime = 0.18
 kickPushScreenRadius = 3000
 kickPushFlingTime = 0.35
-kickPushFlingSpin = 9500
+kickPushFlingSpin = 250000
 kickPushFlingRadius = 2.6
 kickPushSideOffset = 0.55
 kickPushLiftOffset = 0.85
@@ -926,6 +989,13 @@ kickPushRetryBurst = 3
 kickPushBurstDelay = 0.08
 kickPushRemoteName = "AdminPushEvent"
 kickPushMissingRemoteWarned = false
+infinitePushEnabled = false
+infinitePushTarget = nil
+infinitePushToken = 0
+antiFlyingEnabled = false
+antiFlyingConnection = nil
+antiFlyingLastSafeCFrame = nil
+antiFlyingBypassUntil = 0
 
 -- Valores originais
 originalWalkSpeed = 16
@@ -1697,7 +1767,7 @@ function performKickPush(targetPlayer)
 		local desiredPos = liveTargetRoot.Position + offset
 		local desiredCFrame = CFrame.new(desiredPos)
 		
-		local spin = 50000 
+		local spin = math.max(kickPushFlingSpin, 150000)
 		local spinVector = Vector3.new(0, spin, 0) 
 		-- Velocity ZERO para o seu player! Evita que voce seja lancado para cima
 		local launchVelocity = Vector3.new(0, 0, 0)
@@ -1751,6 +1821,9 @@ function performKickPush(targetPlayer)
 			myHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
 		end
 		kickPushIsExecuting = false
+		task.defer(function()
+			pcall(resetCharacterPoseNoDeath)
+		end)
 	end)
 
 	return true
@@ -1758,6 +1831,239 @@ end
 
 function toggleKickPush(enabled)
 	kickPushEnabled = enabled
+end
+
+local function setAntiFlyingBypass(duration)
+	antiFlyingBypassUntil = math.max(antiFlyingBypassUntil or 0, tick() + (duration or 0))
+end
+
+local function shouldBypassAntiFlying()
+	if tick() < (antiFlyingBypassUntil or 0) then
+		return true
+	end
+	return kickPushIsExecuting or (FlySystem and FlySystem.flying) or freeflyOn
+end
+
+local function setAntiFlyingLastSafe(character)
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not root or not humanoid then
+		return
+	end
+
+	if humanoid.Health <= 0 then
+		return
+	end
+
+	if humanoid.FloorMaterial ~= Enum.Material.Air then
+		antiFlyingLastSafeCFrame = root.CFrame
+	end
+end
+
+local function startAntiFlying()
+	if antiFlyingConnection then
+		antiFlyingConnection:Disconnect()
+		antiFlyingConnection = nil
+	end
+
+	antiFlyingConnection = RunService.Heartbeat:Connect(function()
+		if not antiFlyingEnabled then
+			return
+		end
+
+		local character = LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		if not root or not humanoid or humanoid.Health <= 0 then
+			return
+		end
+
+		setAntiFlyingLastSafe(character)
+		if shouldBypassAntiFlying() then
+			return
+		end
+
+		local velocity = root.AssemblyLinearVelocity
+		local angularVelocity = root.AssemblyAngularVelocity
+		local isBeingLaunched = velocity.Magnitude > 32 or math.abs(velocity.Y) > 18 or angularVelocity.Magnitude > 25
+		if isBeingLaunched and antiFlyingLastSafeCFrame then
+			root.AssemblyLinearVelocity = Vector3.zero
+			root.AssemblyAngularVelocity = Vector3.zero
+			root.RotVelocity = Vector3.zero
+			root.CFrame = antiFlyingLastSafeCFrame
+		end
+	end)
+end
+
+local function stopAntiFlying()
+	if antiFlyingConnection then
+		antiFlyingConnection:Disconnect()
+		antiFlyingConnection = nil
+	end
+	antiFlyingLastSafeCFrame = nil
+end
+
+function toggleAntiFlying(enabled)
+	antiFlyingEnabled = enabled and true or false
+	if antiFlyingEnabled then
+		startAntiFlying()
+	else
+		stopAntiFlying()
+	end
+end
+
+local function updateInfinitePushButton()
+	if not infinitePushBtn then
+		return
+	end
+
+	if infinitePushEnabled then
+		infinitePushBtn.Text = "STOP PUSH"
+		infinitePushBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+	else
+		infinitePushBtn.Text = "INFINITE PUSH"
+infinitePushBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+	end
+end
+
+local function stopInfinitePush()
+	infinitePushEnabled = false
+	infinitePushTarget = nil
+	infinitePushToken = infinitePushToken + 1
+	updateInfinitePushButton()
+end
+
+function toggleInfinitePush(enabled)
+	if not enabled then
+		stopInfinitePush()
+		return
+	end
+
+	local targetPlayer = selectedPlayer
+	if not targetPlayer or targetPlayer == LocalPlayer then
+		return false
+	end
+
+	if infinitePushEnabled then
+		return true
+	end
+
+	infinitePushEnabled = true
+	infinitePushTarget = targetPlayer
+	infinitePushToken = infinitePushToken + 1
+	local token = infinitePushToken
+	updateInfinitePushButton()
+
+	task.spawn(function()
+		local myChar = LocalPlayer.Character
+		local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local myHumanoid = myChar and myChar:FindFirstChildOfClass("Humanoid")
+		if not myChar or not myRoot or not myHumanoid then
+			if token == infinitePushToken then
+				stopInfinitePush()
+			end
+			return
+		end
+
+		local savedAutoRotate = myHumanoid.AutoRotate
+		local savedPlatformStand = myHumanoid.PlatformStand
+		local savedRootCanCollide = myRoot.CanCollide
+		local savedPhysicalProps = myRoot.CustomPhysicalProperties
+		local savedParts = {}
+		forEachCharacterPart(myChar, function(part)
+			savedParts[part] = part.CanCollide
+			if part.Name ~= "HumanoidRootPart" then
+				part.CanCollide = false
+			end
+		end)
+
+		local flingCollider = Instance.new("Part")
+		flingCollider.Name = "InfinitePushCollider"
+		flingCollider.Size = Vector3.new(2, 2, 2)
+		flingCollider.Transparency = 1
+		flingCollider.CanCollide = true
+		flingCollider.Massless = true
+		flingCollider.CollisionGroup = "Default"
+		flingCollider.CFrame = myRoot.CFrame
+		flingCollider.Parent = myChar
+
+		local flingWeld = Instance.new("WeldConstraint")
+		flingWeld.Part0 = myRoot
+		flingWeld.Part1 = flingCollider
+		flingWeld.Parent = flingCollider
+
+		myRoot.CanCollide = true
+		myRoot.CustomPhysicalProperties = PhysicalProperties.new(100, 0.3, 0.5)
+		myHumanoid.AutoRotate = false
+		myHumanoid.PlatformStand = false
+		myHumanoid.Sit = false
+		myHumanoid:ChangeState(Enum.HumanoidStateType.Physics)
+
+		local restoreState = function()
+			pcall(function()
+				if flingCollider then
+					flingCollider:Destroy()
+				end
+			end)
+
+			for part, canCollide in pairs(savedParts) do
+				if part and part.Parent then
+					part.CanCollide = canCollide
+				end
+			end
+
+			if myRoot and myRoot.Parent then
+				myRoot.CanCollide = savedRootCanCollide
+				myRoot.AssemblyLinearVelocity = Vector3.zero
+				myRoot.AssemblyAngularVelocity = Vector3.zero
+				myRoot.RotVelocity = Vector3.zero
+				if savedPhysicalProps ~= nil then
+					myRoot.CustomPhysicalProperties = savedPhysicalProps
+				else
+					myRoot.CustomPhysicalProperties = PhysicalProperties.new(0.7, 0.3, 0.5)
+				end
+			end
+
+			if myHumanoid and myHumanoid.Parent then
+				myHumanoid.AutoRotate = savedAutoRotate
+				myHumanoid.PlatformStand = savedPlatformStand
+				myHumanoid.Sit = false
+				myHumanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+			end
+		end
+
+		while infinitePushEnabled and token == infinitePushToken do
+			local target = infinitePushTarget
+			if not target or target == LocalPlayer or not target.Parent then
+				break
+			end
+
+			local targetCharacter = target.Character
+			local targetRoot = targetCharacter and targetCharacter:FindFirstChild("HumanoidRootPart")
+			local targetHumanoid = targetCharacter and targetCharacter:FindFirstChildOfClass("Humanoid")
+			if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+				setAntiFlyingBypass(kickPushFlingTime + kickPushRecoveryDelay + 0.35)
+				pcall(function()
+					if not requestKickPushServer(target) then
+						performKickPush(target)
+					end
+				end)
+				task.wait(math.max(0.04, kickPushFlingTime * 0.2))
+			else
+				task.wait(0.12)
+			end
+		end
+
+		restoreState()
+		if token == infinitePushToken then
+			stopInfinitePush()
+		end
+		task.defer(function()
+			pcall(resetCharacterPoseNoDeath)
+		end)
+	end)
+
+	return true
 end
 
 -- Bugar systems
@@ -2150,9 +2456,9 @@ local function createPlayerButton(player)
 	infoLabel.Size = UDim2.new(0.6, 0, 0, 16)
 	infoLabel.Position = UDim2.new(0, 0, 0, 22)
 	infoLabel.BackgroundTransparency = 1
-	infoLabel.Font = Enum.Font.SourceSans
+	infoLabel.Font = Enum.Font.GothamBold
 	infoLabel.TextSize = 12
-	infoLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+	infoLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	infoLabel.TextXAlignment = Enum.TextXAlignment.Left
 	infoLabel.Text = formatPlayerInfo(player)
 	infoLabel.Parent = mainContainer
@@ -2169,7 +2475,7 @@ local function createPlayerButton(player)
 	local healthBarBg = Instance.new("Frame")
 	healthBarBg.Size = UDim2.new(0.6, 0, 0, 6)
 	healthBarBg.Position = UDim2.new(0, 0, 0, 42)
-	healthBarBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+	healthBarBg.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
 	healthBarBg.Parent = mainContainer
 	Instance.new("UICorner", healthBarBg).CornerRadius = UDim.new(0, 3)
 
@@ -2188,7 +2494,7 @@ local function createPlayerButton(player)
 	statusLabel.Size = UDim2.new(0.35, 0, 0, 16)
 	statusLabel.Position = UDim2.new(0.65, 0, 0, 40)
 	statusLabel.BackgroundTransparency = 1
-	statusLabel.Font = Enum.Font.SourceSansBold
+	statusLabel.Font = Enum.Font.GothamBold
 	statusLabel.TextSize = 10
 	statusLabel.TextColor3 = isPlayerAlive(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Right
@@ -2252,10 +2558,12 @@ Players.PlayerRemoving:Connect(function(p)
 		if actionsPanel then actionsPanel.Visible = false end
 		if tpBtn then tpBtn.Visible = false end
 		if spectateToggle then spectateToggle.Visible = false end
+		if infinitePushBtn then infinitePushBtn.Visible = false end
 		if spectateActive then
 			spectateActive = false
 			stopSpectate()
 		end
+		stopInfinitePush()
 	end
 end)
 
@@ -3246,7 +3554,7 @@ end
 -- Sistema de atualizaÃƒÂ§ÃƒÂ£o automÃƒÂ¡tica do ESP sincronizado com lista
 task.spawn(function()
 	while true do
-		task.wait(5) -- Atualizar a cada 5 segundos
+		task.wait(2) -- Atualizar a cada 2 segundos
 		
 		if not espEnabled then
 			-- Limpar todos os ESPs se desativado
@@ -3274,8 +3582,7 @@ task.spawn(function()
 			tracers = {}
 			distanceLabels = {}
 			nameLabels = {}
-			continue
-		end
+		else
 		
 		-- Limpar ESPs de personagens que nÃƒÂ£o existem mais
 		for char, highlight in pairs(highlights) do
@@ -3327,11 +3634,16 @@ task.spawn(function()
 		
 		for _, player in ipairs(Players:GetPlayers()) do
 			if player and player ~= LocalPlayer then
+				-- Auto-setup players missing from ESPData
+				if not ESPData[player] then
+					pcall(function() setupPlayer(player) end)
+				end
 				syncPlayerCharacter(player)
 			end
 			if player and player ~= LocalPlayer and player.Character then
 				refreshESPForPlayer(player)
 			end
+		end
 		end
 	end
 end)
@@ -3353,8 +3665,14 @@ function startSpectate(p)
     local hum = targetChar:FindFirstChildOfClass("Humanoid")
     if not hum then return end
 
-    if not savedSubject then savedSubject = Camera.CameraSubject end
-    if not savedCamType then savedCamType = Camera.CameraType end
+    -- Stop freecam if active (they conflict)
+    if freecamEnabled then
+        disableFreecam()
+        if freecamToggle and freecamToggle.Parent then
+            local api = freecamToggle
+            if api and api.setState then api.setState(false) end
+        end
+    end
 
     Camera.CameraType = Enum.CameraType.Custom
     Camera.CameraSubject = hum
@@ -3376,19 +3694,24 @@ function startSpectate(p)
         spectateTracerLine.Anchored = true
         spectateTracerLine.CanCollide = false
         spectateTracerLine.Material = Enum.Material.Neon
-        spectateTracerLine.Color = Color3.fromRGB(0, 255, 255)
+        spectateTracerLine.Color = Color3.fromRGB(200, 200, 210)
         spectateTracerLine.Size = Vector3.new(0.1, 0.1, 1)
         spectateTracerLine.Parent = workspace
     end
 end
 
 function stopSpectate()
-    if savedSubject then Camera.CameraSubject = savedSubject end
-    if savedCamType then Camera.CameraType = savedCamType end
     spectating = nil
+    spectateActive = false
     if spectateConn then spectateConn:Disconnect() spectateConn = nil end
-    
-    -- Remover tracer line
+    Camera.CameraType = Enum.CameraType.Custom
+    Camera.CameraSubject = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+    savedSubject = nil
+    savedCamType = nil
+    if spectateToggle and spectateToggle.Parent then
+        local api = spectateToggle
+        if api and api.setState then api.setState(false) end
+    end
     if spectateTracerLine then
         spectateTracerLine:Destroy()
         spectateTracerLine = nil
@@ -3427,7 +3750,7 @@ end)
 
 -- Sistema de verificaÃƒÂ§ÃƒÂ£o contÃƒÂ­nua do spectate
 RunService.RenderStepped:Connect(function()
-	if spectating and spectating.Parent then
+	if spectating and spectating.Parent and not freecamEnabled then
 		local targetChar = spectating.Character
 		if not targetChar then
 			stopSpectate()
@@ -3471,60 +3794,60 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- ========= TEMA Ãƒâ€°PICO - Purple Storm =========
+-- ========= TEMA Ãƒâ€°PICO - Astrix Dark =========
 local SAKURA = {
-    primary = Color3.fromRGB(221, 186, 248),
-    secondary = Color3.fromRGB(236, 217, 250),
-    accent = Color3.fromRGB(156, 129, 184),
-    success = Color3.fromRGB(0, 255, 127),
-    danger = Color3.fromRGB(255, 20, 147),
-    background = Color3.fromRGB(12, 10, 16),
-    surface = Color3.fromRGB(18, 14, 24),
-    surfaceLight = Color3.fromRGB(33, 28, 42),
-    buttonBg = Color3.fromRGB(22, 18, 28),
-    border = Color3.fromRGB(107, 90, 133),
-    text = Color3.fromRGB(244, 244, 248),
-    textMuted = Color3.fromRGB(170, 166, 181),
-    gold = Color3.fromRGB(255, 215, 0),
+    primary = Color3.fromRGB(40, 40, 48),
+    secondary = Color3.fromRGB(55, 55, 65),
+    accent = Color3.fromRGB(30, 30, 38),
+    success = Color3.fromRGB(0, 180, 80),
+    danger = Color3.fromRGB(200, 50, 65),
+    background = Color3.fromRGB(5, 5, 7),
+    surface = Color3.fromRGB(9, 9, 12),
+    surfaceLight = Color3.fromRGB(14, 14, 18),
+    buttonBg = Color3.fromRGB(12, 12, 16),
+    border = Color3.fromRGB(22, 22, 28),
+    text = Color3.fromRGB(235, 235, 240),
+    textMuted = Color3.fromRGB(110, 110, 125),
+    gold = Color3.fromRGB(40, 40, 48),
     shadow = Color3.fromRGB(0, 0, 0)
 }
 
--- Compatibility colors (slider track visÃƒÂ­vel no fundo Solix)
+-- Compatibility colors (slider track)
 local COLOR_SLIDER_TRACK = SAKURA.surface
-local COLOR_NEON_PINK = SAKURA.primary
+local COLOR_NEON_PINK = SAKURA.text
 local COLOR_BG_MAIN = SAKURA.background
 local COLOR_BG_PANEL = SAKURA.surface
 local COLOR_TEXT_PRIMARY = SAKURA.text
-local COLOR_TOGGLE_OFF_BG = Color3.fromRGB(200, 200, 200)
-local COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(150, 150, 150)
+local COLOR_TOGGLE_OFF_BG = Color3.fromRGB(22, 22, 28)
+local COLOR_TOGGLE_OFF_CIRCLE = Color3.fromRGB(255, 255, 255)
 
--- ========= PALETA PURPLE STORM =========
+-- ========= PALETA ASTRIX DARK =========
 local C = {
-	BgMain      = Color3.fromRGB(12, 10, 16),
-	BgSidebar   = Color3.fromRGB(15, 12, 20),
-	BgTopbar    = Color3.fromRGB(12, 10, 16),
-	BgSection   = Color3.fromRGB(18, 14, 24),
-	BgCard      = Color3.fromRGB(22, 18, 28),
-	BgInput     = Color3.fromRGB(27, 22, 35),
-	Purple      = Color3.fromRGB(221, 186, 248),
-	PurpleDark  = Color3.fromRGB(107, 90, 133),
-	PurpleGlow  = Color3.fromRGB(236, 217, 250),
-	PurpleLine  = Color3.fromRGB(121, 102, 149),
-	Pink        = Color3.fromRGB(221, 186, 248),
-	Orange      = Color3.fromRGB(255, 140, 0),
-	TxtWhite    = Color3.fromRGB(244, 244, 248),
-	TxtMid      = Color3.fromRGB(214, 214, 220),
-	TxtDim      = Color3.fromRGB(159, 153, 171),
-	Divider     = Color3.fromRGB(72, 63, 89),
-	DividerSoft = Color3.fromRGB(42, 36, 53),
-	ToggleOff   = Color3.fromRGB(110, 100, 128),
-	ToggleOn    = Color3.fromRGB(221, 186, 248),
-	SliderBg    = Color3.fromRGB(27, 24, 34),
-	DropBorder  = Color3.fromRGB(121, 102, 149),
-	ActiveTabBg = Color3.fromRGB(27, 22, 35),
-	TabHover    = Color3.fromRGB(22, 18, 28),
-	BindBg      = Color3.fromRGB(23, 20, 29),
-	BindActive  = Color3.fromRGB(78, 67, 99),
+	BgMain      = Color3.fromRGB(5, 5, 7),
+	BgSidebar   = Color3.fromRGB(7, 7, 10),
+	BgTopbar    = Color3.fromRGB(5, 5, 7),
+	BgSection   = Color3.fromRGB(9, 9, 12),
+	BgCard      = Color3.fromRGB(12, 12, 16),
+	BgInput     = Color3.fromRGB(15, 15, 20),
+	Purple      = Color3.fromRGB(40, 40, 48),
+	PurpleDark  = Color3.fromRGB(25, 25, 32),
+	PurpleGlow  = Color3.fromRGB(55, 55, 65),
+	PurpleLine  = Color3.fromRGB(30, 30, 38),
+	Pink        = Color3.fromRGB(40, 40, 48),
+	Orange      = Color3.fromRGB(255, 255, 255),
+	TxtWhite    = Color3.fromRGB(235, 235, 240),
+	TxtMid      = Color3.fromRGB(130, 130, 145),
+	TxtDim      = Color3.fromRGB(70, 70, 82),
+	Divider     = Color3.fromRGB(22, 22, 28),
+	DividerSoft = Color3.fromRGB(15, 15, 20),
+	ToggleOff   = Color3.fromRGB(25, 25, 32),
+	ToggleOn    = Color3.fromRGB(50, 50, 60),
+	SliderBg    = Color3.fromRGB(15, 15, 20),
+	DropBorder  = Color3.fromRGB(30, 30, 38),
+	ActiveTabBg = Color3.fromRGB(22, 22, 28),
+	TabHover    = Color3.fromRGB(10, 10, 14),
+	BindBg      = Color3.fromRGB(12, 12, 16),
+	BindActive  = Color3.fromRGB(35, 35, 42),
 	White       = Color3.fromRGB(255, 255, 255),
 }
 
@@ -3538,7 +3861,7 @@ local function New(cls, props, parent)
 	for k, v in pairs(props or {}) do o[k] = v end
 	if parent then o.Parent = parent end
 	if o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox") then
-		o.Font = Enum.Font.Gotham
+		o.Font = Enum.Font.GothamBold
 	end
 	return o
 end
@@ -3559,14 +3882,14 @@ local oldGui = playerGui:FindFirstChild("NightModMenu")
 if oldGui then
 	oldGui:Destroy()
 end
-local gui = Instance.new("ScreenGui")
+gui = Instance.new("ScreenGui")
 gui.Name = "NightModMenu"
 gui.ResetOnSpawn = false
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 999999999
 gui.Parent = playerGui
 
-MENU_FONT = Enum.Font.Gotham
+MENU_FONT = Enum.Font.GothamBold
 function forceMenuFont(obj)
 	if obj:IsA("TextLabel") or obj:IsA("TextButton") or obj:IsA("TextBox") then
 		obj.Font = MENU_FONT
@@ -3627,9 +3950,9 @@ function showMenuToast(titleText, bodyText, accentColor)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 14, 0, 28),
 		Size = UDim2.new(1, -22, 0, 24),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextSize = 12,
-		TextColor3 = C.TxtMid,
+		TextColor3 = C.TxtWhite,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
@@ -3709,7 +4032,7 @@ tpCursorBindDescLabel = nil
 tpCursorCooldownTitleLabel = nil
 tpCursorCooldownDescLabel = nil
 tpCursorCooldownLabel = nil
-currentThemeName = "Purple Storm"
+currentThemeName = "Astrix Dark"
 currentThemeStyle = "Chunky"
 autoExecuteEnabled = true
 hasCustomSizePreference = false
@@ -4492,6 +4815,9 @@ function refreshLocalizedMenuText()
 	end
 end
 
+local languageOptionButtons = {}
+local refreshLanguageOptionButtons
+
 function setMenuLanguage(langCode)
 	if not LANGUAGE_NAMES[langCode] then
 		return
@@ -4500,7 +4826,7 @@ function setMenuLanguage(langCode)
 	refreshLocalizedMenuText()
 	refreshLanguageOptionButtons()
 	if showMenuToast then
-		showMenuToast("Idioma", LANGUAGE_NAMES[langCode], C.PurpleGlow)
+		showMenuToast("Idioma", LANGUAGE_NAMES[langCode], C.TxtWhite)
 	end
 end
 
@@ -4522,23 +4848,24 @@ local function hideAllBindHints()
 	end
 end
 
--- Tooltip Global System
-local globalTooltip = New("TextLabel", {
+-- Tooltip Global System - Astrix Style
+globalTooltip = New("TextLabel", {
 	Name = "GlobalTooltip",
-	BackgroundColor3 = Color3.fromRGB(20, 18, 24),
+	BackgroundColor3 = C.BgCard,
 	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
 	Size = UDim2.new(0, 200, 0, 30),
 	Text = "",
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
-	TextColor3 = Color3.fromRGB(245, 245, 248),
+	TextColor3 = C.TxtWhite,
 	TextWrapped = true,
 	Visible = false,
 	ZIndex = 10000005,
 }, gui)
 Corner(6, globalTooltip)
-local tooltipStroke = Stroke(Color3.fromRGB(64, 60, 74), 1, globalTooltip)
+tooltipStroke = Stroke(C.Divider, 1, globalTooltip)
+tooltipStroke.Transparency = 0.3
 Pad(8, 8, 10, 10, globalTooltip)
 
 _G.showTooltip = function(text, element)
@@ -4552,7 +4879,7 @@ end
 local function showTooltip(t, element) _G.showTooltip(t, element) end
 local function hideTooltip() _G.hideTooltip() end
 
--- Main Frame com transparÃƒÂªncia e efeito de raios
+-- Main Frame - Astrix Dark Blue Style
 mainFrame = New("Frame", {
 	Name = "MainFrame",
 	BackgroundColor3 = C.BgMain,
@@ -4564,106 +4891,329 @@ mainFrame = New("Frame", {
 	Visible = true,
 	ZIndex = 10000001,
 }, gui)
-Corner(8, mainFrame)
-local mainStroke = Stroke(C.Purple, 2, mainFrame)
-mainStroke.Transparency = 0.55
+Corner(10, mainFrame)
+mainStroke = Stroke(C.Purple, 1, mainFrame)
+mainStroke.Transparency = 0.6
 
 
 
 -- Padding interno do mainFrame para melhor respiraÃƒÂ§ÃƒÂ£o visual
-local mainPadding = New("UIPadding", {
+mainPadding = New("UIPadding", {
 	PaddingTop = UDim.new(0, 8),
 	PaddingBottom = UDim.new(0, 8),
 	PaddingLeft = UDim.new(0, 8),
 	PaddingRight = UDim.new(0, 8)
 }, mainFrame)
 
--- Topbar com linha de destaque
-local header = New("Frame", {
-	Name = "Topbar",
-	BackgroundColor3 = C.BgTopbar,
-	BorderSizePixel = 0,
-	Size = UDim2.new(1, 0, 0, 42),
+-- Topbar - Astrix Dark Blue Style
+header = New("Frame", {
+  Name = "Topbar",
+  BackgroundColor3 = C.BgTopbar,
+  BorderSizePixel = 0,
+  Size = UDim2.new(1, 0, 0, 42),
 }, mainFrame)
--- Linha inferior lilÃƒÂ¡s (detalhe)
-local headerLine = New("Frame", {
-	BackgroundColor3 = C.PurpleLine,
-	BackgroundTransparency = 0.6,
-	BorderSizePixel = 0,
-	Position = UDim2.new(0, 0, 1, -2),
-	Size = UDim2.new(1, 0, 0, 2),
+-- Blue accent line at bottom of header
+headerLine = New("Frame", {
+  BackgroundColor3 = C.Purple,
+  BackgroundTransparency = 0.7,
+  BorderSizePixel = 0,
+  Position = UDim2.new(0, 0, 1, -1),
+  Size = UDim2.new(1, 0, 0, 1),
 }, header)
-Corner(1, headerLine)
 
-local title = New("TextLabel", {
-	Text = "Night  |  Mod Menu  |  discord.gg/night",
-	TextSize = 12,
-	Font = Enum.Font.GothamBold,
-	TextColor3 = C.TxtWhite,
-	BackgroundTransparency = 1,
-	Position = UDim2.new(0, 18, 0, 0),
-	Size = UDim2.new(0.72, 0, 1, 0),
-	TextXAlignment = Enum.TextXAlignment.Left,
-}, header)
-local minimizedHint = New("TextLabel", {
-	Text = "Menu minimizado  |  clique em + para abrir",
-	TextSize = 11,
-	Font = Enum.Font.GothamMedium,
-	TextColor3 = Color3.fromRGB(200, 200, 220),
-	BackgroundTransparency = 1,
-	Position = UDim2.new(0, 18, 0, 21),
-	Size = UDim2.new(1, -110, 0, 14),
-	TextXAlignment = Enum.TextXAlignment.Left,
-	Visible = false,
+title = New("TextLabel", {
+  Text = "Night  |  Mod Menu  |  discord.gg/night",
+  TextSize = 13,
+  Font = Enum.Font.GothamBold,
+  TextColor3 = C.TxtWhite,
+  BackgroundTransparency = 1,
+  Position = UDim2.new(0, 18, 0, 0),
+  Size = UDim2.new(0.72, 0, 1, 0),
+  TextXAlignment = Enum.TextXAlignment.Left,
+  TextYAlignment = Enum.TextYAlignment.Center,
 }, header)
 
 local menuExpandedSize = UDim2.new(0, 960, 0, 600)
 local menuExpandedPosition = UDim2.new(0.5, -480, 0.5, -300)
-local menuIsMinimized = false
-local minimizeBtn
-local setMinimizedState
-local minimizedDockDragging = false
-local minimizedDockDragStart = nil
-local minimizedDockStartPos = nil
+local isMinimized = false
+menuIsMinimized = false
+local restoreButton = nil
+local restoreButtonDefaultPosition = nil
+local restoreButtonDragging = false
+local restoreButtonDragStart = nil
+local restoreButtonStartPos = nil
+local restoreButtonDragged = false
 
-local function findTopButton(offset)
-	for _, child in ipairs(header:GetChildren()) do
-		if child:IsA("TextButton") and child.Position.X.Offset == offset then
-			return child
-		end
-	end
-	return nil
+local function getRestoreButtonDefaultPosition()
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(960, 600)
+	return UDim2.new(0, math.max(12, viewport.X - 160), 0, 16)
 end
 
-local function TopBtn(symbol, xOff, hoverColor, action)
-	local btn = New("TextButton", {
-		Text = symbol,
+local function clampRestoreButtonPosition(x, y)
+	local camera = workspace.CurrentCamera
+	local viewport = camera and camera.ViewportSize or Vector2.new(960, 600)
+	local buttonSize = restoreButton and restoreButton.AbsoluteSize or Vector2.new(140, 38)
+	local maxX = math.max(12, viewport.X - buttonSize.X - 12)
+	local maxY = math.max(12, viewport.Y - buttonSize.Y - 12)
+	return math.clamp(x, 12, maxX), math.clamp(y, 12, maxY)
+end
+
+local function findTopButton(offset)
+  for _, child in ipairs(header:GetChildren()) do
+    if child:IsA("TextButton") and child.Position.X.Offset == offset then
+      return child
+    end
+  end
+  return nil
+end
+
+-- Create restore button for when menu is minimized
+local function createRestoreButton()
+	-- Remove any existing restore button
+	if restoreButton then
+		restoreButton:Destroy()
+	end
+	
+	-- Create restore button
+	restoreButton = New("TextButton", {
+		Text = "Night",
 		TextSize = 14,
 		Font = Enum.Font.GothamBold,
 		TextColor3 = C.TxtWhite,
-		BackgroundTransparency = 1,
-		Position = UDim2.new(1, xOff, 0, 0),
-		Size = UDim2.new(0, 36, 1, 0),
+		BackgroundTransparency = 0.06,
+		BackgroundColor3 = Color3.fromRGB(8, 8, 12),
+		AnchorPoint = Vector2.new(0, 0),
+		Position = restoreButtonDefaultPosition or getRestoreButtonDefaultPosition(),
+		Size = UDim2.new(0, 140, 0, 38),
 		AutoButtonColor = false,
-	}, header)
-	btn.MouseEnter:Connect(function() UI_Tween(btn, {TextColor3 = hoverColor}, 0.12) end)
-	btn.MouseLeave:Connect(function() UI_Tween(btn, {TextColor3 = C.TxtWhite}, 0.12) end)
-	if action then btn.MouseButton1Click:Connect(action) end
-	return btn
+		ZIndex = mainFrame.ZIndex + 20,
+		Visible = false,
+	}, gui)
+	
+	Corner(8, restoreButton)
+	local restoreStroke = Stroke(C.Divider, 1, restoreButton)
+	restoreStroke.Transparency = 0.3
+	New("Frame", {
+		BackgroundColor3 = C.Purple,
+		BorderSizePixel = 0,
+		Position = UDim2.new(0, 8, 0, 8),
+		Size = UDim2.new(0, 3, 1, -16),
+	}, restoreButton)
+	Corner(2, restoreButton:FindFirstChildOfClass("Frame"))
+	
+	restoreButton.MouseEnter:Connect(function()
+		if restoreButton.Visible then
+			UI_Tween(restoreButton, {BackgroundTransparency = 0.0, TextColor3 = C.TxtWhite}, 0.15)
+		end
+	end)
+	
+	restoreButton.MouseLeave:Connect(function()
+		if restoreButton.Visible then
+			UI_Tween(restoreButton, {BackgroundTransparency = 0.06, TextColor3 = C.TxtWhite}, 0.15)
+		end
+	end)
+	
+	restoreButton.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+			return
+		end
+		restoreButtonDragging = true
+		restoreButtonDragged = false
+		restoreButtonDragStart = input.Position
+		restoreButtonStartPos = restoreButton.Position
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not restoreButtonDragging or not restoreButton or not restoreButton.Visible then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement then
+			return
+		end
+		if not restoreButtonDragStart or not restoreButtonStartPos then
+			return
+		end
+
+		local delta = input.Position - restoreButtonDragStart
+		if delta.Magnitude > 4 then
+			restoreButtonDragged = true
+		end
+
+		local newX = restoreButtonStartPos.X.Offset + delta.X
+		local newY = restoreButtonStartPos.Y.Offset + delta.Y
+		newX, newY = clampRestoreButtonPosition(newX, newY)
+		restoreButton.Position = UDim2.new(0, newX, 0, newY)
+		restoreButtonDefaultPosition = restoreButton.Position
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+			return
+		end
+		if restoreButtonDragging then
+			restoreButtonDragging = false
+			if restoreButton then
+				restoreButtonDefaultPosition = restoreButton.Position
+			end
+			task.delay(0.08, function()
+				restoreButtonDragged = false
+			end)
+		end
+	end)
+
+	restoreButton.MouseButton1Click:Connect(function()
+		if restoreButtonDragged then
+			return
+		end
+		restoreMenu()
+	end)
+
+	restoreButtonDefaultPosition = restoreButton.Position
 end
 
-local languageOptionButtons = {}
+-- Create the restore button initially
+createRestoreButton()
 
-local function refreshLanguageOptionButtons()
+-- Replace the minimize button (-) with vertical menu button (≡)
+local oldMinimizeBtn = findTopButton(-72)
+if oldMinimizeBtn then
+	oldMinimizeBtn:Destroy()
+end
+
+-- Vertical menu toggle button (replaces minimize button)
+if not verticalMenuBtn then verticalMenuBtn = New("TextButton", {
+	Text = "≡",
+	TextSize = 16,
+	Font = Enum.Font.GothamBold,
+	TextColor3 = C.TxtWhite,
+	BackgroundTransparency = 0.8,
+	BackgroundColor3 = C.Purple,
+	Position = UDim2.new(1, -72, 0, 0),
+	Size = UDim2.new(0, 36, 1, 0),
+	AutoButtonColor = false,
+	ZIndex = header.ZIndex + 10,
+}, header)
+Corner(6, verticalMenuBtn)
+verticalMenuBtn.MouseEnter:Connect(function()
+	UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.4, TextColor3 = C.TxtWhite}, 0.15)
+end)
+verticalMenuBtn.MouseLeave:Connect(function()
+	UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.8, TextColor3 = C.TxtWhite}, 0.15)
+end)
+verticalMenuBtn.Text = "-"
+verticalMenuBtn.TextSize = 22
+
+-- Function to minimize the menu and show restore button
+local function minimizeMenu()
+	if not sidebar or not content then return end
+	isMinimized = true
+	menuIsMinimized = true
+	hideAllInlineHints()
+	hideAllBindHints()
+	activeBindCapture = nil
+	if languageDropdown then
+		languageDropdown.Visible = false
+	end
+	mainFrame.Visible = false
+	restoreButton.Visible = true
+	restoreButton.Position = restoreButtonDefaultPosition or getRestoreButtonDefaultPosition()
+	UI_Tween(restoreButton, {Position = restoreButton.Position, BackgroundTransparency = 0.06}, 0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+	sidebar.Visible = false
+	content.Visible = false
+end
+
+-- Function to restore the menu from minimized state
+function restoreMenu()
+	if not sidebar or not content then return end
+	isMinimized = false
+	menuIsMinimized = false
+	mainFrame.Visible = true
+	mainFrame.BackgroundTransparency = 0
+	if restoreButton then
+		restoreButtonDefaultPosition = restoreButton.Position
+		UI_Tween(restoreButton, {Position = restoreButton.Position, BackgroundTransparency = 0.06}, 0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		task.delay(0.18, function()
+			if restoreButton then
+				restoreButton.Visible = false
+			end
+		end)
+	end
+	sidebar.Visible = true
+	content.Visible = true
+	
+	-- Restore position and size
+	mainFrame.Size = menuExpandedSize
+	mainFrame.Position = menuExpandedPosition
+end
+
+-- Handle minimize via M key (UI_TOGGLE_KEY) to restore/minimize the main menu
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if inputMatchesBind(input, UI_TOGGLE_KEY) then
+		if menuIsMinimized then
+			restoreMenu()
+			showPanel(true)
+		elseif panelVisible then
+			minimizeMenu()
+			showPanel(false)
+		else
+			showPanel(true)
+		end
+		return
+	end
+end)
+
+-- Keep the close button functionality
+local function TopBtn(symbol, xOff, hoverColor, action)
+  local btn = New("TextButton", {
+    Text = symbol,
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    TextColor3 = C.TxtWhite,
+    BackgroundTransparency = 1,
+    Position = UDim2.new(1, xOff, 0, 0),
+    Size = UDim2.new(0, 36, 1, 0),
+    AutoButtonColor = false,
+  }, header)
+  btn.MouseEnter:Connect(function() UI_Tween(btn, {TextColor3 = hoverColor}, 0.12) end)
+  btn.MouseLeave:Connect(function() UI_Tween(btn, {TextColor3 = C.TxtWhite}, 0.12) end)
+  if action then btn.MouseButton1Click:Connect(action) end
+  return btn
+end
+
+-- Vertical menu button (replaces minimize button)
+if not verticalMenuBtn then verticalMenuBtn = New("TextButton", {
+  Text = "≡",
+  TextSize = 16,
+  Font = Enum.Font.GothamBold,
+  TextColor3 = C.TxtWhite,
+  BackgroundTransparency = 0.8,
+  BackgroundColor3 = C.Purple,
+  Position = UDim2.new(1, -72, 0, 0),
+  Size = UDim2.new(0, 36, 1, 0),
+  AutoButtonColor = false,
+  ZIndex = header.ZIndex + 10,
+}, header)
+Corner(6, verticalMenuBtn)
+verticalMenuBtn.MouseEnter:Connect(function() 
+  UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.4, TextColor3 = C.TxtWhite}, 0.15) 
+end)
+verticalMenuBtn.MouseLeave:Connect(function() 
+  UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.8, TextColor3 = C.TxtWhite}, 0.15) 
+end)
+end
+
+refreshLanguageOptionButtons = function()
 	for code, btn in pairs(languageOptionButtons) do
 		if btn then
 			local active = code == currentUILanguage
 			btn.BackgroundColor3 = active and C.BindActive or C.BgInput
-			btn.TextColor3 = active and C.TxtWhite or C.TxtMid
+			btn.TextColor3 = active and C.TxtWhite or C.TxtWhite
 		end
 	end
 	if languageButton then
-		languageButton.TextColor3 = currentUILanguage == "PT" and C.PurpleGlow or C.TxtWhite
+		languageButton.TextColor3 = currentUILanguage == "PT" and C.TxtWhite or C.TxtWhite
 	end
 end
 
@@ -4679,11 +5229,14 @@ local function toggleLanguageDropdown()
 end
 
 function refreshLanguageDropdownPosition()
-	if not languageDropdown or not languageButton then
+	if not languageDropdown or not languageButton or not languageButton.Parent then
 		return
 	end
 	local buttonPos = languageButton.AbsolutePosition
 	local buttonSize = languageButton.AbsoluteSize
+	if not buttonPos or not buttonSize then
+		return
+	end
 	local dropdownWidth = 148
 	languageDropdown.Position = UDim2.new(
 		0,
@@ -4729,7 +5282,7 @@ languageDropdown = New("Frame", {
 Corner(10, languageDropdown)
 Stroke(C.Divider, 1, languageDropdown).Transparency = 0.18
 
-local languageDropdownLayout = Instance.new("UIListLayout")
+languageDropdownLayout = Instance.new("UIListLayout")
 languageDropdownLayout.SortOrder = Enum.SortOrder.LayoutOrder
 languageDropdownLayout.Padding = UDim.new(0, 6)
 languageDropdownLayout.Parent = languageDropdown
@@ -4748,9 +5301,9 @@ for index, langCode in ipairs({ "PT", "EN", "FR", "ES" }) do
 		BackgroundColor3 = C.BgInput,
 		BorderSizePixel = 0,
 		Size = UDim2.new(1, 0, 0, 32),
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextSize = 12,
-		TextColor3 = C.TxtMid,
+		TextColor3 = C.TxtWhite,
 		Text = LANGUAGE_NAMES[langCode],
 		AutoButtonColor = false,
 		ZIndex = header.ZIndex + 13,
@@ -4776,182 +5329,172 @@ for index, langCode in ipairs({ "PT", "EN", "FR", "ES" }) do
 end
 
 refreshLanguageOptionButtons()
-TopBtn("-", -72, Color3.fromRGB(255, 220, 50), function()
-	local isMinimized = mainFrame.Size.Y.Offset < 100
-	if isMinimized then
-		sidebar.Visible = true
-		content.Visible = true
-		UI_Tween(mainFrame, {Size = menuExpandedSize, Position = menuExpandedPosition}, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-	else
-		menuExpandedPosition = mainFrame.Position
-		sidebar.Visible = false
-		content.Visible = false
-		UI_Tween(mainFrame, {Size = UDim2.new(0, 960, 0, 40), Position = UDim2.new(0.5, -480, 0.5, -20)}, 0.2)
-	end
+ -- Vertical menu toggle button (replaces minimize button)
+ if not verticalMenuBtn then verticalMenuBtn = New("TextButton", {
+  Text = "≡",
+  TextSize = 16,
+  Font = Enum.Font.GothamBold,
+  TextColor3 = C.TxtWhite,
+  BackgroundTransparency = 0.8,
+  BackgroundColor3 = C.Purple,
+  Position = UDim2.new(1, -72, 0, 0),
+  Size = UDim2.new(0, 36, 1, 0),
+  AutoButtonColor = false,
+  ZIndex = header.ZIndex + 10,
+}, header)
+Corner(6, verticalMenuBtn)
+verticalMenuBtn.MouseEnter:Connect(function() 
+  UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.4, TextColor3 = C.TxtWhite}, 0.15) 
 end)
-TopBtn("X", -36, Color3.fromRGB(230, 70, 70), function() showPanel(false) end)
+  verticalMenuBtn.MouseLeave:Connect(function() 
+    UI_Tween(verticalMenuBtn, {BackgroundTransparency = 0.8, TextColor3 = C.TxtWhite}, 0.15) 
+  end)
+  end
 
--- Sidebar (185px) Ã¢â‚¬â€œ abas alinhadas, tema escuro
-minimizedDock = New("Frame", {
-	Name = "MinimizedDock",
-	BackgroundColor3 = C.BgTopbar,
-	BackgroundTransparency = 0.08,
-	BorderSizePixel = 0,
-	Position = UDim2.new(1, -86, 1, -86),
-	Size = UDim2.new(0, 58, 0, 58),
-	Visible = false,
-	ZIndex = 10000020,
+-- Vertical menu sidebar
+verticalMenu = New("Frame", {
+  Name = "VerticalMenu",
+  BackgroundColor3 = C.BgCard,
+  BackgroundTransparency = 0.1,
+  BorderSizePixel = 0,
+  Position = UDim2.new(0, -250, 0.5, -150), -- Start hidden off-screen left
+  Size = UDim2.new(0, 250, 0, 300),
+  AnchorPoint = Vector2.new(0, 0.5),
+  ZIndex = mainFrame.ZIndex + 5,
+  Visible = true,
 }, gui)
-minimizedDock.Active = true
-Corner(16, minimizedDock)
-local minimizedDockStroke = Stroke(C.Purple, 2, minimizedDock)
-minimizedDockStroke.Transparency = 0.25
+Corner(10, verticalMenu)
+Stroke(C.Divider, 1, verticalMenu).Transparency = 0.3
 
-minimizedGlow = New("Frame", {
-	BackgroundColor3 = C.Purple,
-	BackgroundTransparency = 0.82,
-	BorderSizePixel = 0,
-	Position = UDim2.new(0, 6, 0, 6),
-	Size = UDim2.new(1, -12, 1, -12),
-	ZIndex = 10000020,
-}, minimizedDock)
-Corner(12, minimizedGlow)
+-- Vertical menu padding
+verticalMenuPadding = New("UIPadding", {
+  PaddingTop = UDim.new(0, 16),
+  PaddingBottom = UDim.new(0, 16),
+  PaddingLeft = UDim.new(0, 16),
+  PaddingRight = UDim.new(0, 16),
+}, verticalMenu)
 
-minimizedDockBtn = New("TextButton", {
-	Name = "OpenMenuButton",
-	BackgroundTransparency = 1,
-	Size = UDim2.new(1, 0, 1, 0),
-	Text = "N",
-	TextSize = 22,
-	Font = Enum.Font.GothamBold,
-	TextColor3 = C.TxtWhite,
-	AutoButtonColor = false,
-	ZIndex = 10000021,
-}, minimizedDock)
+-- Vertical menu title
+verticalMenuTitle = New("TextLabel", {
+  Text = "Night Menu",
+  TextSize = 18,
+  Font = Enum.Font.GothamBold,
+  TextColor3 = C.TxtWhite,
+  BackgroundTransparency = 1,
+  Position = UDim2.new(0, 0, 0, 0),
+  Size = UDim2.new(1, 0, 0, 24),
+  TextXAlignment = Enum.TextXAlignment.Left,
+  TextYAlignment = Enum.TextYAlignment.Top,
+}, verticalMenu)
 
-minimizedDockLabel = New("TextLabel", {
-	BackgroundTransparency = 1,
-	Position = UDim2.new(0.5, -35, 1, 4),
-	Size = UDim2.new(0, 70, 0, 14),
-	Text = "Night",
-	TextSize = 11,
-	Font = Enum.Font.GothamBold,
-	TextColor3 = Color3.fromRGB(210, 210, 230),
-	ZIndex = 10000021,
-}, minimizedDock)
+-- Vertical menu items container
+verticalMenuItems = New("Frame", {
+  BackgroundTransparency = 1,
+  Position = UDim2.new(0, 0, 0, 32),
+  Size = UDim2.new(1, 0, 1, -48),
+}, verticalMenu)
 
-minimizedDockBtn.MouseEnter:Connect(function()
-	UI_Tween(minimizedDock, {BackgroundColor3 = C.BgCard}, 0.12)
-	UI_Tween(minimizedDockBtn, {TextColor3 = C.Purple}, 0.12)
+verticalMenuLayout = Instance.new("UIListLayout")
+verticalMenuLayout.SortOrder = Enum.SortOrder.LayoutOrder
+verticalMenuLayout.Padding = UDim.new(0, 8)
+verticalMenuLayout.Parent = verticalMenuItems
+
+-- Vertical menu close button (X)
+verticalMenuClose = New("TextButton", {
+  Text = "✕",
+  TextSize = 16,
+  Font = Enum.Font.GothamBold,
+  TextColor3 = C.TxtWhite,
+  BackgroundTransparency = 1,
+  Position = UDim2.new(1, -24, 0, 0),
+  Size = UDim2.new(0, 24, 0, 24),
+  AutoButtonColor = false,
+  ZIndex = verticalMenu.ZIndex + 10,
+}, verticalMenu)
+verticalMenuClose.MouseEnter:Connect(function() 
+  UI_Tween(verticalMenuClose, {TextColor3 = Color3.fromRGB(255, 255, 255)}, 0.12) 
 end)
-minimizedDockBtn.MouseLeave:Connect(function()
-	UI_Tween(minimizedDock, {BackgroundColor3 = C.BgTopbar}, 0.12)
-	UI_Tween(minimizedDockBtn, {TextColor3 = C.TxtWhite}, 0.12)
+verticalMenuClose.MouseLeave:Connect(function() 
+  UI_Tween(verticalMenuClose, {TextColor3 = C.TxtWhite}, 0.12) 
+end)
+verticalMenuClose.MouseButton1Click:Connect(function()
+  -- Hide vertical menu
+  UI_Tween(verticalMenu, {Position = UDim2.new(0, -250, 0.5, -150)}, 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 end)
 
-oldMinimizeBtn = findTopButton(-72)
-if oldMinimizeBtn then
-	oldMinimizeBtn:Destroy()
+-- Add some sample menu items
+local function createVerticalMenuItem(text, icon, callback)
+  local item = New("TextButton", {
+    Text = "  " .. (icon or "") .. "  " .. text,
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    TextColor3 = C.TxtWhite,
+    BackgroundTransparency = 0.9,
+    BackgroundColor3 = C.BgInput,
+    BorderSizePixel = 0,
+    Size = UDim2.new(1, 0, 0, 32),
+    AutoButtonColor = false,
+    ZIndex = verticalMenuItems.ZIndex + 1,
+  }, verticalMenuItems)
+  
+  Corner(6, item)
+  
+  item.MouseEnter:Connect(function()
+    UI_Tween(item, {BackgroundTransparency = 0.7, TextColor3 = C.TxtWhite}, 0.12)
+  end)
+  
+  item.MouseLeave:Connect(function()
+    UI_Tween(item, {BackgroundTransparency = 0.9, TextColor3 = C.TxtWhite}, 0.12)
+  end)
+  
+  if callback then
+    item.MouseButton1Click:Connect(callback)
+  end
+  
+  return item
 end
 
-minimizeBtn = TopBtn("-", -72, Color3.fromRGB(255, 220, 50), function()
-	if setMinimizedState then
-		setMinimizedState(not menuIsMinimized)
-	end
-end)
+-- Add sample items
+createVerticalMenuItem("Aimbot", "🎯", function() showMenuToast("Aimbot", "Aimbot settings would open here", C.Blue) end)
+createVerticalMenuItem("ESP", "👁️", function() showMenuToast("ESP", "ESP settings would open here", C.Green) end)
+createVerticalMenuItem("Player", "👤", function() showMenuToast("Player", "Player settings would open here", C.Orange) end)
+createVerticalMenuItem("World", "🌍", function() showMenuToast("World", "World settings would open here", C.Red) end)
+createVerticalMenuItem("Misc", "⚙️", function() showMenuToast("Misc", "Misc settings would open here", C.Purple) end)
+createVerticalMenuItem("Configs", "💾", function() showMenuToast("Configs", "Config manager would open here", C.Yellow) end)
 
-setMinimizedState = function(shouldMinimize)
-	menuIsMinimized = shouldMinimize
-	hideAllInlineHints()
-	hideAllBindHints()
-	activeBindCapture = nil
-	if languageDropdown then
-		languageDropdown.Visible = false
-	end
-	mainFrame.Visible = not shouldMinimize
-	minimizedDock.Visible = shouldMinimize and panelVisible
-	sidebar.Visible = true
-	content.Visible = true
-	minimizedHint.Visible = false
-	title.TextYAlignment = Enum.TextYAlignment.Center
-	title.Text = "Night  |  Mod Menu  |  discord.gg/night"
-	title.TextSize = 13
-	title.Size = UDim2.new(0.72, 0, 1, 0)
+TopBtn("X", -36, Color3.fromRGB(255, 255, 255), function() showPanel(false) end)
 
-	if minimizeBtn then
-		minimizeBtn.Text = shouldMinimize and "+" or "-"
-	end
 
-	if not shouldMinimize then
-		mainFrame.Size = menuExpandedSize
-		mainFrame.Position = menuExpandedPosition
-		UI_Tween(mainFrame, {Size = menuExpandedSize, Position = menuExpandedPosition}, 0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
-	end
-end
 
-mainFrame:GetPropertyChangedSignal("Size"):Connect(function()
-	if not setMinimizedState or menuIsMinimized or not panelVisible then return end
-	if mainFrame.Size.Y.Offset <= 40 then
-		setMinimizedState(true)
-	end
-end)
 
-minimizedDockBtn.MouseButton1Click:Connect(function()
-	if setMinimizedState then
-		setMinimizedState(false)
-	end
-end)
 
-minimizedDockBtn.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		minimizedDockDragging = true
-		minimizedDockDragStart = input.Position
-		minimizedDockStartPos = minimizedDock.Position
-	end
-end)
 
-minimizedDock.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		minimizedDockDragging = true
-		minimizedDockDragStart = input.Position
-		minimizedDockStartPos = minimizedDock.Position
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if minimizedDockDragging and input.UserInputType == Enum.UserInputType.MouseMovement and minimizedDockStartPos and minimizedDockDragStart then
-		local delta = input.Position - minimizedDockDragStart
-		minimizedDock.Position = UDim2.new(
-			minimizedDockStartPos.X.Scale,
-			minimizedDockStartPos.X.Offset + delta.X,
-			minimizedDockStartPos.Y.Scale,
-			minimizedDockStartPos.Y.Offset + delta.Y
-		)
-	end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		minimizedDockDragging = false
-	end
-end)
 
 sidebar = New("Frame", {
 	Name = "Sidebar",
 	BackgroundColor3 = C.BgSidebar,
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 0, 0, 42),
-	Size = UDim2.new(0, 190, 1, -42),
+	Size = UDim2.new(0, 200, 1, -42),
 	ClipsDescendants = false,
 }, mainFrame)
+-- Right border separator
 New("Frame", {
-	BackgroundColor3 = C.PurpleLine,
+	BackgroundColor3 = C.Divider,
 	BackgroundTransparency = 0.5,
 	BorderSizePixel = 0,
 	Position = UDim2.new(1, -1, 0, 0),
 	Size = UDim2.new(0, 1, 1, 0),
 }, sidebar)
-local sidebarScroll = New("ScrollingFrame", {
+-- Left accent stripe
+New("Frame", {
+	BackgroundColor3 = C.Purple,
+	BackgroundTransparency = 0.3,
+	BorderSizePixel = 0,
+	Position = UDim2.new(0, 0, 0, 0),
+	Size = UDim2.new(0, 2, 1, 0),
+}, sidebar)
+sidebarScroll = New("ScrollingFrame", {
 	Name = "SidebarTabs",
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
@@ -4963,35 +5506,35 @@ local sidebarScroll = New("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasPosition = Vector2.new(0, 0),
 }, sidebar)
-Pad(8, 12, 8, 12, sidebarScroll)
-ListLayout(6, sidebarScroll)
+Pad(8, 12, 12, 12, sidebarScroll)
+ListLayout(4, sidebarScroll)
 
--- Widget Discord na parte inferior da sidebar
-local discordWidget = New("Frame", {
+-- Discord Widget - Astrix Style
+discordWidget = New("Frame", {
 	Name = "DiscordWidget",
 	BackgroundColor3 = C.BgCard,
-	BackgroundTransparency = 0.2,
+	BackgroundTransparency = 0.1,
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 8, 1, -82),
 	Size = UDim2.new(1, -16, 0, 74),
 }, sidebar)
 Corner(8, discordWidget)
-local discordStroke = Stroke(C.Purple, 1, discordWidget)
-discordStroke.Transparency = 0.5
+discordStroke = Stroke(C.Divider, 1, discordWidget)
+discordStroke.Transparency = 0.3
 
-local discordIcon = New("TextLabel", {
+discordIcon = New("TextLabel", {
 	Text = "DC",
-	TextSize = 24,
+	TextSize = 22,
 	Font = Enum.Font.GothamBold,
-	TextColor3 = C.Purple,
+	TextColor3 = C.TxtWhite,
 	BackgroundTransparency = 1,
-	Position = UDim2.new(0, 8, 0, 4),
+	Position = UDim2.new(0, 8, 0, 6),
 	Size = UDim2.new(0, 30, 0, 30),
 }, discordWidget)
 
-local discordTitle = New("TextLabel", {
+discordTitle = New("TextLabel", {
 	Text = "Join Discord",
-	TextSize = 12,
+	TextSize = 11,
 	Font = Enum.Font.GothamBold,
 	TextColor3 = C.TxtWhite,
 	BackgroundTransparency = 1,
@@ -5000,18 +5543,18 @@ local discordTitle = New("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Left,
 }, discordWidget)
 
-local discordLink = New("TextLabel", {
+discordLink = New("TextLabel", {
 	Text = "discord.gg/g6QhY2jagJ",
 	TextSize = 9,
-	Font = Enum.Font.Gotham,
-	TextColor3 = C.TxtDim,
+	Font = Enum.Font.GothamBold,
+	TextColor3 = C.TxtWhite,
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 42, 0, 20),
 	Size = UDim2.new(1, -50, 0, 12),
 	TextXAlignment = Enum.TextXAlignment.Left,
 }, discordWidget)
 
-local joinBtn = New("TextButton", {
+joinBtn = New("TextButton", {
 	Text = "JOIN",
 	TextSize = 11,
 	Font = Enum.Font.GothamBold,
@@ -5044,20 +5587,20 @@ joinBtn.MouseButton1Click:Connect(function()
 end)
 
 joinBtn.MouseEnter:Connect(function()
-	UI_Tween(joinBtn, {BackgroundColor3 = C.PurpleGlow}, 0.2)
+	UI_Tween(joinBtn, {BackgroundColor3 = C.Purple}, 0.2)
 end)
 joinBtn.MouseLeave:Connect(function()
 	UI_Tween(joinBtn, {BackgroundColor3 = C.Purple}, 0.2)
 end)
 
--- Content (ÃƒÂ¡rea central) Ã¢â‚¬â€œ fundo com detalhe
+-- Content (central area) - Astrix Dark Blue Style
 content = New("Frame", {
 	Name = "Content",
 	BackgroundColor3 = C.BgSection,
 	BackgroundTransparency = 0,
 	BorderSizePixel = 0,
-	Position = UDim2.new(0, 190, 0, 42),
-	Size = UDim2.new(1, -190, 1, -42),
+	Position = UDim2.new(0, 200, 0, 42),
+	Size = UDim2.new(1, -200, 1, -42),
 }, mainFrame)
 Pad(14, 18, 24, 24, content)
 
@@ -5068,9 +5611,9 @@ pages = {}
 tabs = {}
 currentTab = "UPDATES"
 
--- Padding unificado para todas as abas (lateral igual ÃƒÂ  aba Misc)
-local PAGE_PADDING_TOP, PAGE_PADDING_BOTTOM = 20, 20
-local PAGE_PADDING_LEFT, PAGE_PADDING_RIGHT = 24, 24
+-- Padding unificado para todas as abas (Astrix style)
+local PAGE_PADDING_TOP, PAGE_PADDING_BOTTOM = 16, 16
+local PAGE_PADDING_LEFT, PAGE_PADDING_RIGHT = 20, 20
 
 function createPage(name)
 	local page = New("ScrollingFrame", {
@@ -5078,13 +5621,13 @@ function createPage(name)
 		Position = UDim2.new(0, 0, 0, 0),
 		BackgroundTransparency = 1,
 		Visible = false,
-		ScrollBarThickness = 4,
+		ScrollBarThickness = 3,
 		ScrollBarImageColor3 = C.Purple,
 		BorderSizePixel = 0,
-		CanvasSize = UDim2.new(0, 0, 0, 0), -- CanvasSize resetado para evitar scroll fantasma
+		CanvasSize = UDim2.new(0, 0, 0, 0),
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	}, content)
-	ListLayout(12, page)
+	ListLayout(8, page)
 	Pad(PAGE_PADDING_TOP, PAGE_PADDING_BOTTOM, PAGE_PADDING_LEFT, PAGE_PADDING_RIGHT, page)
 	pages[name] = page
 	return page
@@ -5095,52 +5638,52 @@ function createTab(name, text, icon, order)
 	local tab = New("TextButton", {
 		Name = name .. "Tab",
 		LayoutOrder = order,
-		BackgroundColor3 = active and C.ActiveTabBg or C.BgSidebar,
-		BackgroundTransparency = active and 0 or 0.5,
+		BackgroundColor3 = active and Color3.fromRGB(30, 30, 36) or C.BgSidebar,
+		BackgroundTransparency = active and 0.05 or 0.8,
 		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 44),
+		Size = UDim2.new(1, 0, 0, 36),
 		Text = "",
 		AutoButtonColor = false,
 	}, sidebarScroll)
-	Corner(8, tab)
+	Corner(6, tab)
 	local bar = New("Frame", {
 		BackgroundColor3 = C.Purple,
 		BorderSizePixel = 0,
-		Position = UDim2.new(0, 0, 0.2, 0),
-		Size = UDim2.new(0, 4, 0.6, 0),
+		Position = UDim2.new(0, 0, 0.15, 0),
+		Size = UDim2.new(0, 3, 0.7, 0),
 		BackgroundTransparency = active and 0 or 1,
 	}, tab)
 	Corner(2, bar)
 	local tabIcon = New("TextLabel", {
 		Text = icon,
-		TextSize = 15,
-		Font = Enum.Font.Gotham,
-		TextColor3 = C.TxtWhite,
+		TextSize = 14,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = active and C.TxtWhite or C.TxtWhite,
 		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 14, 0, 0),
-		Size = UDim2.new(0, 26, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
+		Size = UDim2.new(0, 24, 1, 0),
 		TextXAlignment = Enum.TextXAlignment.Center,
 	}, tab)
 	local tabLabel = New("TextLabel", {
 		Text = text,
-		TextSize = 13,
-		Font = active and Enum.Font.GothamBold or Enum.Font.Gotham,
-		TextColor3 = C.TxtWhite,
+		TextSize = 12,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = active and C.TxtWhite or C.TxtWhite,
 		BackgroundTransparency = 1,
-		Position = UDim2.new(0, 44, 0, 0),
-		Size = UDim2.new(1, -50, 1, 0),
+		Position = UDim2.new(0, 38, 0, 0),
+		Size = UDim2.new(1, -44, 1, 0),
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, tab)
 	tab.MouseEnter:Connect(function()
 		if currentTab ~= name then
-			UI_Tween(tab, {BackgroundTransparency = 0, BackgroundColor3 = C.TabHover}, 0.15)
+			UI_Tween(tab, {BackgroundTransparency = 0.5, BackgroundColor3 = C.TabHover}, 0.15)
 			UI_Tween(tabLabel, {TextColor3 = C.TxtWhite}, 0.15)
 			UI_Tween(tabIcon, {TextColor3 = C.TxtWhite}, 0.15)
 		end
 	end)
 	tab.MouseLeave:Connect(function()
 		if currentTab ~= name then
-			UI_Tween(tab, {BackgroundTransparency = 0.5, BackgroundColor3 = C.BgSidebar}, 0.15)
+			UI_Tween(tab, {BackgroundTransparency = 0.8, BackgroundColor3 = C.BgSidebar}, 0.15)
 			UI_Tween(tabLabel, {TextColor3 = C.TxtWhite}, 0.15)
 			UI_Tween(tabIcon, {TextColor3 = C.TxtWhite}, 0.15)
 		end
@@ -5155,7 +5698,7 @@ function setTab(tabName)
 		local tab, icon, label = tabData[1], tabData[2], tabData[3]
 		local indicator = tabData[5]
 		if name == tabName then
-			UI_Tween(tab, {BackgroundColor3 = C.ActiveTabBg, BackgroundTransparency = 0}, 0.2)
+			UI_Tween(tab, {BackgroundColor3 = Color3.fromRGB(30, 30, 36), BackgroundTransparency = 0.05}, 0.2)
 			UI_Tween(icon, {TextColor3 = C.TxtWhite}, 0.2)
 			label.Font = Enum.Font.GothamBold
 			UI_Tween(label, {TextColor3 = C.TxtWhite}, 0.2)
@@ -5164,9 +5707,9 @@ function setTab(tabName)
 			pages[name].CanvasPosition = Vector2.new(0, 0)
 			currentTab = name
 		else
-			UI_Tween(tab, {BackgroundTransparency = 0.5, BackgroundColor3 = C.BgSidebar}, 0.2)
+			UI_Tween(tab, {BackgroundTransparency = 0.8, BackgroundColor3 = C.BgSidebar}, 0.2)
 			UI_Tween(icon, {TextColor3 = C.TxtWhite}, 0.2)
-			label.Font = Enum.Font.Gotham
+			label.Font = Enum.Font.GothamBold
 			UI_Tween(label, {TextColor3 = C.TxtWhite}, 0.2)
 			if indicator then indicator.Visible = false indicator.BackgroundTransparency = 1 end
 			pages[name].Visible = false
@@ -5187,6 +5730,7 @@ playersPage = createPage("PLAYERS")
 espPage = createPage("ESP")
 aimbotPage = createPage("AIMBOT")
 teleportsPage = createPage("TELEPORTS")
+keybindsPage = createPage("KEYBINDS")
 utilPage = createPage("UTIL")
 infoPage = createPage("INFO")
 configPage = createPage("CONFIG")
@@ -5236,24 +5780,24 @@ function createMiscSubTabButton(tabName, order)
 		Size = UDim2.new(0.235, 0, 1, 0),
 		Text = tabName,
 		AutoButtonColor = false,
-		Font = Enum.Font.GothamSemibold,
-		TextSize = 12,
+		Font = Enum.Font.GothamBold,
+		TextSize = 11,
 		TextColor3 = C.TxtWhite,
 	}, miscSubTabBar)
-	Corner(8, button)
-	Stroke(C.Divider, 1, button).Transparency = 0.18
+	Corner(6, button)
+	Stroke(C.Divider, 1, button).Transparency = 0.25
 	local activeMarker = New("Frame", {
 		Name = "ActiveMarker",
-		BackgroundColor3 = C.PurpleGlow,
+		BackgroundColor3 = C.Purple,
 		BorderSizePixel = 0,
-		Position = UDim2.new(0, 10, 1, -4),
+		Position = UDim2.new(0, 10, 1, -3),
 		Size = UDim2.new(1, -20, 0, 2),
 		Visible = false,
 	}, button)
-	Corner(2, activeMarker)
+	Corner(1, activeMarker)
 	local isActiveAtStart = activeMiscSubPageName == tabName
-	button.BackgroundColor3 = isActiveAtStart and C.ActiveTabBg or C.BgInput
-	button.BackgroundTransparency = isActiveAtStart and 0 or 0.05
+	button.BackgroundColor3 = isActiveAtStart and Color3.fromRGB(35, 35, 42) or C.BgInput
+	button.BackgroundTransparency = isActiveAtStart and 0.85 or 0.05
 	activeMarker.Visible = isActiveAtStart
 	button.MouseButton1Click:Connect(function()
 		for name, page in pairs(miscSubPages) do
@@ -5262,8 +5806,8 @@ function createMiscSubTabButton(tabName, order)
 		activeMiscSubPageName = tabName
 		for _, btn in pairs(miscSubTabButtons) do
 			local isActive = btn.Name == tabName .. "SubTab"
-			btn.BackgroundColor3 = isActive and C.ActiveTabBg or C.BgInput
-			btn.BackgroundTransparency = isActive and 0 or 0.05
+			btn.BackgroundColor3 = isActive and Color3.fromRGB(35, 35, 42) or C.BgInput
+			btn.BackgroundTransparency = isActive and 0.85 or 0.05
 			btn.TextColor3 = isActive and C.TxtWhite or C.TxtWhite
 			local marker = btn:FindFirstChild("ActiveMarker")
 			if marker then
@@ -5341,6 +5885,20 @@ utilRootLayout.SortOrder = Enum.SortOrder.LayoutOrder
 utilRootLayout.Padding = UDim.new(0, 12)
 utilRootLayout.Parent = utilRoot
 
+-- KEYBINDS page root
+keybindsRoot = Instance.new("Frame")
+keybindsRoot.Name = "KeybindsRoot"
+keybindsRoot.BackgroundTransparency = 1
+keybindsRoot.Position = UDim2.new(0, 0, 0, 0)
+keybindsRoot.Size = UDim2.new(1, 0, 0, 0)
+keybindsRoot.AutomaticSize = Enum.AutomaticSize.Y
+keybindsRoot.Parent = keybindsPage
+
+local keybindsRootLayout = Instance.new("UIListLayout")
+keybindsRootLayout.SortOrder = Enum.SortOrder.LayoutOrder
+keybindsRootLayout.Padding = UDim.new(0, 12)
+keybindsRootLayout.Parent = keybindsRoot
+
 function refreshUtilCanvas()
 	if activeMiscSubPageName == "TROLL" then
 		refreshMiscSubPageCanvas(trollSubPage)
@@ -5415,13 +5973,8 @@ function getPingText()
 end
 
 function getServerTypeText()
-	if game.PrivateServerId and game.PrivateServerId ~= "" then
-		if game.PrivateServerOwnerId and game.PrivateServerOwnerId ~= 0 then
-			return "Private Server"
-		end
-		return "Reserved Server"
-	end
-	return "Public Server"
+	-- Evita acessar propriedades de private server no client, porque isso gera warning no output.
+	return "Server"
 end
 
 function getGameNameText()
@@ -5467,9 +6020,9 @@ infoProfileUser = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 102, 0, 46),
 	Size = UDim2.new(1, -118, 0, 18),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
-	TextColor3 = C.TxtDim,
+	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = "@" .. LocalPlayer.Name,
 }, infoProfileCard)
@@ -5497,9 +6050,9 @@ infoGameName = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 18, 0, 44),
 	Size = UDim2.new(1, -36, 0, 22),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 15,
-	TextColor3 = C.PurpleGlow,
+	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = getGameNameText(),
 }, infoGameCard)
@@ -5509,9 +6062,9 @@ function createInfoRow(parent, y, labelText)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 18, 0, y),
 		Size = UDim2.new(0.42, 0, 0, 18),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextSize = 13,
-		TextColor3 = C.TxtDim,
+		TextColor3 = C.TxtWhite,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = labelText,
 	}, parent)
@@ -5519,7 +6072,7 @@ function createInfoRow(parent, y, labelText)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0.42, 0, 0, y),
 		Size = UDim2.new(0.58, -18, 0, 18),
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextSize = 13,
 		TextColor3 = C.TxtWhite,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -5626,7 +6179,7 @@ function createUpdateEntry(parent, entry)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 18, 0, 38),
 		Size = UDim2.new(1, -36, 0, 16),
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextSize = 11,
 		TextColor3 = accentColor,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -5637,9 +6190,9 @@ function createUpdateEntry(parent, entry)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 18, 0, 60),
 		Size = UDim2.new(1, -36, 0, 42),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextSize = 12,
-		TextColor3 = C.TxtMid,
+		TextColor3 = C.TxtWhite,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
@@ -5679,9 +6232,9 @@ function rebuildUpdatesPage()
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 18, 0, 46),
 		Size = UDim2.new(1, -36, 0, 18),
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextSize = 13,
-		TextColor3 = C.PurpleGlow,
+		TextColor3 = C.TxtWhite,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = getLocalizedText("updates", "changelog_hero", "Automatic changelog: green = new, yellow = fix, red = removed"),
 	}, hero)
@@ -5734,6 +6287,9 @@ registerUpdateEntry("NEW", "Misc Subtabs Added", "2026-04-08", "Misc now uses in
 registerUpdateEntry("FIX", "Theme Resize Preserve", "2026-04-08", "The menu keeps the selected size when minimized and restored instead of snapping back to a default size.")
 registerUpdateEntry("NEW", "Teleport Cursor Cooldown", "2026-04-08", "TP Cursor now has a configurable cooldown value so the user chooses the wait time.")
 registerUpdateEntry("FIX", "Player List Selection", "2026-04-08", "Selected player names stay highlighted in yellow and the kill action was removed from player actions.")
+registerUpdateEntry("NEW", "Empurrão Infinito em Ações de Jogador", "2026-05-30", "As actions de jogador agora têm empurrão infinito, seguindo o alvo e repetindo o push até você desativar.")
+registerUpdateEntry("FIX", "Botão Minimizado Arrastável", "2026-05-30", "O botão do modo minimizado foi redesenhado no estilo Redz e agora pode ser movido pela tela.")
+registerUpdateEntry("NEW", "Anti-Flying", "2026-05-30", "Adiciona uma defesa contra empurrões e lançamentos externos sem bloquear kick push player nem infinite push.")
 registerUpdateEntry("REMOVED", "Old Flat Update Cards", "2026-04-08", "The old generic update layout was replaced with a color coded changelog that is easier to maintain.")
 registerUpdateEntry("FIX", "Menu Font Locked", "2026-03-30", "The menu font is now forced globally so custom Roblox fonts do not change the UI look.")
 registerUpdateEntry("FIX", "Minimize Restore Position", "2026-03-29", "The menu now reopens exactly where it was before minimizing.")
@@ -5743,14 +6299,35 @@ registerUpdateEntry("NEW", "Language Support", "2026-03-27", "The menu now inclu
 rebuildUpdatesPage()
 
 
+-- Section headers for grouped navigation (Astrix style)
+local function createSectionHeader(text, order)
+	local header = New("TextLabel", {
+		Name = text .. "Header",
+		Text = "  " .. string.upper(text),
+		TextSize = 12,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 1,
+		Size = UDim2.new(1, 0, 0, 24),
+		LayoutOrder = order,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, sidebarScroll)
+	return header
+end
+
+createSectionHeader("General", 0)
 createTab("UPDATES", "Updates", "", 1)
 createTab("PLAYERS", "Players", "", 2)
 createTab("ESP", "ESP", "", 3)
-createTab("AIMBOT", "RAGE", "", 4)
-createTab("UTIL", "Misc", "", 6)
-createTab("INFO", "Info", "", 7)
-createTab("CONFIG", "Config", "", 8)
-createTab("THEME", "Theme", "", 9)
+createSectionHeader("Combat", 50)
+createTab("AIMBOT", "RAGE", "", 51)
+createSectionHeader("World", 100)
+createTab("KEYBINDS", "Keybinds", "", 101)
+createTab("UTIL", "Misc", "", 102)
+createSectionHeader("System", 150)
+createTab("INFO", "Info", "", 151)
+createTab("CONFIG", "Config", "", 152)
+createTab("THEME", "Theme", "", 153)
 
 setTab("UPDATES")
 
@@ -5798,24 +6375,26 @@ function createCategory(parent, titleText)
 	}, parent)
 	local titleLbl = New("TextLabel", {
 		Text = titleText,
-		TextSize = 18,
+		TextSize = 16,
 		Font = Enum.Font.GothamBold,
 		TextColor3 = C.TxtWhite,
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 0, 0, 4),
-		Size = UDim2.new(1, 0, 0, 28),
+		Size = UDim2.new(1, 0, 0, 26),
 		TextXAlignment = Enum.TextXAlignment.Left,
 	}, category)
+	-- White accent line under title
 	New("Frame", {
-		BackgroundColor3 = C.PurpleLine,
-		BackgroundTransparency = 0.3,
+		BackgroundColor3 = C.TxtWhite,
+		BackgroundTransparency = 0.5,
 		BorderSizePixel = 0,
-		Position = UDim2.new(0, 0, 0, 34),
-		Size = UDim2.new(1, 0, 0, 2),
+		Position = UDim2.new(0, 0, 0, 32),
+		Size = UDim2.new(0.3, 0, 0, 2),
 	}, category)
+	Corner(1, category:FindFirstChildOfClass("Frame") or category)
 	local contentFrame = New("Frame", {
 		Size = UDim2.new(1, 0, 0, 0),
-		Position = UDim2.new(0, 0, 0, 44),
+		Position = UDim2.new(0, 0, 0, 42),
 		BackgroundTransparency = 1,
 	}, category)
 	New("UIPadding", {
@@ -5825,12 +6404,12 @@ function createCategory(parent, titleText)
 		PaddingRight = UDim.new(0, 0),
 	}, contentFrame)
 	local contentLayout = Instance.new("UIListLayout")
-	contentLayout.Padding = UDim.new(0, 12)
+	contentLayout.Padding = UDim.new(0, 8)
 	contentLayout.SortOrder = Enum.SortOrder.LayoutOrder
 	contentLayout.Parent = contentFrame
 	local function updateSize()
 		local contentSize = contentLayout.AbsoluteContentSize
-		category.Size = UDim2.new(1, 0, 0, contentSize.Y + 60)
+		category.Size = UDim2.new(1, 0, 0, contentSize.Y + 56)
 	end
 	contentLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateSize)
 	return contentFrame, titleLbl
@@ -5867,9 +6446,9 @@ configIntroLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 0, 0, 30),
 	Size = UDim2.new(1, 0, 0, 40),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
-	TextColor3 = C.TxtDim,
+	TextColor3 = C.TxtWhite,
 	TextWrapped = true,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextYAlignment = Enum.TextYAlignment.Top,
@@ -5881,7 +6460,7 @@ configStatusLabel = New("TextLabel", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 0, 0, 82),
 	Size = UDim2.new(1, 0, 0, 34),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
 	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -5900,7 +6479,7 @@ configNameInput = New("TextBox", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 0, 0, 126),
 	Size = UDim2.new(1, 0, 0, 36),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
 	TextColor3 = C.TxtWhite,
 	PlaceholderColor3 = C.TxtDim,
@@ -5921,7 +6500,7 @@ configSearchInput = New("TextBox", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 0, 0, 264),
 	Size = UDim2.new(1, 0, 0, 34),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
 	TextColor3 = C.TxtWhite,
 	PlaceholderColor3 = C.TxtDim,
@@ -5953,7 +6532,7 @@ configSavedConfigsLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 12, 0, 8),
 	Size = UDim2.new(1, -24, 0, 18),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
 	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -6008,16 +6587,16 @@ function createConfigActionButton(parent, buttonText, xScale, yOffset, widthScal
 		BorderSizePixel = 0,
 		Position = UDim2.new(xScale, 0, 0, yOffset or 170),
 		Size = UDim2.new(widthScale or 0.48, 0, 0, 34),
-		Font = Enum.Font.GothamSemibold,
-		TextSize = 13,
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
 		TextColor3 = C.TxtWhite,
 		Text = buttonText,
 		AutoButtonColor = false,
 	}, parent)
-	Corner(8, button)
-	Stroke(C.Divider, 1, button).Transparency = 0.18
+	Corner(6, button)
+	Stroke(C.Divider, 1, button).Transparency = 0.25
 	button.MouseEnter:Connect(function()
-		UI_Tween(button, {BackgroundColor3 = C.TabHover}, 0.15)
+		UI_Tween(button, {BackgroundColor3 = Color3.fromRGB(35, 35, 42)}, 0.15)
 	end)
 	button.MouseLeave:Connect(function()
 		UI_Tween(button, {BackgroundColor3 = C.BgInput}, 0.15)
@@ -6033,7 +6612,7 @@ function createTeleportActionButton(parent, buttonText, position, size, callback
 		BorderSizePixel = 0,
 		Position = position,
 		Size = size,
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextSize = 13,
 		TextColor3 = C.TxtWhite,
 		Text = buttonText,
@@ -6076,9 +6655,9 @@ function createTeleportPanel(parent, titleText, descriptionText, xScale, yOffset
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 16, 0, 38),
 		Size = UDim2.new(1, -32, 0, 30),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextSize = 11,
-		TextColor3 = C.TxtDim,
+		TextColor3 = C.TxtWhite,
 		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextYAlignment = Enum.TextYAlignment.Top,
@@ -6097,9 +6676,9 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 		BorderSizePixel = 0,
 		Position = UDim2.new(0, 16, 1, -42),
 		Size = UDim2.new(0, 58, 0, 26),
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		Text = "--",
-		TextColor3 = C.TxtMid,
+		TextColor3 = C.TxtWhite,
 		TextSize = 11,
 	}, panel)
 	Corner(8, bindTag)
@@ -6112,7 +6691,7 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 		Size = UDim2.new(0, 30, 0, 30),
 		Font = Enum.Font.GothamBold,
 		Text = utf8.char(0x2699),
-		TextColor3 = C.TxtMid,
+		TextColor3 = C.TxtWhite,
 		TextSize = 18,
 		AutoButtonColor = false,
 	}, panel)
@@ -6125,7 +6704,7 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 		BackgroundTransparency = 0.08,
 		Position = UDim2.new(0, 0, 0, 0),
 		Size = UDim2.new(0, 235, 0, 26),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		Text = "",
 		TextColor3 = Color3.fromRGB(242, 242, 246),
 		TextSize = 13,
@@ -6135,7 +6714,7 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 		ZIndex = 10000031,
 	}, gui)
 	Corner(6, bindHint)
-	local bindHintStroke = Stroke(Color3.fromRGB(32, 28, 40), 1, bindHint)
+	local bindHintStroke = Stroke(Color3.fromRGB(10, 10, 14), 1, bindHint)
 	bindHintStroke.Transparency = 0.2
 	bindHintStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
@@ -6143,7 +6722,7 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 		local shown = getBindName and getBindName() or "None"
 		if not shown or shown == "" or shown == "None" then
 			bindTag.Text = "--"
-			bindTag.TextColor3 = C.TxtDim
+			bindTag.TextColor3 = C.TxtWhite
 		else
 			if #shown > 7 then
 				shown = shown:sub(1, 7)
@@ -6173,7 +6752,7 @@ function createTeleportBindCard(parent, titleText, descriptionText, xScale, yOff
 			waitingForNextInput = true,
 			refreshBindTag = refreshBindTag,
 		}
-		gearBtn.TextColor3 = C.PurpleGlow
+		gearBtn.TextColor3 = C.TxtWhite
 		bindTag.BackgroundColor3 = C.BindActive
 	end)
 
@@ -6227,7 +6806,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 	local label = New("TextLabel", {
 		Text = text,
 		TextSize = 14,
-		Font = Enum.Font.GothamSemibold,
+		Font = Enum.Font.GothamBold,
 		TextColor3 = C.TxtWhite,
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 0, 0, 0),
@@ -6246,9 +6825,9 @@ function createToggle(parent, text, callback, tooltipText, options)
 			BackgroundTransparency = 0,
 			Position = UDim2.new(1, -132, 0.5, -10),
 			Size = UDim2.new(0, 40, 0, 20),
-			Font = Enum.Font.GothamSemibold,
+			Font = Enum.Font.GothamBold,
 			Text = "",
-			TextColor3 = C.TxtMid,
+			TextColor3 = C.TxtWhite,
 			TextSize = 10,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			TextYAlignment = Enum.TextYAlignment.Center,
@@ -6265,7 +6844,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 			Text = utf8.char(0x2699),
 			Font = Enum.Font.GothamBold,
 			TextSize = 21,
-			TextColor3 = C.TxtMid,
+			TextColor3 = C.TxtWhite,
 			AutoButtonColor = false,
 			ZIndex = 4,
 		}, f)
@@ -6277,7 +6856,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 			Position = UDim2.new(0, 0, 0, 0),
 			Size = UDim2.new(0, 210, 0, 26),
 			AnchorPoint = Vector2.new(0, 0),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			Text = "",
 			TextColor3 = Color3.fromRGB(242, 242, 246),
 			TextSize = 13,
@@ -6288,7 +6867,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 			ZIndex = 10000031,
 		}, gui)
 		Corner(6, bindHint)
-		local bindHintStroke = Stroke(Color3.fromRGB(32, 28, 40), 1, bindHint)
+		local bindHintStroke = Stroke(Color3.fromRGB(10, 10, 14), 1, bindHint)
 		bindHintStroke.Transparency = 0.2
 		bindHintStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	end
@@ -6297,20 +6876,20 @@ function createToggle(parent, text, callback, tooltipText, options)
 		Name = "ToggleTrack",
 		BackgroundColor3 = state and C.ToggleOn or C.ToggleOff,
 		BorderSizePixel = 0,
-		Position = hasBindGear and UDim2.new(1, -86, 0.5, -12) or UDim2.new(1, -54, 0.5, -12),
-		Size = UDim2.new(0, 40, 0, 24),
+		Position = hasBindGear and UDim2.new(1, -86, 0.5, -11) or UDim2.new(1, -54, 0.5, -11),
+		Size = UDim2.new(0, 40, 0, 22),
 	}, f)
-	Corner(12, track)
+	Corner(11, track)
 	local trackStroke = Stroke(state and C.Purple or C.Divider, 1, track)
-	trackStroke.Transparency = 0.15
+	trackStroke.Transparency = 0.2
 
 	local circle = New("Frame", {
-		BackgroundColor3 = C.White,
+		BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 255, 255),
 		BorderSizePixel = 0,
-		Position = state and UDim2.new(0, 17, 0.5, -9) or UDim2.new(0, 3, 0.5, -9),
-		Size = UDim2.new(0, 18, 0, 18),
+		Position = state and UDim2.new(0, 20, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
+		Size = UDim2.new(0, 16, 0, 16),
 	}, track)
-	Corner(9, circle)
+	Corner(8, circle)
 
 	local inlineHint
 	if hasDescription then
@@ -6321,7 +6900,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 			Position = UDim2.new(0, 0, 0, 0),
 			Size = UDim2.new(0, 320, 0, 24),
 			AnchorPoint = Vector2.new(0, 0),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			Text = getFunctionHelpText(text, tooltipText),
 			TextColor3 = Color3.fromRGB(242, 242, 246),
 			TextSize = 14,
@@ -6332,7 +6911,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 			ZIndex = 10000030,
 		}, gui)
 		Corner(6, inlineHint)
-		local hintStroke = Stroke(Color3.fromRGB(32, 28, 40), 1, inlineHint)
+		local hintStroke = Stroke(Color3.fromRGB(10, 10, 14), 1, inlineHint)
 		hintStroke.Transparency = 0.2
 		hintStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 	end
@@ -6345,19 +6924,20 @@ function createToggle(parent, text, callback, tooltipText, options)
 	}, f)
 
 	local function applyToggleVisuals(animated)
-		local trackPos = state and UDim2.new(0, 19, 0.5, -9) or UDim2.new(0, 3, 0.5, -9)
-		local frameStrokeTransparency = state and 0 or 0.2
-		local frameStrokeColor = state and C.PurpleLine or C.Divider
+		local trackPos = state and UDim2.new(0, 21, 0.5, -8) or UDim2.new(0, 3, 0.5, -8)
+		local frameStrokeTransparency = state and 0.1 or 0.2
+		local frameStrokeColor = state and C.Purple or C.Divider
 		if animated then
 			UI_Tween(track, {BackgroundColor3 = state and C.ToggleOn or C.ToggleOff}, 0.2)
-			UI_Tween(trackStroke, {Color = state and C.Purple or C.Divider, Transparency = 0.15}, 0.2)
-			UI_Tween(circle, {Position = trackPos}, 0.22, Enum.EasingStyle.Quad)
+			UI_Tween(trackStroke, {Color = state and C.Purple or C.Divider, Transparency = 0.2}, 0.2)
+			UI_Tween(circle, {Position = trackPos, BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(255, 255, 255)}, 0.22, Enum.EasingStyle.Quad)
 			UI_Tween(stroke, {Transparency = frameStrokeTransparency, Color = frameStrokeColor}, 0.2)
 		else
 			track.BackgroundColor3 = state and C.ToggleOn or C.ToggleOff
 			trackStroke.Color = state and C.Purple or C.Divider
-			trackStroke.Transparency = 0.15
+			trackStroke.Transparency = 0.2
 			circle.Position = trackPos
+			circle.BackgroundColor3 = state and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 185, 200)
 			stroke.Transparency = frameStrokeTransparency
 			stroke.Color = frameStrokeColor
 		end
@@ -6372,7 +6952,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 		local shown = bindName
 		if not shown or shown == "" or shown == "None" then
 			shown = "--"
-			bindTag.TextColor3 = C.TxtDim
+			bindTag.TextColor3 = C.TxtWhite
 		else
 			if #shown > 6 then
 				shown = shown:sub(1, 6)
@@ -6462,7 +7042,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 				waitingForNextInput = true,
 				refreshBindTag = refreshBindTag,
 			}
-			gearBtn.TextColor3 = C.PurpleGlow
+			gearBtn.TextColor3 = C.TxtWhite
 			if bindTag then
 				bindTag.BackgroundColor3 = C.BindActive
 			end
@@ -6514,7 +7094,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 			activeBindHints[activeBindCapture.hint] = nil
 		end
 		if activeBindCapture.gear then
-			activeBindCapture.gear.TextColor3 = C.TxtMid
+			activeBindCapture.gear.TextColor3 = C.TxtWhite
 		end
 		if activeBindCapture.refreshBindTag then
 			activeBindCapture.refreshBindTag()
@@ -6567,13 +7147,13 @@ local playerButtons = {}
 local playersCategory = createCategory(playersPage, "Player List")
 
 -- Container para pesquisa e contador (com margem aumentada)
-local topContainer = Instance.new("Frame")
+topContainer = Instance.new("Frame")
 topContainer.Size = UDim2.new(1, 0, 0, 56)
 topContainer.BackgroundTransparency = 1
 topContainer.Parent = playersCategory
 
 -- Padding interno do topContainer para melhor respiraÃƒÂ§ÃƒÂ£o visual
-local topContainerPad = Instance.new("UIPadding")
+topContainerPad = Instance.new("UIPadding")
 topContainerPad.PaddingTop = UDim.new(0, 8)
 topContainerPad.PaddingBottom = UDim.new(0, 8)
 topContainerPad.PaddingLeft = UDim.new(0, 8)
@@ -6581,38 +7161,38 @@ topContainerPad.PaddingRight = UDim.new(0, 8)
 topContainerPad.Parent = topContainer
 
 -- Barra de pesquisa estilo Solix: ÃƒÂ­cone de lupa branco + "Search.."
-local searchWrap = Instance.new("Frame")
+searchWrap = Instance.new("Frame")
 searchWrap.Size = UDim2.new(0.7, -5, 1, 0)
 searchWrap.Position = UDim2.new(0, 0, 0, 0)
 	searchWrap.BackgroundColor3 = C.BgInput
 searchWrap.BorderSizePixel = 0
 searchWrap.Parent = topContainer
 Instance.new("UICorner", searchWrap).CornerRadius = UDim.new(0, 10)
-local searchWrapStroke = Instance.new("UIStroke")
+searchWrapStroke = Instance.new("UIStroke")
 	searchWrapStroke.Color = C.Divider
 searchWrapStroke.Thickness = 1
 searchWrapStroke.Transparency = 0.5
 searchWrapStroke.Parent = searchWrap
 
-local searchIcon = Instance.new("TextLabel")
+searchIcon = Instance.new("TextLabel")
 searchIcon.Size = UDim2.new(0, 36, 1, 0)
 searchIcon.Position = UDim2.new(0, 0, 0, 0)
 searchIcon.BackgroundTransparency = 1
 searchIcon.Text = ""
-searchIcon.Font = Enum.Font.Gotham
+searchIcon.Font = Enum.Font.GothamBold
 searchIcon.TextSize = 18
 searchIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
 searchIcon.Parent = searchWrap
 
-local searchBox = Instance.new("TextBox")
+searchBox = Instance.new("TextBox")
 searchBox.Size = UDim2.new(1, -40, 1, -8)
 searchBox.Position = UDim2.new(0, 36, 0, 4)
 searchBox.BackgroundTransparency = 1
 searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 searchBox.PlaceholderText = "Search.."
-searchBox.PlaceholderColor3 = Color3.fromRGB(160, 160, 180)
+	searchBox.PlaceholderColor3 = Color3.fromRGB(200, 200, 210)
 searchBox.Text = ""
-searchBox.Font = Enum.Font.Gotham
+searchBox.Font = Enum.Font.GothamBold
 searchBox.TextSize = 14
 searchBox.ClearTextOnFocus = false
 searchBox.BorderSizePixel = 0
@@ -6640,7 +7220,7 @@ searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 -- Contador de jogadores (estilo Solix: texto em roxo)
-local playerCounter = Instance.new("TextLabel")
+playerCounter = Instance.new("TextLabel")
 playerCounter.Size = UDim2.new(0.3, -5, 1, 0)
 playerCounter.Position = UDim2.new(0.7, 5, 0, 0)
 playerCounter.BackgroundColor3 = C.BgInput
@@ -6650,20 +7230,20 @@ playerCounter.TextSize = 14
 playerCounter.Text = "0 players"
 playerCounter.Parent = topContainer
 Instance.new("UICorner", playerCounter).CornerRadius = UDim.new(0, 10)
-local counterStroke = Instance.new("UIStroke")
+counterStroke = Instance.new("UIStroke")
 counterStroke.Color = SAKURA.surfaceLight
 counterStroke.Thickness = 1
 counterStroke.Transparency = 0.6
 counterStroke.Parent = playerCounter
 
 -- Container para lista e aÃƒÂ§ÃƒÂµes - MAIOR com padding interno
-local playersContainer = Instance.new("Frame")
+playersContainer = Instance.new("Frame")
 playersContainer.Size = UDim2.new(1, 0, 0, 580)
 playersContainer.BackgroundTransparency = 1
 playersContainer.Parent = playersCategory
 
 -- Padding interno do playersContainer
-local playersContainerPad = Instance.new("UIPadding")
+playersContainerPad = Instance.new("UIPadding")
 playersContainerPad.PaddingTop = UDim.new(0, 12)
 playersContainerPad.PaddingBottom = UDim.new(0, 12)
 playersContainerPad.PaddingLeft = UDim.new(0, 12)
@@ -6671,7 +7251,7 @@ playersContainerPad.PaddingRight = UDim.new(0, 12)
 playersContainerPad.Parent = playersContainer
 
 -- Lista de jogadores - 55% da largura, com margem aumentada
-local playersList = Instance.new("ScrollingFrame")
+playersList = Instance.new("ScrollingFrame")
 playersList.Size = UDim2.new(0.55, -12, 1, 0)
 playersList.Position = UDim2.new(0, 0, 0, 0)
 playersList.BackgroundColor3 = SAKURA.surface
@@ -6680,28 +7260,28 @@ playersList.ScrollBarThickness = 6
 playersList.Parent = playersContainer
 Instance.new("UICorner", playersList).CornerRadius = UDim.new(0, 12)
 
-local playersListPad = Instance.new("UIPadding")
+playersListPad = Instance.new("UIPadding")
 playersListPad.PaddingTop = UDim.new(0, 12)
 playersListPad.PaddingBottom = UDim.new(0, 12)
 playersListPad.PaddingLeft = UDim.new(0, 12)
 playersListPad.PaddingRight = UDim.new(0, 12)
 playersListPad.Parent = playersList
 
-local playersLayout = Instance.new("UIListLayout")
+playersLayout = Instance.new("UIListLayout")
 playersLayout.Padding = UDim.new(0, 10)
 playersLayout.Parent = playersList
 
 playersList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 
 -- Painel de aÃƒÂ§ÃƒÂµes - coluna direita com LINHA VERTICAL ROXA ÃƒÂ  esquerda (estilo Solix) - REDUZIDO
-local actionsPanel = Instance.new("Frame")
+actionsPanel = Instance.new("Frame")
 actionsPanel.Size = UDim2.new(0.43, -5, 0, 152)
 actionsPanel.Position = UDim2.new(0.57, 5, 0, 0)
 actionsPanel.BackgroundColor3 = SAKURA.buttonBg
 actionsPanel.BackgroundTransparency = 0
 actionsPanel.Parent = playersContainer
 Instance.new("UICorner", actionsPanel).CornerRadius = UDim.new(0, 12)
-local actionsPurpleLine = Instance.new("Frame")
+actionsPurpleLine = Instance.new("Frame")
 actionsPurpleLine.Size = UDim2.new(0, 4, 1, 0)
 actionsPurpleLine.Position = UDim2.new(0, 0, 0, 0)
 actionsPurpleLine.BackgroundColor3 = SAKURA.primary
@@ -6710,20 +7290,20 @@ actionsPurpleLine.Parent = actionsPanel
 Instance.new("UICorner", actionsPurpleLine).CornerRadius = UDim.new(0, 1)
 
 -- Wrapper com padding uniforme: tÃƒÂ­tulo e botÃƒÂµes alinhados ÃƒÂ  esquerda
-local actionsContentWrap = Instance.new("Frame")
+actionsContentWrap = Instance.new("Frame")
 actionsContentWrap.Size = UDim2.new(1, -4, 1, 0)
 actionsContentWrap.Position = UDim2.new(0, 4, 0, 0)
 actionsContentWrap.BackgroundTransparency = 1
 actionsContentWrap.Parent = actionsPanel
 
-local actionsWrapPad = Instance.new("UIPadding")
+actionsWrapPad = Instance.new("UIPadding")
 actionsWrapPad.PaddingTop = UDim.new(0, 14)
 actionsWrapPad.PaddingBottom = UDim.new(0, 14)
 actionsWrapPad.PaddingLeft = UDim.new(0, 14)
 actionsWrapPad.PaddingRight = UDim.new(0, 14)
 actionsWrapPad.Parent = actionsContentWrap
 
-local actionsTitle = Instance.new("TextLabel")
+actionsTitle = Instance.new("TextLabel")
 actionsTitle.Size = UDim2.new(1, 0, 0, 32)
 actionsTitle.Position = UDim2.new(0, 0, 0, 0)
 actionsTitle.BackgroundTransparency = 1
@@ -6734,13 +7314,13 @@ actionsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 actionsTitle.TextXAlignment = Enum.TextXAlignment.Left
 actionsTitle.Parent = actionsContentWrap
 
-local actionsContainer = Instance.new("Frame")
+actionsContainer = Instance.new("Frame")
 actionsContainer.Size = UDim2.new(1, 0, 1, -46)
 actionsContainer.Position = UDim2.new(0, 0, 0, 40)
 actionsContainer.BackgroundTransparency = 1
 actionsContainer.Parent = actionsContentWrap
 
-local actionsLayout = Instance.new("UIListLayout")
+actionsLayout = Instance.new("UIListLayout")
 actionsLayout.Padding = UDim.new(0, 12)
 actionsLayout.Parent = actionsContainer
 
@@ -6760,7 +7340,7 @@ function createActionToggle(text, callback)
 	local checkbox = Instance.new("TextButton")
 	checkbox.Size = UDim2.new(0, 22, 0, 22)
 	checkbox.Position = UDim2.new(0, 12, 0.5, -11)
-	checkbox.BackgroundColor3 = Color3.fromRGB(50, 48, 58)
+	checkbox.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 	checkbox.Text = ""
 	checkbox.Font = Enum.Font.GothamBold
 	checkbox.TextSize = 14
@@ -6768,7 +7348,7 @@ function createActionToggle(text, callback)
 	checkbox.Parent = toggleFrame
 	Instance.new("UICorner", checkbox).CornerRadius = UDim.new(0, 5)
 	local checkboxStroke = Instance.new("UIStroke")
-	checkboxStroke.Color = Color3.fromRGB(80, 75, 95)
+	checkboxStroke.Color = Color3.fromRGB(255, 255, 255)
 	checkboxStroke.Thickness = 1
 	checkboxStroke.Parent = checkbox
 
@@ -6778,7 +7358,7 @@ function createActionToggle(text, callback)
 	label.Position = UDim2.new(0, 42, 0, 0)
 	label.BackgroundTransparency = 1
 	label.Text = text
-	label.Font = Enum.Font.SourceSansBold
+	label.Font = Enum.Font.GothamBold
 	label.TextSize = 14
 	label.TextColor3 = Color3.fromRGB(255, 255, 255)
 	label.TextXAlignment = Enum.TextXAlignment.Left
@@ -6794,9 +7374,9 @@ function createActionToggle(text, callback)
 		enabled = not enabled
 
 		if enabled then
-			checkbox.BackgroundColor3 = SAKURA.primary
+			checkbox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 		else
-			checkbox.BackgroundColor3 = Color3.fromRGB(50, 48, 58)
+			checkbox.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
 		end
 
 		checkbox.Text = ""
@@ -6813,12 +7393,12 @@ function createActionToggle(text, callback)
 end
 
 -- BotÃƒÂ£o de teleporte (aÃƒÂ§ÃƒÂ£o ÃƒÂºnica, nÃƒÂ£o toggle)
-local tpBtn = Instance.new("TextButton")
+tpBtn = Instance.new("TextButton")
 tpBtn.Size = UDim2.new(1, 0, 0, 40)
 	tpBtn.BackgroundColor3 = SAKURA.primary
 tpBtn.BackgroundTransparency = 0.2
 tpBtn.Text = "TELEPORT"
-tpBtn.Font = Enum.Font.SourceSansBold
+tpBtn.Font = Enum.Font.GothamBold
 tpBtn.TextSize = 14
 tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tpBtn.Parent = actionsContainer
@@ -6835,12 +7415,34 @@ local spectateToggle = createActionToggle("SPECTATE", function(enabled)
 end)
 
 -- BotÃƒÂ£o Kill Player
-local killBtn = Instance.new("TextButton")
+infinitePushBtn = Instance.new("TextButton")
+infinitePushBtn.Size = UDim2.new(1, 0, 0, 40)
+	infinitePushBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+infinitePushBtn.BackgroundTransparency = 0.18
+infinitePushBtn.Text = "INFINITE PUSH"
+infinitePushBtn.Font = Enum.Font.GothamBold
+infinitePushBtn.TextSize = 14
+infinitePushBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+infinitePushBtn.Parent = actionsContainer
+Instance.new("UICorner", infinitePushBtn).CornerRadius = UDim.new(0, 8)
+
+infinitePushBtn.MouseButton1Click:Connect(function()
+	if infinitePushEnabled then
+		stopInfinitePush()
+		return
+	end
+
+	if selectedPlayer then
+		toggleInfinitePush(true)
+	end
+end)
+
+killBtn = Instance.new("TextButton")
 killBtn.Size = UDim2.new(1, 0, 0, 40)
 killBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
 killBtn.BackgroundTransparency = 0.2
 killBtn.Text = "KILL PLAYER"
-killBtn.Font = Enum.Font.SourceSansBold
+killBtn.Font = Enum.Font.GothamBold
 killBtn.TextSize = 14
 killBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 killBtn.Parent = actionsContainer
@@ -6863,12 +7465,12 @@ killBtn.MouseButton1Click:Connect(function()
 end)
 
 -- BotÃƒÂ£o Magnet + Kill Garantido
-local magnetKillBtn = Instance.new("TextButton")
+magnetKillBtn = Instance.new("TextButton")
 magnetKillBtn.Size = UDim2.new(1, 0, 0, 40)
-magnetKillBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+magnetKillBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
 magnetKillBtn.BackgroundTransparency = 0.2
 magnetKillBtn.Text = "MAGNET + KILL"
-magnetKillBtn.Font = Enum.Font.SourceSansBold
+magnetKillBtn.Font = Enum.Font.GothamBold
 magnetKillBtn.TextSize = 14
 magnetKillBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 magnetKillBtn.Parent = actionsContainer
@@ -6879,7 +7481,7 @@ magnetKillBtn.MouseButton1Click:Connect(function()
 		stopMagnet()
 		stopKilling()
 		magnetKillBtn.Text = "MAGNET + KILL"
-		magnetKillBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+		magnetKillBtn.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
 	else
 		if selectedPlayer then
 			magnetAndKill(selectedPlayer)
@@ -6892,6 +7494,7 @@ end)
 -- Esconder aÃƒÂ§ÃƒÂµes inicialmente
 tpBtn.Visible = false
 spectateToggle.Visible = false
+infinitePushBtn.Visible = false
 killBtn.Visible = false
 magnetKillBtn.Visible = false
 killBtn.Parent = nil
@@ -6902,6 +7505,7 @@ magnetKillBtn.Parent = nil
 -- Esconder aÃƒÂ§ÃƒÂµes inicialmente
 tpBtn.Visible = false
 spectateToggle.Visible = false
+infinitePushBtn.Visible = false
 killBtn.Visible = false
 
 -- FunÃƒÂ§ÃƒÂ£o simples para criar botÃƒÂ£o de jogador
@@ -6966,7 +7570,7 @@ function createPlayerButton(player)
 	if selectedPlayer == player then
 		selectionIndicator.Visible = true
 		btn.BackgroundColor3 = SAKURA.surfaceLight
-		nameLabel.TextColor3 = Color3.fromRGB(255, 214, 90)
+		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 	end
 
 	btn.MouseButton1Click:Connect(function()
@@ -6976,6 +7580,8 @@ function createPlayerButton(player)
 			if actionsPanel then actionsPanel.Visible = false end
 			if tpBtn then tpBtn.Visible = false end
 			if spectateToggle then spectateToggle.Visible = false end
+			if infinitePushBtn then infinitePushBtn.Visible = false end
+			stopInfinitePush()
 			return
 		end
 		
@@ -6985,11 +7591,12 @@ function createPlayerButton(player)
 				if label then label.TextColor3 = Color3.fromRGB(255, 255, 255) end
 			end
 		end
-		nameLabel.TextColor3 = Color3.fromRGB(255, 214, 90)
+		nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 		selectedPlayer = player
 		if actionsPanel then actionsPanel.Visible = true end
 		if tpBtn then tpBtn.Visible = true end
 		if spectateToggle then spectateToggle.Visible = true end
+		if infinitePushBtn then infinitePushBtn.Visible = true end
 		if spectateActive then
 			spectateActive = false
 			stopSpectate()
@@ -7072,31 +7679,31 @@ end)
 local espCategory = createCategory(espPage, "ESP Settings")
 
 -- ========= SUBCATEGORIA: VISUAL =========
-local espVisualSub = Instance.new("Frame")
+espVisualSub = Instance.new("Frame")
 espVisualSub.Size = UDim2.new(1, -20, 0, 0)
-espVisualSub.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
+	espVisualSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 espVisualSub.BackgroundTransparency = 0.3
 espVisualSub.Parent = espCategory
-Instance.new("UICorner", espVisualSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", espVisualSub).CornerRadius = UDim.new(0, 8)
 
-local espVisualTitle = Instance.new("TextLabel")
+espVisualTitle = Instance.new("TextLabel")
 espVisualTitle.Size = UDim2.new(1, -20, 0, 25)
 espVisualTitle.Position = UDim2.new(0, 10, 0, 5)
 espVisualTitle.BackgroundTransparency = 1
 espVisualTitle.Text = "VISUAL"
-espVisualTitle.Font = Enum.Font.SourceSansBold
+espVisualTitle.Font = Enum.Font.GothamBold
 espVisualTitle.TextSize = 14
-espVisualTitle.TextColor3 = Color3.fromRGB(139, 92, 246)
+	espVisualTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 espVisualTitle.TextXAlignment = Enum.TextXAlignment.Left
 espVisualTitle.Parent = espVisualSub
 
-local espVisualContent = Instance.new("Frame")
+espVisualContent = Instance.new("Frame")
 espVisualContent.Size = UDim2.new(1, -20, 1, -35)
 espVisualContent.Position = UDim2.new(0, 10, 0, 30)
 espVisualContent.BackgroundTransparency = 1
 espVisualContent.Parent = espVisualSub
 
-local espVisualLayout = Instance.new("UIListLayout")
+espVisualLayout = Instance.new("UIListLayout")
 espVisualLayout.Padding = UDim.new(0, 10)
 espVisualLayout.Parent = espVisualContent
 
@@ -7117,7 +7724,7 @@ end, "Turns the full ESP system on or off.", {
 })
 
 -- Nome: Toggle + Cor (com padding aumentado)
-local nameFrame = Instance.new("Frame")
+nameFrame = Instance.new("Frame")
 nameFrame.Size = UDim2.new(1, 0, 0, 46)
 nameFrame.BackgroundTransparency = 1
 nameFrame.Parent = espVisualContent
@@ -7134,14 +7741,14 @@ end, "Shows the names of visible players.")
 nameToggle.Size = UDim2.new(0.65, -5, 1, 0)
 nameToggle.Position = UDim2.new(0, 0, 0, 0)
 
-local nameColorBtn = Instance.new("TextButton")
+nameColorBtn = Instance.new("TextButton")
 nameColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
 nameColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
 nameColorBtn.BackgroundColor3 = espNameColor
 nameColorBtn.Text = "COLOR"
-nameColorBtn.Font = Enum.Font.SourceSansBold
+nameColorBtn.Font = Enum.Font.GothamBold
 nameColorBtn.TextSize = 18
-nameColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+	nameColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 nameColorBtn.Parent = nameFrame
 Instance.new("UICorner", nameColorBtn).CornerRadius = UDim.new(0, 10)
 
@@ -7160,7 +7767,7 @@ nameColorBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Vida (com padding aumentado)
-local healthFrame = Instance.new("Frame")
+healthFrame = Instance.new("Frame")
 healthFrame.Size = UDim2.new(1, 0, 0, 46)
 healthFrame.BackgroundTransparency = 1
 healthFrame.Parent = espVisualContent
@@ -7185,36 +7792,36 @@ end, "Exibe uma barra de vida 2D ao lado do jogador.")
 espVisualSub.Size = UDim2.new(1, -20, 0, espVisualLayout.AbsoluteContentSize.Y + 40)
 
 -- ========= SUBCATEGORIA: BOXES & TRACERS =========
-local espBoxesSub = Instance.new("Frame")
+espBoxesSub = Instance.new("Frame")
 espBoxesSub.Size = UDim2.new(1, -20, 0, 0)
-espBoxesSub.BackgroundColor3 = Color3.fromRGB(45, 25, 25)
+	espBoxesSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 espBoxesSub.BackgroundTransparency = 0.3
 espBoxesSub.Parent = espCategory
-Instance.new("UICorner", espBoxesSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", espBoxesSub).CornerRadius = UDim.new(0, 8)
 
-local espBoxesTitle = Instance.new("TextLabel")
+espBoxesTitle = Instance.new("TextLabel")
 espBoxesTitle.Size = UDim2.new(1, -20, 0, 25)
 espBoxesTitle.Position = UDim2.new(0, 10, 0, 5)
 espBoxesTitle.BackgroundTransparency = 1
 espBoxesTitle.Text = "BOXES & TRACERS"
-espBoxesTitle.Font = Enum.Font.SourceSansBold
+espBoxesTitle.Font = Enum.Font.GothamBold
 espBoxesTitle.TextSize = 14
-espBoxesTitle.TextColor3 = Color3.fromRGB(246, 139, 92)
+	espBoxesTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 espBoxesTitle.TextXAlignment = Enum.TextXAlignment.Left
 espBoxesTitle.Parent = espBoxesSub
 
-local espBoxesContent = Instance.new("Frame")
+espBoxesContent = Instance.new("Frame")
 espBoxesContent.Size = UDim2.new(1, -20, 1, -35)
 espBoxesContent.Position = UDim2.new(0, 10, 0, 30)
 espBoxesContent.BackgroundTransparency = 1
 espBoxesContent.Parent = espBoxesSub
 
-local espBoxesLayout = Instance.new("UIListLayout")
+espBoxesLayout = Instance.new("UIListLayout")
 espBoxesLayout.Padding = UDim.new(0, 10)
 espBoxesLayout.Parent = espBoxesContent
 
 -- Box 3D: Toggle + Cor (com padding aumentado)
-local boxFrame = Instance.new("Frame")
+boxFrame = Instance.new("Frame")
 boxFrame.Size = UDim2.new(1, 0, 0, 46)
 boxFrame.BackgroundTransparency = 1
 boxFrame.Parent = espBoxesContent
@@ -7233,12 +7840,12 @@ end, "Desenha uma caixa 3D ao redor do corpo do inimigo.")
 box3DToggle.Size = UDim2.new(0.65, -5, 1, 0)
 box3DToggle.Position = UDim2.new(0, 0, 0, 0)
 
-local boxColorBtn = Instance.new("TextButton")
+boxColorBtn = Instance.new("TextButton")
 boxColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
 boxColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
 boxColorBtn.BackgroundColor3 = espColor
 boxColorBtn.Text = "COLOR"
-boxColorBtn.Font = Enum.Font.SourceSansBold
+boxColorBtn.Font = Enum.Font.GothamBold
 boxColorBtn.TextSize = 18
 boxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 boxColorBtn.Parent = boxFrame
@@ -7253,7 +7860,7 @@ boxColorBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Tracers: Toggle + Cor (com padding aumentado)
-local tracersFrame = Instance.new("Frame")
+tracersFrame = Instance.new("Frame")
 tracersFrame.Size = UDim2.new(1, 0, 0, 46)
 tracersFrame.BackgroundTransparency = 1
 tracersFrame.Parent = espBoxesContent
@@ -7271,14 +7878,14 @@ end, "Draws a line to the exact position of each player.")
 tracersToggle.Size = UDim2.new(0.65, -5, 1, 0)
 tracersToggle.Position = UDim2.new(0, 0, 0, 0)
 
-local tracerColorBtn = Instance.new("TextButton")
+tracerColorBtn = Instance.new("TextButton")
 tracerColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
 tracerColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
 tracerColorBtn.BackgroundColor3 = espTracerColor
 tracerColorBtn.Text = "COLOR"
-tracerColorBtn.Font = Enum.Font.SourceSansBold
+tracerColorBtn.Font = Enum.Font.GothamBold
 tracerColorBtn.TextSize = 18
-tracerColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+	tracerColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tracerColorBtn.Parent = tracersFrame
 Instance.new("UICorner", tracerColorBtn).CornerRadius = UDim.new(0, 10)
 
@@ -7292,7 +7899,7 @@ tracerColorBtn.MouseButton1Click:Connect(function()
 end)
 
 -- DistÃƒÂ¢ncia: Toggle + Cor (com padding aumentado)
-local distFrame = Instance.new("Frame")
+distFrame = Instance.new("Frame")
 distFrame.Size = UDim2.new(1, 0, 0, 46)
 distFrame.BackgroundTransparency = 1
 distFrame.Parent = espBoxesContent
@@ -7309,14 +7916,14 @@ end, "Shows the distance between you and the target in studs.")
 espDistToggle.Size = UDim2.new(0.65, -5, 1, 0)
 espDistToggle.Position = UDim2.new(0, 0, 0, 0)
 
-local distColorBtn = Instance.new("TextButton")
+distColorBtn = Instance.new("TextButton")
 distColorBtn.Size = UDim2.new(0.35, -5, 1, 0)
 distColorBtn.Position = UDim2.new(0.65, 5, 0, 0)
 distColorBtn.BackgroundColor3 = espDistanceColor
 distColorBtn.Text = "COLOR"
-distColorBtn.Font = Enum.Font.SourceSansBold
+distColorBtn.Font = Enum.Font.GothamBold
 distColorBtn.TextSize = 18
-distColorBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+	distColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 distColorBtn.Parent = distFrame
 Instance.new("UICorner", distColorBtn).CornerRadius = UDim.new(0, 10)
 
@@ -7330,7 +7937,7 @@ distColorBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Outros toggles (com padding aumentado)
-local skeletonFrame = Instance.new("Frame")
+skeletonFrame = Instance.new("Frame")
 skeletonFrame.Size = UDim2.new(1, 0, 0, 46)
 skeletonFrame.BackgroundTransparency = 1
 skeletonFrame.Parent = espBoxesContent
@@ -7344,46 +7951,46 @@ end, "Highlights the full player body through walls with an outline.")
 espBoxesSub.Size = UDim2.new(1, -20, 0, espBoxesLayout.AbsoluteContentSize.Y + 40)
 
 -- ========= SUBCATEGORIA: CONFIGURAÃƒâ€¡Ãƒâ€¢ES =========
-local espConfigSub = Instance.new("Frame")
+espConfigSub = Instance.new("Frame")
 espConfigSub.Size = UDim2.new(1, -20, 0, 0)
-espConfigSub.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
+	espConfigSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 espConfigSub.BackgroundTransparency = 0.3
 espConfigSub.Parent = espCategory
-Instance.new("UICorner", espConfigSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", espConfigSub).CornerRadius = UDim.new(0, 8)
 
-local espConfigTitle = Instance.new("TextLabel")
+espConfigTitle = Instance.new("TextLabel")
 espConfigTitle.Size = UDim2.new(1, -20, 0, 25)
 espConfigTitle.Position = UDim2.new(0, 10, 0, 5)
 espConfigTitle.BackgroundTransparency = 1
 espConfigTitle.Text = "CONFIGURACOES"
-espConfigTitle.Font = Enum.Font.SourceSansBold
+espConfigTitle.Font = Enum.Font.GothamBold
 espConfigTitle.TextSize = 14
-espConfigTitle.TextColor3 = Color3.fromRGB(92, 246, 139)
+	espConfigTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 espConfigTitle.TextXAlignment = Enum.TextXAlignment.Left
 espConfigTitle.Parent = espConfigSub
 
-local espConfigContent = Instance.new("Frame")
+espConfigContent = Instance.new("Frame")
 espConfigContent.Size = UDim2.new(1, -20, 1, -35)
 espConfigContent.Position = UDim2.new(0, 10, 0, 30)
 espConfigContent.BackgroundTransparency = 1
 espConfigContent.Parent = espConfigSub
 
-local espConfigLayout = Instance.new("UIListLayout")
+espConfigLayout = Instance.new("UIListLayout")
 espConfigLayout.Padding = UDim.new(0, 10)
 espConfigLayout.Parent = espConfigContent
 
 -- ConfiguraÃƒÂ§ÃƒÂµes avanÃƒÂ§adas (com padding aumentado)
-local modeFrame = Instance.new("Frame")
+modeFrame = Instance.new("Frame")
 modeFrame.Size = UDim2.new(1, 0, 0, 46)
 modeFrame.BackgroundTransparency = 1
 modeFrame.Parent = espConfigContent
 
-local modeBtn = Instance.new("TextButton")
+modeBtn = Instance.new("TextButton")
 modeBtn.Size = UDim2.new(1, 0, 0, 40)
 modeBtn.BackgroundColor3 = SAKURA.primary
 modeBtn.BackgroundTransparency = 0.2
 modeBtn.Text = "Modo: " .. espMode
-modeBtn.Font = Enum.Font.SourceSans
+modeBtn.Font = Enum.Font.GothamBold
 modeBtn.TextSize = 14
 modeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 modeBtn.Parent = modeFrame
@@ -7395,7 +8002,7 @@ modeBtn.MouseButton1Click:Connect(function()
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
 
-local autoEspFrame = Instance.new("Frame")
+autoEspFrame = Instance.new("Frame")
 autoEspFrame.Size = UDim2.new(1, 0, 0, 46)
 autoEspFrame.BackgroundTransparency = 1
 autoEspFrame.Parent = espConfigContent
@@ -7405,17 +8012,17 @@ local autoEspToggle = createToggle(autoEspFrame, "Auto ESP (Visible/Hidden)", fu
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end, "ESP color changes if the target is visible or behind a wall.")
 
-local tracerModeFrame = Instance.new("Frame")
+tracerModeFrame = Instance.new("Frame")
 tracerModeFrame.Size = UDim2.new(1, 0, 0, 46)
 tracerModeFrame.BackgroundTransparency = 1
 tracerModeFrame.Parent = espConfigContent
 
-local tracerModeBtn = Instance.new("TextButton")
+tracerModeBtn = Instance.new("TextButton")
 tracerModeBtn.Size = UDim2.new(1, 0, 0, 40)
 tracerModeBtn.BackgroundColor3 = SAKURA.primary
 tracerModeBtn.BackgroundTransparency = 0.2
 tracerModeBtn.Text = "Modo Tracer: " .. tracerMode
-tracerModeBtn.Font = Enum.Font.SourceSans
+tracerModeBtn.Font = Enum.Font.GothamBold
 tracerModeBtn.TextSize = 14
 tracerModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 tracerModeBtn.Parent = tracerModeFrame
@@ -7427,38 +8034,38 @@ tracerModeBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ESP Distance Slider (com padding aumentado)
-local espDistanceFrame = Instance.new("Frame")
+espDistanceFrame = Instance.new("Frame")
 espDistanceFrame.Size = UDim2.new(1, 0, 0, 50)
 espDistanceFrame.BackgroundTransparency = 1
 espDistanceFrame.Parent = espConfigContent
 
-local espDistTitle = Instance.new("TextLabel")
+espDistTitle = Instance.new("TextLabel")
 espDistTitle.BackgroundTransparency = 1
 espDistTitle.Size = UDim2.new(0.4, 0, 0, 14)
-espDistTitle.Font = Enum.Font.SourceSansBold
+espDistTitle.Font = Enum.Font.GothamBold
 espDistTitle.TextSize = 14
 espDistTitle.TextColor3 = SAKURA.secondary
 espDistTitle.Text = "ESP Distance"
 espDistTitle.Parent = espDistanceFrame
 
-local espDistLabel = Instance.new("TextLabel")
+espDistLabel = Instance.new("TextLabel")
 espDistLabel.BackgroundTransparency = 1
 espDistLabel.Size = UDim2.new(0.6, 0, 0, 14)
 espDistLabel.Position = UDim2.new(0.4, 0, 0, 0)
-espDistLabel.Font = Enum.Font.SourceSans
+espDistLabel.Font = Enum.Font.GothamBold
 espDistLabel.TextSize = 14
 espDistLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 espDistLabel.Text = ESP_MAX_DISTANCE
 espDistLabel.Parent = espDistanceFrame
 
-local espDistSlider = Instance.new("Frame")
+espDistSlider = Instance.new("Frame")
 espDistSlider.Size = UDim2.new(0.8, 0, 0, 16)
 espDistSlider.Position = UDim2.new(0.1, 0, 0, 16)
 espDistSlider.BackgroundColor3 = COLOR_SLIDER_TRACK
 espDistSlider.Parent = espDistanceFrame
 Instance.new("UICorner", espDistSlider).CornerRadius = UDim.new(0, 5)
 
-local espDistFill = Instance.new("Frame")
+espDistFill = Instance.new("Frame")
 espDistFill.Size = UDim2.fromScale(ESP_MAX_DISTANCE / 500, 1)
 espDistFill.BackgroundColor3 = COLOR_NEON_PINK
 espDistFill.Parent = espDistSlider
@@ -7488,7 +8095,7 @@ UserInputService.InputChanged:Connect(function(input)
 end)
 
 -- ESP Position Selector (com padding aumentado)
-local positionFrame = Instance.new("Frame")
+positionFrame = Instance.new("Frame")
 positionFrame.Size = UDim2.new(1, 0, 0, 46)
 positionFrame.BackgroundTransparency = 1
 positionFrame.Parent = espConfigContent
@@ -7496,12 +8103,12 @@ positionFrame.Parent = espConfigContent
 -- Atualizar tamanho da subcategoria config
 espConfigSub.Size = UDim2.new(1, -20, 0, espConfigLayout.AbsoluteContentSize.Y + 40)
 
-local positionBtn = Instance.new("TextButton")
+positionBtn = Instance.new("TextButton")
 positionBtn.Size = UDim2.new(1, 0, 0, 40)
 positionBtn.BackgroundColor3 = SAKURA.primary
 positionBtn.BackgroundTransparency = 0.2
 positionBtn.Text = "Position: " .. espPosition
-positionBtn.Font = Enum.Font.SourceSans
+positionBtn.Font = Enum.Font.GothamBold
 positionBtn.TextSize = 14
 positionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 positionBtn.Parent = positionFrame
@@ -7523,100 +8130,107 @@ end)
 local rageCategory = createCategory(aimbotPage, "Aim")
 
 -- ========= SUBCATEGORIA: CONFIGURAÃƒâ€¡Ãƒâ€¢ES =========
-local aimbotConfigSub = Instance.new("Frame")
+aimbotConfigSub = Instance.new("Frame")
 aimbotConfigSub.Size = UDim2.new(1, -20, 0, 0)
-aimbotConfigSub.BackgroundColor3 = Color3.fromRGB(45, 25, 45)
+	aimbotConfigSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 aimbotConfigSub.BackgroundTransparency = 0.3
 aimbotConfigSub.Parent = rageCategory
-Instance.new("UICorner", aimbotConfigSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", aimbotConfigSub).CornerRadius = UDim.new(0, 8)
 
-local aimbotConfigTitle = Instance.new("TextLabel")
+aimbotConfigTitle = Instance.new("TextLabel")
 aimbotConfigTitle.Size = UDim2.new(1, -20, 0, 25)
 aimbotConfigTitle.Position = UDim2.new(0, 10, 0, 5)
 aimbotConfigTitle.BackgroundTransparency = 1
 aimbotConfigTitle.Text = "AIMBOT SETTINGS"
-aimbotConfigTitle.Font = Enum.Font.SourceSansBold
+aimbotConfigTitle.Font = Enum.Font.GothamBold
 aimbotConfigTitle.TextSize = 14
-aimbotConfigTitle.TextColor3 = Color3.fromRGB(200, 100, 200)
+	aimbotConfigTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 aimbotConfigTitle.TextXAlignment = Enum.TextXAlignment.Left
 aimbotConfigTitle.Parent = aimbotConfigSub
 
-local aimbotConfigContent = Instance.new("Frame")
+aimbotConfigContent = Instance.new("Frame")
 aimbotConfigContent.Size = UDim2.new(1, -20, 1, -35)
 aimbotConfigContent.Position = UDim2.new(0, 10, 0, 30)
 aimbotConfigContent.BackgroundTransparency = 1
 aimbotConfigContent.Parent = aimbotConfigSub
 
-local aimbotConfigLayout = Instance.new("UIListLayout")
+aimbotConfigLayout = Instance.new("UIListLayout")
 aimbotConfigLayout.Padding = UDim.new(0, 10)
 aimbotConfigLayout.Parent = aimbotConfigContent
 
 -- NOVO: Subcategoria Auto Kill
-local autoKillSub = Instance.new("Frame")
+autoKillSub = Instance.new("Frame")
 autoKillSub.Size = UDim2.new(1, -20, 0, 0)
-autoKillSub.BackgroundColor3 = Color3.fromRGB(45, 25, 25)
+	autoKillSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 autoKillSub.BackgroundTransparency = 0.3
 autoKillSub.Parent = rageCategory
 autoKillSub.LayoutOrder = 2
-Instance.new("UICorner", autoKillSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", autoKillSub).CornerRadius = UDim.new(0, 8)
 
-local autoKillTitle = Instance.new("TextLabel")
+autoKillTitle = Instance.new("TextLabel")
 autoKillTitle.Size = UDim2.new(1, -20, 0, 25)
 autoKillTitle.Position = UDim2.new(0, 10, 0, 5)
 autoKillTitle.BackgroundTransparency = 1
 autoKillTitle.Text = "AUTO KILL SYSTEM"
-autoKillTitle.Font = Enum.Font.SourceSansBold
+autoKillTitle.Font = Enum.Font.GothamBold
 autoKillTitle.TextSize = 14
-autoKillTitle.TextColor3 = Color3.fromRGB(246, 92, 92)
+	autoKillTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoKillTitle.TextXAlignment = Enum.TextXAlignment.Left
 autoKillTitle.Parent = autoKillSub
 
-local autoKillContent = Instance.new("Frame")
+autoKillContent = Instance.new("Frame")
 autoKillContent.Size = UDim2.new(1, -20, 1, -35)
 autoKillContent.Position = UDim2.new(0, 10, 0, 30)
 autoKillContent.BackgroundTransparency = 1
 autoKillContent.Parent = autoKillSub
 
-local autoKillLayout = Instance.new("UIListLayout")
+autoKillLayout = Instance.new("UIListLayout")
 autoKillLayout.Padding = UDim.new(0, 10)
 autoKillLayout.Parent = autoKillContent
 
 -- NOVO: Subcategoria Combat
-local combatSub = Instance.new("Frame")
+combatSub = Instance.new("Frame")
 combatSub.Size = UDim2.new(1, -20, 0, 0)
-combatSub.BackgroundColor3 = Color3.fromRGB(25, 45, 45)
+	combatSub.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 combatSub.BackgroundTransparency = 0.3
 combatSub.Parent = rageCategory
 combatSub.LayoutOrder = 3
-Instance.new("UICorner", combatSub).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", combatSub).CornerRadius = UDim.new(0, 8)
 
-local combatTitle = Instance.new("TextLabel")
+combatTitle = Instance.new("TextLabel")
 combatTitle.Size = UDim2.new(1, -20, 0, 25)
 combatTitle.Position = UDim2.new(0, 10, 0, 5)
 combatTitle.BackgroundTransparency = 1
 combatTitle.Text = "COMBAT & EXPLOITS"
-combatTitle.Font = Enum.Font.SourceSansBold
+combatTitle.Font = Enum.Font.GothamBold
 combatTitle.TextSize = 14
-combatTitle.TextColor3 = Color3.fromRGB(92, 246, 246)
+	combatTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 combatTitle.TextXAlignment = Enum.TextXAlignment.Left
 combatTitle.Parent = combatSub
 
-local combatContent = Instance.new("Frame")
+combatContent = Instance.new("Frame")
 combatContent.Size = UDim2.new(1, -20, 1, -35)
 combatContent.Position = UDim2.new(0, 10, 0, 30)
 combatContent.BackgroundTransparency = 1
 combatContent.Parent = combatSub
 
-local combatLayout = Instance.new("UIListLayout")
+combatLayout = Instance.new("UIListLayout")
 combatLayout.Padding = UDim.new(0, 10)
 combatLayout.Parent = combatContent
 
 -- Toggles organizados em grid 2x2
-local togglesFrame = Instance.new("Frame")
+togglesFrame = Instance.new("Frame")
 togglesFrame.Size = UDim2.new(1, 0, 0, 110)
 togglesFrame.BackgroundTransparency = 1
 togglesFrame.LayoutOrder = 1
 togglesFrame.Parent = aimbotConfigContent
+
+local togglesGrid = Instance.new("UIGridLayout")
+togglesGrid.CellSize = UDim2.new(0.48, 0, 0, 48)
+togglesGrid.CellPadding = UDim2.new(0.02, 0, 0, 6)
+togglesGrid.FillDirectionMaxCells = 2
+togglesGrid.SortOrder = Enum.SortOrder.LayoutOrder
+togglesGrid.Parent = togglesFrame
 
 local aimbotToggle = createToggle(togglesFrame, "Aimbot", function(enabled)
 	aimbotEnabled = enabled
@@ -7629,15 +8243,16 @@ end, "Locks aim onto the closest target on screen.", {
 		aimbotBindString = bindDisplayName(bindValue, bindName)
 	end,
 })
-aimbotToggle.Position = UDim2.new(0, 0, 0, 0)
-aimbotToggle.Size = UDim2.new(0.48, 0, 0, 50)
+aimbotToggle.LayoutOrder = 1
+
+toggleBindActions["aimbot"] = nil
+toggleBindGetters["aimbot"] = nil
 
 
 local visibleToggle = createToggle(togglesFrame, "Visible Only", function(enabled)
 	aimbotOnlyVisible = enabled
 end, "Aimbot and Autofire ignore enemies hidden behind walls.")
-visibleToggle.Position = UDim2.new(0, 0, 0, 55)
-visibleToggle.Size = UDim2.new(0.48, 0, 0, 50)
+visibleToggle.LayoutOrder = 2
 
 local mobileToggle = createToggle(togglesFrame, "FOV", function(enabled)
 	-- "FOV" toggle: ativa comportamento mobile DO AIMBOT e tambÃƒÂ©m mostra/oculta o cÃƒÂ­rculo FOV
@@ -7664,7 +8279,7 @@ local mobileToggle = createToggle(togglesFrame, "FOV", function(enabled)
 			cr.Parent = circle
 
 			local stroke = Instance.new("UIStroke")
-			stroke.Color = Color3.fromRGB(218, 112, 214)
+			stroke.Color = Color3.fromRGB(35, 35, 42)
 			stroke.Thickness = 2
 			stroke.Parent = circle
 
@@ -7684,8 +8299,7 @@ local mobileToggle = createToggle(togglesFrame, "FOV", function(enabled)
 		end
 	end
 end)
-mobileToggle.Position = UDim2.new(0.52, 0, 0, 55)
-mobileToggle.Size = UDim2.new(0.48, 0, 0, 50)
+mobileToggle.LayoutOrder = 3
 
 -- Auto Kill Toggle - Sistema Ultra Agressivo
 autoKillEnabled = false
@@ -7923,9 +8537,9 @@ end, "Auto Kill keeps the target locked to Head only.", {
 	end,
 })
 -- Status Display
-local autoKillStatusLabel = Instance.new("TextLabel")
+autoKillStatusLabel = Instance.new("TextLabel")
 autoKillStatusLabel.Size = UDim2.new(1, 0, 0, 30)
-autoKillStatusLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	autoKillStatusLabel.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 autoKillStatusLabel.BackgroundTransparency = 0.3
 autoKillStatusLabel.Text = "Status: Off"
 autoKillStatusLabel.Font = Enum.Font.GothamBold
@@ -8008,17 +8622,17 @@ end)
 
 -- Alvo fixo para Auto Kill
 aimbotTarget = "Head"
-local targetDropdownFrame = Instance.new("Frame")
+targetDropdownFrame = Instance.new("Frame")
 targetDropdownFrame.Size = UDim2.new(1, 0, 0, 50)
 targetDropdownFrame.BackgroundTransparency = 1
 targetDropdownFrame.Parent = autoKillContent
 
-local targetDropdownBtn = Instance.new("TextButton")
+targetDropdownBtn = Instance.new("TextButton")
 targetDropdownBtn.Size = UDim2.new(1, 0, 0, 40)
 targetDropdownBtn.BackgroundColor3 = C.BgInput
 targetDropdownBtn.BorderSizePixel = 0
 targetDropdownBtn.Text = "Target: Head"
-targetDropdownBtn.Font = Enum.Font.Gotham
+targetDropdownBtn.Font = Enum.Font.GothamBold
 targetDropdownBtn.TextSize = 14
 targetDropdownBtn.TextColor3 = C.TxtWhite
 targetDropdownBtn.Parent = targetDropdownFrame
@@ -8030,22 +8644,22 @@ targetDropdownBtn.AutoButtonColor = false
 
 
 -- FOV Slider compacto - Mais pequeno e mais grosso COM BORDA
-local fovFrame = Instance.new("Frame")
+fovFrame = Instance.new("Frame")
 fovFrame.Size = UDim2.new(1, 0, 0, 55)
 fovFrame.BackgroundColor3 = C.BgCard
 fovFrame.BackgroundTransparency = 0
 fovFrame.Parent = aimbotConfigContent
 Corner(10, fovFrame)
-local fovFrameStroke = Stroke(C.PurpleLine, 2, fovFrame)
+fovFrameStroke = Stroke(C.PurpleLine, 2, fovFrame)
 fovFrameStroke.Transparency = 0.7
-local fovFramePad = New("UIPadding", {
+fovFramePad = New("UIPadding", {
 	PaddingLeft = UDim.new(0, 14),
 	PaddingRight = UDim.new(0, 14),
 	PaddingTop = UDim.new(0, 10),
 	PaddingBottom = UDim.new(0, 10)
 }, fovFrame)
 
-local fovTitle = Instance.new("TextLabel")
+fovTitle = Instance.new("TextLabel")
 fovTitle.BackgroundTransparency = 1
 fovTitle.Size = UDim2.new(0.4, 0, 0, 16)
 fovTitle.Font = Enum.Font.GothamBold
@@ -8054,42 +8668,42 @@ fovTitle.TextColor3 = C.TxtWhite
 fovTitle.Text = "FOV"
 fovTitle.Parent = fovFrame
 
-local fovLabel = Instance.new("TextLabel")
+fovLabel = Instance.new("TextLabel")
 fovLabel.BackgroundTransparency = 1
 fovLabel.Size = UDim2.new(0.3, 0, 0, 16)
 fovLabel.Position = UDim2.new(0.4, 0, 0, 0)
 fovLabel.Font = Enum.Font.GothamBold
 fovLabel.TextSize = 15
-fovLabel.TextColor3 = C.PurpleGlow
+fovLabel.TextColor3 = C.TxtWhite
 fovLabel.Text = aimbotFOV
 fovLabel.Parent = fovFrame
 
-local fovInput = Instance.new("TextBox")
+fovInput = Instance.new("TextBox")
 fovInput.Size = UDim2.new(0.3, 0, 0, 14)
 fovInput.Position = UDim2.new(0.7, 0, 0, 0)
 fovInput.BackgroundColor3 = C.BgInput
 fovInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 fovInput.Text = tostring(aimbotFOV)
-fovInput.Font = Enum.Font.SourceSans
+fovInput.Font = Enum.Font.GothamBold
 fovInput.TextSize = 13
 fovInput.Parent = fovFrame
 Instance.new("UICorner", fovInput).CornerRadius = UDim.new(0, 4)
 
-local fovSlider = Instance.new("Frame")
+fovSlider = Instance.new("Frame")
 fovSlider.Size = UDim2.new(0.8, 0, 0, 8)
 fovSlider.Position = UDim2.new(0.1, 0, 0, 20)
 fovSlider.BackgroundColor3 = C.SliderBg
 fovSlider.Parent = fovFrame
 Instance.new("UICorner", fovSlider).CornerRadius = UDim.new(0, 4)
-local fovSliderStroke = Stroke(C.Divider, 1, fovSlider)
+fovSliderStroke = Stroke(C.Divider, 1, fovSlider)
 fovSliderStroke.Transparency = 0.6
 
-local fovFill = Instance.new("Frame")
+fovFill = Instance.new("Frame")
 fovFill.Size = UDim2.fromScale(aimbotFOV / 200, 1)
-fovFill.BackgroundColor3 = C.Purple
+	fovFill.BackgroundColor3 = C.TxtWhite
 fovFill.Parent = fovSlider
 Instance.new("UICorner", fovFill).CornerRadius = UDim.new(0, 4)
-local fovFillStroke = Stroke(C.PurpleGlow, 1, fovFill)
+fovFillStroke = Stroke(C.TxtWhite, 1, fovFill)
 fovFillStroke.Transparency = 0.3
 
 local fovDragging = false
@@ -8150,49 +8764,49 @@ smoothFrame.BackgroundColor3 = C.BgCard
 smoothFrame.BackgroundTransparency = 0
 smoothFrame.Parent = aimbotConfigContent
 Corner(10, smoothFrame)
-local smoothFrameStroke = Stroke(C.PurpleLine, 2, smoothFrame)
+smoothFrameStroke = Stroke(C.PurpleLine, 2, smoothFrame)
 smoothFrameStroke.Transparency = 0.7
-local smoothFramePad = New("UIPadding", {
+smoothFramePad = New("UIPadding", {
 	PaddingLeft = UDim.new(0, 14),
 	PaddingRight = UDim.new(0, 14),
 	PaddingTop = UDim.new(0, 10),
 	PaddingBottom = UDim.new(0, 10)
 }, smoothFrame)
 
-local smoothTitle = Instance.new("TextLabel")
+smoothTitle = Instance.new("TextLabel")
 smoothTitle.BackgroundTransparency = 1
 smoothTitle.Size = UDim2.new(0.5, 0, 0, 16)
 smoothTitle.Font = Enum.Font.GothamBold
 smoothTitle.TextSize = 15
 smoothTitle.TextColor3 = C.TxtWhite
-smoothTitle.Text = "Smooth (0=Melhor)"
+smoothTitle.Text = "Smooth"
 smoothTitle.Parent = smoothFrame
 
-local smoothLabel = Instance.new("TextLabel")
+smoothLabel = Instance.new("TextLabel")
 smoothLabel.BackgroundTransparency = 1
 smoothLabel.Size = UDim2.new(0.5, 0, 0, 16)
 smoothLabel.Position = UDim2.new(0.5, 0, 0, 0)
 smoothLabel.Font = Enum.Font.GothamBold
 smoothLabel.TextSize = 15
-smoothLabel.TextColor3 = C.PurpleGlow
+smoothLabel.TextColor3 = C.TxtWhite
 smoothLabel.Text = aimbotSmooth
 smoothLabel.Parent = smoothFrame
 
-local smoothSlider = Instance.new("Frame")
+smoothSlider = Instance.new("Frame")
 smoothSlider.Size = UDim2.new(0.8, 0, 0, 8)
 smoothSlider.Position = UDim2.new(0.1, 0, 0, 20)
 smoothSlider.BackgroundColor3 = C.SliderBg
 smoothSlider.Parent = smoothFrame
 Instance.new("UICorner", smoothSlider).CornerRadius = UDim.new(0, 4)
-local smoothSliderStroke = Stroke(C.Divider, 1, smoothSlider)
+smoothSliderStroke = Stroke(C.Divider, 1, smoothSlider)
 smoothSliderStroke.Transparency = 0.6
 
-local smoothFill = Instance.new("Frame")
+smoothFill = Instance.new("Frame")
 smoothFill.Size = UDim2.fromScale(aimbotSmooth / 20, 1)
-smoothFill.BackgroundColor3 = C.Purple
+	smoothFill.BackgroundColor3 = C.TxtWhite
 smoothFill.Parent = smoothSlider
 Instance.new("UICorner", smoothFill).CornerRadius = UDim.new(0, 4)
-local smoothFillStroke = Stroke(C.PurpleGlow, 1, smoothFill)
+smoothFillStroke = Stroke(C.TxtWhite, 1, smoothFill)
 smoothFillStroke.Transparency = 0.3
 
 local smoothDragging = false
@@ -8414,9 +9028,9 @@ hitboxSliderLabel = Instance.new("TextLabel")
 hitboxSliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
 hitboxSliderLabel.BackgroundTransparency = 1
 hitboxSliderLabel.Text = "Size: " .. hitboxSize
-hitboxSliderLabel.Font = Enum.Font.SourceSansBold
+hitboxSliderLabel.Font = Enum.Font.GothamBold
 hitboxSliderLabel.TextSize = 13
-hitboxSliderLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+hitboxSliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 hitboxSliderLabel.TextXAlignment = Enum.TextXAlignment.Left
 hitboxSliderLabel.Parent = hitboxSliderFrame
 
@@ -8427,7 +9041,7 @@ hitboxSliderInput.BackgroundColor3 = C.BgInput
 hitboxSliderInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 hitboxSliderInput.PlaceholderText = "1-100"
 hitboxSliderInput.Text = tostring(hitboxSize)
-hitboxSliderInput.Font = Enum.Font.SourceSans
+hitboxSliderInput.Font = Enum.Font.GothamBold
 hitboxSliderInput.TextSize = 14
 hitboxSliderInput.ClearTextOnFocus = false
 hitboxSliderInput.Parent = hitboxSliderFrame
@@ -8442,7 +9056,7 @@ hitboxSliderInput:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 -- NOVO: CustomizaÃƒÂ§ÃƒÂ£o de Hitbox (Cor e Visibilidade)
-_G.hitboxColor = Color3.fromRGB(0, 150, 255)
+_G.hitboxColor = Color3.fromRGB(35, 35, 42)
 _G.hitboxVisible = true -- Bordas visÃƒÂ­veis por defeito
 
 hitboxOptionsFrame = Instance.new("Frame")
@@ -8454,7 +9068,7 @@ hitboxColorBtn = Instance.new("TextButton")
 hitboxColorBtn.Size = UDim2.new(0.5, -5, 0, 35)
 hitboxColorBtn.BackgroundColor3 = _G.hitboxColor
 hitboxColorBtn.Text = "Mudar Cor"
-hitboxColorBtn.Font = Enum.Font.SourceSansBold
+hitboxColorBtn.Font = Enum.Font.GothamBold
 hitboxColorBtn.TextSize = 13
 hitboxColorBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 hitboxColorBtn.Parent = hitboxOptionsFrame
@@ -8487,7 +9101,7 @@ hitboxShowToggle.Size = UDim2.new(0.5, -5, 0, 40)
 hitboxShowToggle.Position = UDim2.new(0.5, 5, 0, -5)
 
 hbColors = {
-	Color3.fromRGB(0, 150, 255), -- Azul
+	Color3.fromRGB(35, 35, 42), -- Azul
 	Color3.fromRGB(255, 0, 0),   -- Vermelho
 	Color3.fromRGB(0, 255, 0),   -- Verde
 	Color3.fromRGB(255, 255, 0), -- Amarelo
@@ -8613,10 +9227,28 @@ end, "Fires automatically when Aimbot has a clear target.", {
 thirdPersonToggle = createToggle(combatContent, "Third Person", function(enabled)
 	if enabled then
 		LocalPlayer.CameraMaxZoomDistance = 100
-		LocalPlayer.CameraMinZoomDistance = 12 -- Force third-person view
+		LocalPlayer.CameraMinZoomDistance = 12
+		Camera.CameraType = Enum.CameraType.Custom
+
+		if _G._nightThirdPersonLoop then _G._nightThirdPersonLoop:Disconnect() end
+		_G._nightThirdPersonLoop = RunService.RenderStepped:Connect(function()
+			if not enabled then return end
+			local char = LocalPlayer.Character
+			if char and char:FindFirstChildOfClass("Humanoid") then
+				LocalPlayer.CameraMinZoomDistance = 12
+				LocalPlayer.CameraMaxZoomDistance = 100
+				if Camera.CameraType ~= Enum.CameraType.Custom then
+					Camera.CameraType = Enum.CameraType.Custom
+				end
+			end
+		end)
 	else
 		LocalPlayer.CameraMaxZoomDistance = 400
-		LocalPlayer.CameraMinZoomDistance = 0.5 -- Restore default zoom
+		LocalPlayer.CameraMinZoomDistance = 0.5
+		if _G._nightThirdPersonLoop then
+			_G._nightThirdPersonLoop:Disconnect()
+			_G._nightThirdPersonLoop = nil
+		end
 	end
 end, "Forces your character into a third-person view.", {
 	bindId = "thirdperson",
@@ -8804,9 +9436,9 @@ magnetSliderLabel = Instance.new("TextLabel")
 magnetSliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
 magnetSliderLabel.BackgroundTransparency = 1
 magnetSliderLabel.Text = "Magnet Distance: " .. magnetDistance
-magnetSliderLabel.Font = Enum.Font.SourceSansBold
+magnetSliderLabel.Font = Enum.Font.GothamBold
 magnetSliderLabel.TextSize = 13
-magnetSliderLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+magnetSliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 magnetSliderLabel.TextXAlignment = Enum.TextXAlignment.Left
 magnetSliderLabel.Parent = magnetSliderFrame
 
@@ -8816,7 +9448,7 @@ magnetSliderInput.Position = UDim2.new(0.5, 5, 0, 2)
 magnetSliderInput.BackgroundColor3 = C.BgInput
 magnetSliderInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 magnetSliderInput.Text = tostring(magnetDistance)
-magnetSliderInput.Font = Enum.Font.SourceSans
+magnetSliderInput.Font = Enum.Font.GothamBold
 magnetSliderInput.TextSize = 14
 magnetSliderInput.Parent = magnetSliderFrame
 Instance.new("UICorner", magnetSliderInput).CornerRadius = UDim.new(0, 6)
@@ -8847,20 +9479,20 @@ miscCategory = nil
 -- ========= SUBCATEGORIA: MOVIMENTO =========
 movementSubCategory = Instance.new("Frame")
 movementSubCategory.Size = UDim2.new(1, -20, 0, 0)
-movementSubCategory.BackgroundColor3 = Color3.fromRGB(25, 25, 45)
+	movementSubCategory.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 movementSubCategory.BackgroundTransparency = 0.3
 movementSubCategory.Parent = utilRoot
 movementSubCategory.LayoutOrder = 1
-Instance.new("UICorner", movementSubCategory).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", movementSubCategory).CornerRadius = UDim.new(0, 8)
 
 movementTitle = Instance.new("TextLabel")
 movementTitle.Size = UDim2.new(1, -20, 0, 25)
 movementTitle.Position = UDim2.new(0, 10, 0, 5)
 movementTitle.BackgroundTransparency = 1
 movementTitle.Text = "MOVEMENT"
-movementTitle.Font = Enum.Font.SourceSansBold
+movementTitle.Font = Enum.Font.GothamBold
 movementTitle.TextSize = 14
-movementTitle.TextColor3 = Color3.fromRGB(139, 92, 246)
+	movementTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 movementTitle.TextXAlignment = Enum.TextXAlignment.Left
 movementTitle.Parent = movementSubCategory
 
@@ -8914,9 +9546,9 @@ flySpeedLabel = Instance.new("TextLabel")
 flySpeedLabel.Size = UDim2.new(0.5, 0, 1, 0)
 flySpeedLabel.BackgroundTransparency = 1
 flySpeedLabel.Text = "Fly Speed:"
-flySpeedLabel.Font = Enum.Font.SourceSansBold
+flySpeedLabel.Font = Enum.Font.GothamBold
 flySpeedLabel.TextSize = 13
-flySpeedLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+flySpeedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 flySpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
 flySpeedLabel.Parent = flySpeedFrame
 
@@ -8927,7 +9559,7 @@ flySpeedInput.BackgroundColor3 = C.BgInput
 flySpeedInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 flySpeedInput.PlaceholderText = "1-100"
 flySpeedInput.Text = tostring(FlySystem.speed)
-flySpeedInput.Font = Enum.Font.SourceSans
+flySpeedInput.Font = Enum.Font.GothamBold
 flySpeedInput.TextSize = 14
 flySpeedInput.ClearTextOnFocus = false
 flySpeedInput.Parent = flySpeedFrame
@@ -8986,9 +9618,9 @@ cframeSliderLabel = Instance.new("TextLabel")
 cframeSliderLabel.Size = UDim2.new(0.5, 0, 1, 0)
 cframeSliderLabel.BackgroundTransparency = 1
 cframeSliderLabel.Text = "Velocidade: " .. cframeMultiplicador
-cframeSliderLabel.Font = Enum.Font.SourceSansBold
+cframeSliderLabel.Font = Enum.Font.GothamBold
 cframeSliderLabel.TextSize = 13
-cframeSliderLabel.TextColor3 = Color3.fromRGB(220, 220, 240)
+cframeSliderLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 cframeSliderLabel.TextXAlignment = Enum.TextXAlignment.Left
 cframeSliderLabel.Parent = cframeSliderFrame
 
@@ -8999,7 +9631,7 @@ cframeSliderInput.BackgroundColor3 = C.BgInput
 cframeSliderInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 cframeSliderInput.PlaceholderText = "0.01-5.0"
 cframeSliderInput.Text = tostring(cframeMultiplicador)
-cframeSliderInput.Font = Enum.Font.SourceSans
+cframeSliderInput.Font = Enum.Font.GothamBold
 cframeSliderInput.TextSize = 14
 cframeSliderInput.ClearTextOnFocus = false
 cframeSliderInput.Parent = cframeSliderFrame
@@ -9047,20 +9679,20 @@ end)
 -- ========= SUBCATEGORIA: BOOSTS =========
 boostsSubCategory = Instance.new("Frame")
 boostsSubCategory.Size = UDim2.new(1, -20, 0, 0)
-boostsSubCategory.BackgroundColor3 = Color3.fromRGB(25, 45, 25)
+	boostsSubCategory.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 boostsSubCategory.BackgroundTransparency = 0.3
 boostsSubCategory.Parent = utilRoot
 boostsSubCategory.LayoutOrder = 2
-Instance.new("UICorner", boostsSubCategory).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", boostsSubCategory).CornerRadius = UDim.new(0, 8)
 
 boostsTitle = Instance.new("TextLabel")
 boostsTitle.Size = UDim2.new(1, -20, 0, 25)
 boostsTitle.Position = UDim2.new(0, 10, 0, 5)
 boostsTitle.BackgroundTransparency = 1
 boostsTitle.Text = "BOOSTS"
-boostsTitle.Font = Enum.Font.SourceSansBold
+boostsTitle.Font = Enum.Font.GothamBold
 boostsTitle.TextSize = 14
-boostsTitle.TextColor3 = Color3.fromRGB(92, 246, 139)
+	boostsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 boostsTitle.TextXAlignment = Enum.TextXAlignment.Left
 boostsTitle.Parent = boostsSubCategory
 
@@ -9139,9 +9771,9 @@ end)
 speedTitle = Instance.new("TextLabel")
 speedTitle.BackgroundTransparency = 1
 speedTitle.Size = UDim2.new(1, 0, 0, 20)
-speedTitle.Font = Enum.Font.SourceSansBold
+speedTitle.Font = Enum.Font.GothamBold
 speedTitle.TextSize = 14
-speedTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
+speedTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 speedTitle.Text = "Velocidade: " .. speedBoostValue
 speedTitle.Parent = boostsContent
 
@@ -9193,9 +9825,9 @@ end)
 jumpTitle = Instance.new("TextLabel")
 jumpTitle.BackgroundTransparency = 1
 jumpTitle.Size = UDim2.new(1, 0, 0, 20)
-jumpTitle.Font = Enum.Font.SourceSansBold
+jumpTitle.Font = Enum.Font.GothamBold
 jumpTitle.TextSize = 14
-jumpTitle.TextColor3 = Color3.fromRGB(196, 181, 253)
+jumpTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 jumpTitle.Text = "Pulo: " .. jumpPowerBoostValue
 jumpTitle.Parent = boostsContent
 
@@ -9246,20 +9878,20 @@ end)
 -- ========= SUBCATEGORIA: UTILITÃƒÂRIOS =========
 utilsSubCategory = Instance.new("Frame")
 utilsSubCategory.Size = UDim2.new(1, -20, 0, 0)
-utilsSubCategory.BackgroundColor3 = Color3.fromRGB(45, 25, 25)
+	utilsSubCategory.BackgroundColor3 = Color3.fromRGB(7, 7, 10)
 utilsSubCategory.BackgroundTransparency = 0.3
 utilsSubCategory.Parent = utilRoot
 utilsSubCategory.LayoutOrder = 3
-Instance.new("UICorner", utilsSubCategory).CornerRadius = UDim.new(0, 10)
+Instance.new("UICorner", utilsSubCategory).CornerRadius = UDim.new(0, 8)
 
 utilsTitle = Instance.new("TextLabel")
 utilsTitle.Size = UDim2.new(1, -20, 0, 25)
 utilsTitle.Position = UDim2.new(0, 10, 0, 5)
 utilsTitle.BackgroundTransparency = 1
 utilsTitle.Text = "UTILITIES"
-utilsTitle.Font = Enum.Font.SourceSansBold
+utilsTitle.Font = Enum.Font.GothamBold
 utilsTitle.TextSize = 14
-utilsTitle.TextColor3 = Color3.fromRGB(246, 139, 92)
+	utilsTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
 utilsTitle.TextXAlignment = Enum.TextXAlignment.Left
 utilsTitle.Parent = utilsSubCategory
 
@@ -9299,19 +9931,45 @@ end, "Lets you keep jumping while already in the air.")
 
 antiKickToggle = createToggle(utilsContent, "Anti-Kick", function(enabled)
 	antiKickEnabled = enabled
-	if enabled then
+	if not enabled then
+		return
+	end
+
+	if type(getrawmetatable) ~= "function" or type(setreadonly) ~= "function" or type(newcclosure) ~= "function" or type(getnamecallmethod) ~= "function" then
+		antiKickEnabled = false
+		showMenuToast("Anti-Kick", "Executor sem suporte para hook de metatable.", Color3.fromRGB(255, 170, 70))
+		return
+	end
+
+	local ok, err = pcall(function()
 		local mt = getrawmetatable(game)
-		local old = mt.__namecall
+		if not mt then
+			error("metatable unavailable")
+		end
+
+		local oldNamecall = mt.__namecall
 		setreadonly(mt, false)
 		mt.__namecall = newcclosure(function(self, ...)
-			local args = {...}
 			local method = getnamecallmethod()
-			if method == "Kick" then
+			if method == "Kick" or method == "kick" then
 				return nil
 			end
-			return old(self, ...)
+			return oldNamecall(self, ...)
+		end)
+
+		local oldIndex = mt.__index
+		mt.__index = newcclosure(function(self, key)
+			if typeof(self) == "Instance" and self:IsA("Player") and (key == "Kick" or key == "kick") then
+				return newcclosure(function() return nil end)
+			end
+			return oldIndex(self, key)
 		end)
 		setreadonly(mt, true)
+	end)
+
+	if not ok then
+		antiKickEnabled = false
+		showMenuToast("Anti-Kick", "Falha ao ativar: " .. tostring(err), Color3.fromRGB(255, 120, 120))
 	end
 end, "Intercepts local kick attempts sent by the server or other scripts.")
 
@@ -9385,7 +10043,7 @@ instantInteractWhitelistInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 instantInteractWhitelistInput.PlaceholderColor3 = C.TxtDim
 instantInteractWhitelistInput.PlaceholderText = "Instant whitelist: ex. roubar,coletar"
 instantInteractWhitelistInput.Text = instantInteractWhitelistText
-instantInteractWhitelistInput.Font = Enum.Font.Gotham
+instantInteractWhitelistInput.Font = Enum.Font.GothamBold
 instantInteractWhitelistInput.TextSize = 12
 instantInteractWhitelistInput.ClearTextOnFocus = false
 instantInteractWhitelistInput.Parent = utilsContent
@@ -9402,7 +10060,7 @@ instantInteractBlacklistInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 instantInteractBlacklistInput.PlaceholderColor3 = C.TxtDim
 instantInteractBlacklistInput.PlaceholderText = "Instant blacklist: ex. shop,loja,buy"
 instantInteractBlacklistInput.Text = instantInteractBlacklistText
-instantInteractBlacklistInput.Font = Enum.Font.Gotham
+instantInteractBlacklistInput.Font = Enum.Font.GothamBold
 instantInteractBlacklistInput.TextSize = 12
 instantInteractBlacklistInput.ClearTextOnFocus = false
 instantInteractBlacklistInput.Parent = utilsContent
@@ -9416,7 +10074,7 @@ instantInteractBlockShopsBtn = Instance.new("TextButton")
 instantInteractBlockShopsBtn.Size = UDim2.new(1, 0, 0, 36)
 instantInteractBlockShopsBtn.BackgroundColor3 = C.BindActive
 instantInteractBlockShopsBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-instantInteractBlockShopsBtn.Font = Enum.Font.GothamSemibold
+instantInteractBlockShopsBtn.Font = Enum.Font.GothamBold
 instantInteractBlockShopsBtn.TextSize = 12
 instantInteractBlockShopsBtn.Text = "Block Shops: ON"
 instantInteractBlockShopsBtn.Parent = utilsContent
@@ -9504,7 +10162,7 @@ stealDistanceLabel = Instance.new("TextLabel")
 stealDistanceLabel.Size = UDim2.new(0.58, 0, 1, 0)
 stealDistanceLabel.BackgroundTransparency = 1
 stealDistanceLabel.Text = "Steal Distance: " .. tostring(stealDistanceValue)
-stealDistanceLabel.Font = Enum.Font.GothamSemibold
+stealDistanceLabel.Font = Enum.Font.GothamBold
 stealDistanceLabel.TextSize = 12
 stealDistanceLabel.TextColor3 = C.TxtWhite
 stealDistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -9518,7 +10176,7 @@ stealDistanceInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 stealDistanceInput.PlaceholderColor3 = C.TxtDim
 stealDistanceInput.PlaceholderText = "8-500"
 stealDistanceInput.Text = tostring(stealDistanceValue)
-stealDistanceInput.Font = Enum.Font.Gotham
+stealDistanceInput.Font = Enum.Font.GothamBold
 stealDistanceInput.TextSize = 12
 stealDistanceInput.ClearTextOnFocus = false
 stealDistanceInput.Parent = stealDistanceFrame
@@ -9538,7 +10196,7 @@ stealTargetModeBtn = Instance.new("TextButton")
 stealTargetModeBtn.Size = UDim2.new(1, 0, 0, 36)
 stealTargetModeBtn.BackgroundColor3 = C.BindBg
 stealTargetModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-stealTargetModeBtn.Font = Enum.Font.GothamSemibold
+stealTargetModeBtn.Font = Enum.Font.GothamBold
 stealTargetModeBtn.TextSize = 12
 stealTargetModeBtn.Text = "Steal Target Mode: " .. tostring(stealTargetMode)
 stealTargetModeBtn.Parent = utilsContent
@@ -9586,7 +10244,7 @@ autoclickIntervalLabel = Instance.new("TextLabel")
 autoclickIntervalLabel.Size = UDim2.new(0.58, 0, 1, 0)
 autoclickIntervalLabel.BackgroundTransparency = 1
 autoclickIntervalLabel.Text = "Click Interval (ms):"
-autoclickIntervalLabel.Font = Enum.Font.GothamSemibold
+autoclickIntervalLabel.Font = Enum.Font.GothamBold
 autoclickIntervalLabel.TextSize = 12
 autoclickIntervalLabel.TextColor3 = C.TxtWhite
 autoclickIntervalLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -9600,7 +10258,7 @@ autoclickerIntervalInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoclickerIntervalInput.PlaceholderColor3 = C.TxtDim
 autoclickerIntervalInput.PlaceholderText = "100"
 autoclickerIntervalInput.Text = tostring(autoclickerInterval)
-autoclickerIntervalInput.Font = Enum.Font.Gotham
+autoclickerIntervalInput.Font = Enum.Font.GothamBold
 autoclickerIntervalInput.TextSize = 12
 autoclickerIntervalInput.ClearTextOnFocus = false
 autoclickerIntervalInput.Parent = autoclickIntervalFrame
@@ -9619,7 +10277,7 @@ autoclickerModeBtn = Instance.new("TextButton")
 autoclickerModeBtn.Size = UDim2.new(1, 0, 0, 36)
 autoclickerModeBtn.BackgroundColor3 = C.BindBg
 autoclickerModeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-autoclickerModeBtn.Font = Enum.Font.GothamSemibold
+autoclickerModeBtn.Font = Enum.Font.GothamBold
 autoclickerModeBtn.TextSize = 12
 autoclickerModeBtn.Text = "Click Mode: " .. autoclickerMode
 autoclickerModeBtn.Parent = utilsContent
@@ -9636,7 +10294,7 @@ xLabel = Instance.new("TextLabel")
 xLabel.Size = UDim2.new(0.08, 0, 1, 0)
 xLabel.BackgroundTransparency = 1
 xLabel.Text = "X:"
-xLabel.Font = Enum.Font.GothamSemibold
+xLabel.Font = Enum.Font.GothamBold
 xLabel.TextSize = 11
 xLabel.TextColor3 = C.TxtWhite
 xLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -9650,7 +10308,7 @@ autoclickerFixedXInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoclickerFixedXInput.PlaceholderColor3 = C.TxtDim
 autoclickerFixedXInput.PlaceholderText = "0"
 autoclickerFixedXInput.Text = tostring(autoclickerFixedX)
-autoclickerFixedXInput.Font = Enum.Font.Gotham
+autoclickerFixedXInput.Font = Enum.Font.GothamBold
 autoclickerFixedXInput.TextSize = 11
 autoclickerFixedXInput.ClearTextOnFocus = false
 autoclickerFixedXInput.Parent = autoclickerFixedFrame
@@ -9670,7 +10328,7 @@ yLabel.Size = UDim2.new(0.08, 0, 1, 0)
 yLabel.Position = UDim2.new(0.32, 0, 0, 0)
 yLabel.BackgroundTransparency = 1
 yLabel.Text = "Y:"
-yLabel.Font = Enum.Font.GothamSemibold
+yLabel.Font = Enum.Font.GothamBold
 yLabel.TextSize = 11
 yLabel.TextColor3 = C.TxtWhite
 yLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -9684,7 +10342,7 @@ autoclickerFixedYInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 autoclickerFixedYInput.PlaceholderColor3 = C.TxtDim
 autoclickerFixedYInput.PlaceholderText = "0"
 autoclickerFixedYInput.Text = tostring(autoclickerFixedY)
-autoclickerFixedYInput.Font = Enum.Font.Gotham
+autoclickerFixedYInput.Font = Enum.Font.GothamBold
 autoclickerFixedYInput.TextSize = 11
 autoclickerFixedYInput.ClearTextOnFocus = false
 autoclickerFixedYInput.Parent = autoclickerFixedFrame
@@ -9704,7 +10362,7 @@ captureBtn.Size = UDim2.new(0.36, -4, 0, 32)
 captureBtn.Position = UDim2.new(0.64, 4, 0, 2)
 captureBtn.BackgroundColor3 = C.BindBg
 captureBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-captureBtn.Font = Enum.Font.GothamSemibold
+captureBtn.Font = Enum.Font.GothamBold
 captureBtn.TextSize = 10
 captureBtn.Text = "Get Cursor Pos"
 captureBtn.Parent = autoclickerFixedFrame
@@ -9733,7 +10391,7 @@ autoclickerButtonBtn = Instance.new("TextButton")
 autoclickerButtonBtn.Size = UDim2.new(1, 0, 0, 36)
 autoclickerButtonBtn.BackgroundColor3 = C.BindBg
 autoclickerButtonBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-autoclickerButtonBtn.Font = Enum.Font.GothamSemibold
+autoclickerButtonBtn.Font = Enum.Font.GothamBold
 autoclickerButtonBtn.TextSize = 12
 autoclickerButtonBtn.Text = "Click Button: " .. autoclickerButton
 autoclickerButtonBtn.Parent = utilsContent
@@ -9777,7 +10435,7 @@ fastHitIntervalLabel = Instance.new("TextLabel")
 fastHitIntervalLabel.Size = UDim2.new(0.58, 0, 1, 0)
 fastHitIntervalLabel.BackgroundTransparency = 1
 fastHitIntervalLabel.Text = "Hit Speed (ms):"
-fastHitIntervalLabel.Font = Enum.Font.GothamSemibold
+fastHitIntervalLabel.Font = Enum.Font.GothamBold
 fastHitIntervalLabel.TextSize = 12
 fastHitIntervalLabel.TextColor3 = C.TxtWhite
 fastHitIntervalLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -9791,7 +10449,7 @@ fastHitIntervalInput.TextColor3 = Color3.fromRGB(255, 255, 255)
 fastHitIntervalInput.PlaceholderColor3 = C.TxtDim
 fastHitIntervalInput.PlaceholderText = "50"
 fastHitIntervalInput.Text = tostring(fastHitInterval)
-fastHitIntervalInput.Font = Enum.Font.Gotham
+fastHitIntervalInput.Font = Enum.Font.GothamBold
 fastHitIntervalInput.TextSize = 12
 fastHitIntervalInput.ClearTextOnFocus = false
 fastHitIntervalInput.Parent = fastHitIntervalFrame
@@ -9831,9 +10489,9 @@ teleportsHeaderDescLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 16, 0, 38),
 	Size = UDim2.new(1, -32, 0, 18),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 11,
-	TextColor3 = C.TxtDim,
+	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = getPageText("teleports", "board_description", "Waypoint and TP Cursor are now grouped here with a cleaner layout and bind gears."),
 }, teleportsBoard)
@@ -9844,9 +10502,9 @@ waypointStatusLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 16, 0, 72),
 	Size = UDim2.new(1, -32, 0, 18),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
-TextColor3 = C.PurpleGlow,
+TextColor3 = C.TxtWhite,
 TextXAlignment = Enum.TextXAlignment.Left,
 Text = getPageText("teleports", "waypoint_none_status", "Waypoint: none saved"),
 }, waypointPanel)
@@ -9973,7 +10631,7 @@ tpCursorCooldownLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 16, 0, 62),
 	Size = UDim2.new(0.56, 0, 0, 18),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
 	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -9985,7 +10643,7 @@ tpCursorCooldownInput = New("TextBox", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0.58, 0, 0, 56),
 	Size = UDim2.new(0.38, -16, 0, 28),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
 	TextColor3 = Color3.fromRGB(255, 255, 255),
 	Text = tostring(tpCursorCooldownSeconds),
@@ -10012,11 +10670,11 @@ menuBindBtn.Size = UDim2.new(1, 0, 0, 45)
 menuBindBtn.BackgroundColor3 = C.BindBg
 menuBindBtn.BackgroundTransparency = 0
 menuBindBtn.Text = "Menu Bind: M"
-menuBindBtn.Font = Enum.Font.Gotham
+menuBindBtn.Font = Enum.Font.GothamBold
 menuBindBtn.TextSize = 13
 menuBindBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 menuBindBtn.BorderSizePixel = 0
-menuBindBtn.LayoutOrder = 5
+	menuBindBtn.LayoutOrder = 99
 menuBindBtn.Parent = utilRoot
 Instance.new("UICorner", menuBindBtn).CornerRadius = UDim.new(0, 8)
 
@@ -10075,7 +10733,7 @@ menuSizeBtn.Size = UDim2.new(1, 0, 0, 45)
 menuSizeBtn.BackgroundColor3 = C.BindBg
 menuSizeBtn.BackgroundTransparency = 0
 menuSizeBtn.Text = "Size: " .. menuSizes[currentSizeIndex].name
-menuSizeBtn.Font = Enum.Font.SourceSans
+menuSizeBtn.Font = Enum.Font.GothamBold
 menuSizeBtn.TextSize = 14
 menuSizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 menuSizeBtn.LayoutOrder = 6
@@ -10085,6 +10743,697 @@ menuSizeBtn.Visible = false -- ESCONDER SELETOR DE TAMANHO
 Instance.new("UICorner", menuSizeBtn).CornerRadius = UDim.new(0, 8)
 
 
+
+-- ========= FREECAM (Troll) =========
+local freecamGui = nil
+local freecamRightHeld = false -- deprecated, kept for compat
+local freecamYaw = 0
+local freecamPitch = 0
+local freecamSpectating = false
+
+local function disableFreecam()
+	freecamEnabled = false
+	freecamSpectating = false
+	if _G._freecamConn then _G._freecamConn:Disconnect() _G._freecamConn = nil end
+	if _G._freecamInputConn then _G._freecamInputConn:Disconnect() _G._freecamInputConn = nil end
+	if _G._freecamClickConn then _G._freecamClickConn:Disconnect() _G._freecamClickConn = nil end
+	if _G._freecamScrollConn then _G._freecamScrollConn:Disconnect() _G._freecamScrollConn = nil end
+
+	local cam = workspace.CurrentCamera
+	cam.CameraType = Enum.CameraType.Custom
+	-- Reset camera subject to local player
+	local char = LocalPlayer.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if hum then
+		cam.CameraSubject = hum
+		hum.WalkSpeed = 16
+	end
+	UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+	UserInputService.MouseIconEnabled = true
+
+	if freecamGui then freecamGui:Destroy() freecamGui = nil end
+end
+
+freecamToggle = createToggle(trollCategory, "Freecam", function(enabled)
+	freecamEnabled = enabled
+	local char = LocalPlayer.Character
+	local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+
+	if enabled then
+		if humanoid then humanoid.WalkSpeed = 0 end
+		local cam = workspace.CurrentCamera
+		cam.CameraType = Enum.CameraType.Scriptable
+		if root then cam.CFrame = CFrame.new(cam.CFrame.Position, cam.CFrame.Position + root.CFrame.LookVector) end
+
+		freecamYaw = 0
+		freecamPitch = 0
+
+		-- Lock mouse to center (Shift Lock style) - set BEFORE connections
+		UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+		UserInputService.MouseIconEnabled = false
+
+		if _G._freecamConn then _G._freecamConn:Disconnect() end
+		_G._freecamConn = RunService.RenderStepped:Connect(function(dt)
+			if not freecamEnabled then return end
+			-- Force lock every frame (other scripts can override it)
+			UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+			UserInputService.MouseIconEnabled = false
+
+			local cam = workspace.CurrentCamera
+			local moveDir = Vector3.zero
+			local speed = freecamSpeed
+			if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then speed = speed * 2.5 end
+
+			-- Rotate camera from mouse delta (Shift Lock style)
+			local md = UserInputService:GetMouseDelta()
+			freecamYaw = freecamYaw - md.X * 0.3
+			freecamPitch = math.clamp(freecamPitch - md.Y * 0.3, -80, 80)
+			cam.CFrame = CFrame.new(cam.CFrame.Position) * CFrame.Angles(0, math.rad(freecamYaw), 0) * CFrame.Angles(math.rad(freecamPitch), 0, 0)
+
+			local look = cam.CFrame.LookVector
+			local right = cam.CFrame.RightVector
+			local up = Vector3.new(0, 1, 0)
+
+			if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + look end
+			if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - look end
+			if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - right end
+			if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + right end
+			if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + up end
+
+			if moveDir.Magnitude > 0 then
+				cam.CFrame = cam.CFrame + (moveDir.Unit * speed * dt)
+			end
+		end)
+
+		-- Escape exits freecam if no bind set
+		if _G._freecamInputConn then _G._freecamInputConn:Disconnect() end
+		_G._freecamInputConn = UserInputService.InputBegan:Connect(function(input, gpe)
+			if gpe then return end
+			if input.KeyCode == Enum.KeyCode.Escape and (freecamBindString == "None" or not freecamBind) then
+				disableFreecam()
+				if freecamToggle and freecamToggle.Parent then
+					local api = freecamToggle
+					if api and api.setState then api.setState(false) end
+				end
+			end
+		end)
+
+		-- Freecam Mini Menu (bottom center)
+		freecamGui = Instance.new("ScreenGui")
+		freecamGui.Name = "FreecamMiniMenu"
+		freecamGui.ResetOnSpawn = false
+		freecamGui.DisplayOrder = 99999
+		freecamGui.Parent = playerGui
+
+		-- Crosshair
+		local crossSize = 2
+		local crossLen = 12
+		local crossColor = Color3.fromRGB(255, 255, 255)
+
+		local crossV = Instance.new("Frame")
+		crossV.Name = "CrossV"
+		crossV.Size = UDim2.new(0, crossSize, 0, crossLen)
+		crossV.Position = UDim2.new(0.5, -crossSize/2, 0.5, -crossLen/2)
+		crossV.BackgroundColor3 = crossColor
+		crossV.BorderSizePixel = 0
+		crossV.Parent = freecamGui
+
+		local crossH = Instance.new("Frame")
+		crossH.Name = "CrossH"
+		crossH.Size = UDim2.new(0, crossLen, 0, crossSize)
+		crossH.Position = UDim2.new(0.5, -crossLen/2, 0.5, -crossSize/2)
+		crossH.BackgroundColor3 = crossColor
+		crossH.BorderSizePixel = 0
+		crossH.Parent = freecamGui
+
+		local dot = Instance.new("Frame")
+		dot.Name = "Dot"
+		dot.Size = UDim2.new(0, 4, 0, 4)
+		dot.Position = UDim2.new(0.5, -2, 0.5, -2)
+		dot.BackgroundColor3 = crossColor
+		dot.BorderSizePixel = 0
+		dot.Parent = freecamGui
+
+		local barWidth = 310
+		local barHeight = 42
+		local barFrame = Instance.new("Frame")
+		barFrame.Size = UDim2.new(0, barWidth, 0, barHeight)
+		barFrame.Position = UDim2.new(0.5, -barWidth/2, 1, -56)
+		barFrame.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+		barFrame.BorderSizePixel = 0
+		barFrame.Parent = freecamGui
+		Instance.new("UICorner", barFrame).CornerRadius = UDim.new(0, 10)
+
+		local barStroke = Instance.new("UIStroke")
+		barStroke.Color = Color3.fromRGB(50, 50, 60)
+		barStroke.Thickness = 1
+		barStroke.Transparency = 0.3
+		barStroke.Parent = barFrame
+
+		local freecamActions = {"Teleport", "Push", "Spectate"}
+		local freecamActionIndex = 1
+		local currentFreecamAction = "Teleport"
+		local actionBtns = {}
+
+		local actionLabel = Instance.new("TextLabel")
+		actionLabel.Size = UDim2.new(1, -16, 0, 14)
+		actionLabel.Position = UDim2.new(0, 8, 0, 2)
+		actionLabel.BackgroundTransparency = 1
+		actionLabel.Text = "Action: Teleport"
+		actionLabel.Font = Enum.Font.GothamBold
+		actionLabel.TextSize = 10
+		actionLabel.TextColor3 = Color3.fromRGB(200, 200, 210)
+		actionLabel.TextXAlignment = Enum.TextXAlignment.Left
+		actionLabel.Parent = barFrame
+
+		local scrollHint = Instance.new("TextLabel")
+		scrollHint.Size = UDim2.new(1, -16, 0, 12)
+		scrollHint.Position = UDim2.new(0, 8, 1, -14)
+		scrollHint.BackgroundTransparency = 1
+		scrollHint.Text = "Scroll = change action | Click = execute action"
+		scrollHint.Font = Enum.Font.GothamBold
+		scrollHint.TextSize = 9
+		scrollHint.TextColor3 = Color3.fromRGB(100, 100, 115)
+		scrollHint.TextXAlignment = Enum.TextXAlignment.Left
+		scrollHint.Parent = barFrame
+
+		local function updateFreecamAction()
+			currentFreecamAction = freecamActions[freecamActionIndex]
+			actionLabel.Text = "Action: " .. currentFreecamAction
+			for i, btn in ipairs(actionBtns) do
+				if i == freecamActionIndex then
+					btn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+					btn.TextColor3 = Color3.fromRGB(14, 14, 18)
+				else
+					btn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+					btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+				end
+			end
+		end
+
+		local function makeMiniBtn(text, posX, index)
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(0, 56, 0, 24)
+			btn.Position = UDim2.new(0, posX, 0.5, -2)
+			btn.AnchorPoint = Vector2.new(0, 0.5)
+			btn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+			btn.Text = text
+			btn.Font = Enum.Font.GothamBold
+			btn.TextSize = 12
+			btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+			btn.AutoButtonColor = false
+			btn.Parent = barFrame
+			Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+			btn.MouseButton1Click:Connect(function()
+				freecamActionIndex = index
+				updateFreecamAction()
+			end)
+			actionBtns[index] = btn
+			return btn
+		end
+
+		makeMiniBtn("Teleport", 8, 1)
+		makeMiniBtn("Push", 72, 2)
+		makeMiniBtn("Spectate", 136, 3)
+
+		-- Close button
+		local closeBtn = Instance.new("TextButton")
+		closeBtn.Size = UDim2.new(0, 56, 0, 24)
+		closeBtn.Position = UDim2.new(1, -64, 0.5, 0)
+		closeBtn.AnchorPoint = Vector2.new(0, 0.5)
+		closeBtn.BackgroundColor3 = Color3.fromRGB(80, 30, 30)
+		closeBtn.Text = "Close"
+		closeBtn.Font = Enum.Font.GothamBold
+		closeBtn.TextSize = 12
+		closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+		closeBtn.AutoButtonColor = false
+		closeBtn.Parent = barFrame
+		Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+		closeBtn.MouseButton1Click:Connect(function()
+			disableFreecam()
+			if freecamToggle and freecamToggle.Parent then
+				local api = freecamToggle
+				if api and api.setState then api.setState(false) end
+			end
+		end)
+
+		updateFreecamAction()
+
+		-- Scroll to change action + Click to execute action on crosshair position
+		if _G._freecamClickConn then _G._freecamClickConn:Disconnect() end
+		_G._freecamClickConn = UserInputService.InputBegan:Connect(function(input, gpe)
+			if not freecamEnabled then return end
+			if gpe then return end
+
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				local cam = workspace.CurrentCamera
+				-- Raycast from center of screen (crosshair)
+				local viewportSize = cam.ViewportSize
+				local ray = cam:ViewportPointToRay(viewportSize.X / 2, viewportSize.Y / 2)
+				local rayParams = RaycastParams.new()
+				rayParams.FilterType = Enum.RaycastFilterType.Exclude
+				rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+				local result = workspace:Raycast(ray.Origin, ray.Direction * 2000, rayParams)
+
+				local myChar = LocalPlayer.Character
+				local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+
+				if currentFreecamAction == "Teleport" then
+					if myRoot then
+						local tpPos
+						if result then
+							tpPos = result.Position
+						else
+							tpPos = ray.Origin + ray.Direction * 50
+						end
+						-- Teleport to where crosshair points
+						myRoot.Velocity = Vector3.zero
+						myRoot.CFrame = CFrame.new(tpPos + Vector3.new(0, 3, 0))
+						showMenuToast("Freecam", "Teleportado", C.TxtWhite)
+					end
+				elseif currentFreecamAction == "Push" then
+					local hitPart = result and result.Instance
+					if hitPart then
+						local hitModel = hitPart:FindFirstAncestorOfClass("Model")
+						if hitModel then
+							local hitPlayer = Players:GetPlayerFromCharacter(hitModel)
+							if hitPlayer and hitPlayer ~= LocalPlayer then
+								local targetRoot = hitModel:FindFirstChild("HumanoidRootPart")
+								if myRoot and targetRoot then
+									-- Save freecam position to return after
+									local savedCFrame = myRoot.CFrame
+									-- Teleport character near target so kick push can work
+									myRoot.Velocity = Vector3.zero
+									myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+									task.wait(0.1)
+									-- Execute exactly like the toggle does
+									pcall(function()
+										requestKickPushServer(hitPlayer)
+									end)
+									task.wait(0.08)
+									kickPushIsExecuting = false
+									pcall(function()
+										performKickPush(hitPlayer)
+									end)
+									-- Wait for fling + recovery
+									task.wait(kickPushFlingTime + kickPushRecoveryDelay + 0.3)
+									-- Return to freecam camera position
+									myRoot.CFrame = savedCFrame
+									myRoot.AssemblyLinearVelocity = Vector3.zero
+									showMenuToast("Freecam", "Empurrou " .. hitPlayer.DisplayName, C.TxtWhite)
+									return
+								end
+							end
+						end
+					end
+					showMenuToast("Freecam", "Aponte para um player para empurrar", Color3.fromRGB(255, 170, 70))
+				elseif currentFreecamAction == "Spectate" then
+					-- Toggle spectate off if already spectating
+					if freecamSpectating then
+						freecamSpectating = false
+						workspace.CurrentCamera.CameraType = Enum.CameraType.Scriptable
+						workspace.CurrentCamera.CameraSubject = nil
+						UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+						UserInputService.MouseIconEnabled = false
+						showMenuToast("Freecam", "Spectate desligado", C.TxtWhite)
+						return
+					end
+					-- Find player at crosshair
+					local hitPart = result and result.Instance
+					if hitPart then
+						local hitModel = hitPart:FindFirstAncestorOfClass("Model")
+						if hitModel then
+							local hitPlayer = Players:GetPlayerFromCharacter(hitModel)
+							if hitPlayer and hitPlayer ~= LocalPlayer then
+								local targetChar = hitPlayer.Character
+								local targetHum = targetChar and targetChar:FindFirstChildOfClass("Humanoid")
+								if targetHum then
+									freecamSpectating = true
+									workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+									workspace.CurrentCamera.CameraSubject = targetHum
+									showMenuToast("Freecam", "Observando " .. hitPlayer.DisplayName .. " (clique de novo para parar)", C.TxtWhite)
+									return
+								end
+							end
+						end
+					end
+					showMenuToast("Freecam", "Aponte para um player para observar", Color3.fromRGB(255, 170, 70))
+				end
+			end
+		end)
+
+		-- Scroll wheel to cycle actions
+		if _G._freecamScrollConn then _G._freecamScrollConn:Disconnect() end
+		_G._freecamScrollConn = UserInputService.InputChanged:Connect(function(input)
+			if not freecamEnabled then return end
+			if input.UserInputType == Enum.UserInputType.MouseWheel then
+				if input.Position.Z > 0 then
+					freecamActionIndex = freecamActionIndex - 1
+					if freecamActionIndex < 1 then freecamActionIndex = #freecamActions end
+				else
+					freecamActionIndex = freecamActionIndex + 1
+					if freecamActionIndex > #freecamActions then freecamActionIndex = 1 end
+				end
+				updateFreecamAction()
+			end
+		end)
+
+		showMenuToast("Freecam", "WASD=move | Dir=olhar | Click=selecionar/player | Scroll=mudar ação", C.TxtWhite)
+	else
+		disableFreecam()
+	end
+end, "Camera freefly com WASD, Shift e botão direito. Mini menu no fim da tela.", {
+	bindId = "freecam",
+	getBindValue = function() return freecamBind end,
+	getBindName = function() return freecamBindString end,
+	setBind = function(bindValue, bindName)
+		freecamBind = bindValue
+		freecamBindString = bindDisplayName(bindValue, bindName)
+	end,
+})
+freecamToggle.LayoutOrder = 10
+
+-- Freecam Speed Input
+freecamSpeedFrame = Instance.new("Frame")
+freecamSpeedFrame.Size = UDim2.new(1, 0, 0, 35)
+freecamSpeedFrame.BackgroundTransparency = 1
+freecamSpeedFrame.Parent = trollCategory
+
+freecamSpeedLabel = Instance.new("TextLabel")
+freecamSpeedLabel.Size = UDim2.new(0.5, 0, 1, 0)
+freecamSpeedLabel.BackgroundTransparency = 1
+freecamSpeedLabel.Text = "Freecam Speed:"
+freecamSpeedLabel.Font = Enum.Font.GothamBold
+freecamSpeedLabel.TextSize = 13
+freecamSpeedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+freecamSpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+freecamSpeedLabel.Parent = freecamSpeedFrame
+
+freecamSpeedInput = Instance.new("TextBox")
+freecamSpeedInput.Size = UDim2.new(0.5, -5, 0, 30)
+freecamSpeedInput.Position = UDim2.new(0.5, 5, 0, 2)
+freecamSpeedInput.BackgroundColor3 = C.BgInput
+freecamSpeedInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+freecamSpeedInput.PlaceholderText = "20-500"
+freecamSpeedInput.Text = tostring(freecamSpeed)
+freecamSpeedInput.Font = Enum.Font.GothamBold
+freecamSpeedInput.TextSize = 14
+freecamSpeedInput.ClearTextOnFocus = false
+freecamSpeedInput.Parent = freecamSpeedFrame
+Instance.new("UICorner", freecamSpeedInput).CornerRadius = UDim.new(0, 6)
+Stroke(C.Divider, 1, freecamSpeedInput).Transparency = 0.25
+
+freecamSpeedInput.FocusLost:Connect(function()
+	local val = tonumber(freecamSpeedInput.Text)
+	if val then
+		freecamSpeed = math.clamp(val, 20, 500)
+		freecamSpeedInput.Text = tostring(freecamSpeed)
+	end
+end)
+
+-- ========= AUTO REJOIN (Misc) =========
+autoRejoinToggle = createToggle(nil, "Auto Rejoin", function(enabled)
+	autoRejoinEnabled = enabled
+	if enabled then
+		if _G._autoRejoinConn then _G._autoRejoinConn:Disconnect() end
+		_G._autoRejoinConn = Players.LocalPlayer.OnTeleport:Connect(function(state)
+			if state == Enum.TeleportState.Failed then
+				task.wait(3)
+				if autoRejoinEnabled then
+					showMenuToast("Auto Rejoin", "Tentando reconectar...", C.TxtWhite)
+					pcall(function()
+						TeleportService:Teleport(game.PlaceId, Players.LocalPlayer)
+					end)
+				end
+			end
+		end)
+		showMenuToast("Auto Rejoin", "Ativado - reconecta ao ser expulso", C.TxtWhite)
+	else
+		if _G._autoRejoinConn then _G._autoRejoinConn:Disconnect() _G._autoRejoinConn = nil end
+	end
+end, "Reconecta automaticamente quando desconectado/expulso.")
+autoRejoinToggle.LayoutOrder = 8
+autoRejoinToggle.Parent = utilRoot
+
+-- ========= CHAT SPAMMER (Misc) =========
+chatSpammerToggle = createToggle(nil, "Chat Spammer", function(enabled)
+	chatSpammerEnabled = enabled
+	if enabled then
+		if _G._chatSpammerThread then task.cancel(_G._chatSpammerThread) _G._chatSpammerThread = nil end
+		_G._chatSpammerThread = task.spawn(function()
+			local chatFound = false
+			-- Detect chat system once
+			local useLegacy = false
+			local useNew = false
+			pcall(function()
+				local events = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+				if events and events:FindFirstChild("SayMessageRequest") then
+					useLegacy = true
+				end
+			end)
+			if not useLegacy then
+				pcall(function()
+					local tcs = game:GetService("TextChatService")
+					if tcs then
+						useNew = true
+					end
+				end)
+			end
+			if not useLegacy and not useNew then
+				warn("[NIGHT MENU] Chat Spammer: Nenhum sistema de chat detectado neste jogo.")
+				showMenuToast("Chat Spammer", "Chat nao suportado neste jogo", Color3.fromRGB(255, 100, 100))
+				chatSpammerEnabled = false
+				if chatSpammerToggle and chatSpammerToggle.Parent then
+					local api = chatSpammerToggle
+					if api and api.setState then api.setState(false) end
+				end
+				return
+			end
+			while chatSpammerEnabled do
+				pcall(function()
+					if useLegacy then
+						local events = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+						if events then
+							local sayReq = events:FindFirstChild("SayMessageRequest")
+							if sayReq then
+								sayReq:FireServer(chatSpammerMessage, "All")
+								chatFound = true
+							end
+						end
+					elseif useNew then
+						local tcs = game:GetService("TextChatService")
+						if tcs and tcs.TextChannels then
+							for _, channel in ipairs(tcs.TextChannels:GetChildren()) do
+								if channel:IsA("TextChannel") then
+									channel:SendAsync(chatSpammerMessage)
+									chatFound = true
+									break
+								end
+							end
+						end
+					end
+				end)
+				task.wait(chatSpammerInterval)
+			end
+		end)
+		showMenuToast("Chat Spammer", "Enviando mensagens a cada " .. chatSpammerInterval .. "s", C.TxtWhite)
+	else
+		if _G._chatSpammerThread then task.cancel(_G._chatSpammerThread) _G._chatSpammerThread = nil end
+	end
+end, "Spam automático no chat com intervalo configurável.", {
+	bindId = "chatSpammer",
+	getBindValue = function() return chatSpammerBind end,
+	getBindName = function() return chatSpammerBindString end,
+	setBind = function(bindValue, bindName)
+		chatSpammerBind = bindValue
+		chatSpammerBindString = bindDisplayName(bindValue, bindName)
+	end,
+})
+chatSpammerToggle.LayoutOrder = 9
+chatSpammerToggle.Parent = utilRoot
+
+-- Chat Spammer Message Input
+chatSpammerMsgFrame = Instance.new("Frame")
+chatSpammerMsgFrame.Size = UDim2.new(1, 0, 0, 35)
+chatSpammerMsgFrame.BackgroundTransparency = 1
+chatSpammerMsgFrame.LayoutOrder = 10
+chatSpammerMsgFrame.Parent = utilRoot
+
+chatSpammerMsgLabel = Instance.new("TextLabel")
+chatSpammerMsgLabel.Size = UDim2.new(0.3, 0, 1, 0)
+chatSpammerMsgLabel.BackgroundTransparency = 1
+chatSpammerMsgLabel.Text = "Message:"
+chatSpammerMsgLabel.Font = Enum.Font.GothamBold
+chatSpammerMsgLabel.TextSize = 13
+chatSpammerMsgLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+chatSpammerMsgLabel.TextXAlignment = Enum.TextXAlignment.Left
+chatSpammerMsgLabel.Parent = chatSpammerMsgFrame
+
+chatSpammerMsgInput = Instance.new("TextBox")
+chatSpammerMsgInput.Size = UDim2.new(0.7, -5, 0, 30)
+chatSpammerMsgInput.Position = UDim2.new(0.3, 5, 0, 2)
+chatSpammerMsgInput.BackgroundColor3 = C.BgInput
+chatSpammerMsgInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+chatSpammerMsgInput.PlaceholderText = "Digite sua mensagem..."
+chatSpammerMsgInput.Text = chatSpammerMessage
+chatSpammerMsgInput.Font = Enum.Font.GothamBold
+chatSpammerMsgInput.TextSize = 14
+chatSpammerMsgInput.ClearTextOnFocus = false
+chatSpammerMsgInput.Parent = chatSpammerMsgFrame
+Instance.new("UICorner", chatSpammerMsgInput).CornerRadius = UDim.new(0, 6)
+Stroke(C.Divider, 1, chatSpammerMsgInput).Transparency = 0.25
+
+chatSpammerMsgInput.FocusLost:Connect(function()
+	if chatSpammerMsgInput.Text ~= "" then
+		chatSpammerMessage = chatSpammerMsgInput.Text
+	end
+end)
+
+-- Chat Spammer Interval Input
+chatSpammerIntervalFrame = Instance.new("Frame")
+chatSpammerIntervalFrame.Size = UDim2.new(1, 0, 0, 35)
+chatSpammerIntervalFrame.BackgroundTransparency = 1
+chatSpammerIntervalFrame.LayoutOrder = 11
+chatSpammerIntervalFrame.Parent = utilRoot
+
+chatSpammerIntervalLabel = Instance.new("TextLabel")
+chatSpammerIntervalLabel.Size = UDim2.new(0.5, 0, 1, 0)
+chatSpammerIntervalLabel.BackgroundTransparency = 1
+chatSpammerIntervalLabel.Text = "Interval (s):"
+chatSpammerIntervalLabel.Font = Enum.Font.GothamBold
+chatSpammerIntervalLabel.TextSize = 13
+chatSpammerIntervalLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+chatSpammerIntervalLabel.TextXAlignment = Enum.TextXAlignment.Left
+chatSpammerIntervalLabel.Parent = chatSpammerIntervalFrame
+
+chatSpammerIntervalInput = Instance.new("TextBox")
+chatSpammerIntervalInput.Size = UDim2.new(0.5, -5, 0, 30)
+chatSpammerIntervalInput.Position = UDim2.new(0.5, 5, 0, 2)
+chatSpammerIntervalInput.BackgroundColor3 = C.BgInput
+chatSpammerIntervalInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+chatSpammerIntervalInput.PlaceholderText = "1-60"
+chatSpammerIntervalInput.Text = tostring(chatSpammerInterval)
+chatSpammerIntervalInput.Font = Enum.Font.GothamBold
+chatSpammerIntervalInput.TextSize = 14
+chatSpammerIntervalInput.ClearTextOnFocus = false
+chatSpammerIntervalInput.Parent = chatSpammerIntervalFrame
+Instance.new("UICorner", chatSpammerIntervalInput).CornerRadius = UDim.new(0, 6)
+Stroke(C.Divider, 1, chatSpammerIntervalInput).Transparency = 0.25
+
+chatSpammerIntervalInput.FocusLost:Connect(function()
+	local val = tonumber(chatSpammerIntervalInput.Text)
+	if val then
+		chatSpammerInterval = math.clamp(val, 1, 60)
+		chatSpammerIntervalInput.Text = tostring(chatSpammerInterval)
+	end
+end)
+
+-- ========= KEYBIND MANAGER (Keybinds Tab) =========
+keybindManagerFrame = New("Frame", {
+	Name = "KeybindManager",
+	Size = UDim2.new(1, 0, 0, 0),
+	AutomaticSize = Enum.AutomaticSize.Y,
+	BackgroundColor3 = C.BgSection,
+	LayoutOrder = 1,
+}, keybindsRoot)
+Corner(10, keybindManagerFrame)
+Stroke(C.Divider, 1, keybindManagerFrame).Transparency = 0.25
+
+keybindManagerTitle = New("TextLabel", {
+	Text = "KEYBINDS",
+	Size = UDim2.new(1, -20, 0, 28),
+	Position = UDim2.new(0, 10, 0, 6),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBold,
+	TextSize = 13,
+	TextColor3 = C.TxtWhite,
+	TextXAlignment = Enum.TextXAlignment.Left,
+}, keybindManagerFrame)
+
+keybindManagerList = Instance.new("Frame")
+keybindManagerList.Size = UDim2.new(1, -20, 0, 0)
+keybindManagerList.Position = UDim2.new(0, 10, 0, 36)
+keybindManagerList.BackgroundTransparency = 1
+keybindManagerList.Parent = keybindManagerFrame
+
+keybindManagerLayout = Instance.new("UIListLayout")
+keybindManagerLayout.Padding = UDim.new(0, 6)
+keybindManagerLayout.SortOrder = Enum.SortOrder.LayoutOrder
+keybindManagerLayout.Parent = keybindManagerList
+
+function refreshKeybindManager()
+	for _, child in ipairs(keybindManagerList:GetChildren()) do
+		if child:IsA("Frame") then child:Destroy() end
+	end
+
+	local keybindEntries = {
+		{label = "Aimbot", bind = aimbotBindString},
+		{label = "Fly", bind = flyBindString},
+		{label = "ESP", bind = espBindString},
+		{label = "Hitbox", bind = hitboxBindString},
+		{label = "Magnet", bind = magnetBindString},
+		{label = "Spinbot", bind = spinbotBindString},
+		{label = "Kick Push", bind = kickPushBindString},
+		{label = "Freecam", bind = freecamBindString},
+		{label = "Chat Spammer", bind = chatSpammerBindString},
+		{label = "Third Person", bind = thirdPersonBindString},
+		{label = "Auto Kill", bind = autoKillBindString},
+		{label = "Autofire", bind = autofireBindString},
+		{label = "Fast Hit", bind = fastHitBindString},
+		{label = "Auto Clicker", bind = autoclickerBindString},
+	}
+
+	for i, entry in ipairs(keybindEntries) do
+		local row = New("Frame", {
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundTransparency = 1,
+			LayoutOrder = i,
+		}, keybindManagerList)
+
+		New("TextLabel", {
+			Size = UDim2.new(0.5, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Text = entry.label,
+			Font = Enum.Font.GothamBold,
+			TextSize = 12,
+			TextColor3 = C.TxtWhite,
+			TextXAlignment = Enum.TextXAlignment.Left,
+		}, row)
+
+		local bindText = entry.bind or "None"
+		if bindText == "None" then
+			New("TextLabel", {
+				Size = UDim2.new(0.5, 0, 1, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				BackgroundTransparency = 1,
+				Text = "[" .. bindText .. "]",
+				Font = Enum.Font.GothamBold,
+				TextSize = 11,
+				TextColor3 = Color3.fromRGB(100, 100, 115),
+				TextXAlignment = Enum.TextXAlignment.Right,
+			}, row)
+		else
+			New("TextLabel", {
+				Size = UDim2.new(0.5, 0, 1, 0),
+				Position = UDim2.new(0.5, 0, 0, 0),
+				BackgroundTransparency = 1,
+				Text = "[" .. bindText .. "]",
+				Font = Enum.Font.GothamBold,
+				TextSize = 11,
+				TextColor3 = Color3.fromRGB(255, 255, 255),
+				TextXAlignment = Enum.TextXAlignment.Right,
+			}, row)
+		end
+	end
+
+	keybindManagerList.Size = UDim2.new(1, -20, 0, #keybindEntries * 36)
+	keybindManagerFrame.Size = UDim2.new(1, 0, 0, 0)
+	keybindManagerFrame.AutomaticSize = Enum.AutomaticSize.Y
+end
+
+task.defer(refreshKeybindManager)
 
 -- NOVO: Anti-Ragdoll / Anti-Fling
 antiRagdollToggle = createToggle(utilsContent, "Anti-Ragdoll", function(enabled)
@@ -10115,8 +11464,62 @@ antiRagdollToggle = createToggle(utilsContent, "Anti-Ragdoll", function(enabled)
 		if LocalPlayer.Character then applyAntiRagdoll(LocalPlayer.Character) end
 	end
 end, "Stops your character from falling into ragdoll and removes extra friction.")
-antiRagdollToggle.LayoutOrder = 4
+antiRagdollToggle.LayoutOrder = 5
 antiRagdollToggle.Parent = utilRoot
+
+antiFlyingToggle = createToggle(utilsContent, "Anti-Flying", function(enabled)
+	toggleAntiFlying(enabled)
+end, "Cancela empurrões e lançamentos externos, sem travar as ações do menu.")
+antiFlyingToggle.LayoutOrder = 4
+antiFlyingToggle.Parent = utilRoot
+
+resetCharacterBtn = New("TextButton", {
+	Name = "ResetCharacterButton",
+	LayoutOrder = 6,
+		BackgroundColor3 = Color3.fromRGB(16, 12, 18),
+	BorderSizePixel = 0,
+	Size = UDim2.new(1, 0, 0, 44),
+	AutoButtonColor = false,
+	Font = Enum.Font.GothamBold,
+	Text = "Reset Character",
+	TextColor3 = C.TxtWhite,
+	TextSize = 13,
+}, utilRoot)
+Corner(10, resetCharacterBtn)
+Stroke(C.Divider, 1, resetCharacterBtn).Transparency = 0.18
+resetCharacterBtn.MouseEnter:Connect(function()
+	UI_Tween(resetCharacterBtn, {BackgroundColor3 = Color3.fromRGB(14, 10, 16)}, 0.12)
+end)
+resetCharacterBtn.MouseLeave:Connect(function()
+	UI_Tween(resetCharacterBtn, {BackgroundColor3 = Color3.fromRGB(52, 34, 38)}, 0.12)
+end)
+resetCharacterBtn.MouseButton1Click:Connect(function()
+	pcall(resetCharacterLikeRoblox)
+end)
+
+reviveCharacterBtn = New("TextButton", {
+	Name = "ReviveCharacterButton",
+	LayoutOrder = 7,
+		BackgroundColor3 = Color3.fromRGB(12, 16, 12),
+	BorderSizePixel = 0,
+	Size = UDim2.new(1, 0, 0, 44),
+	AutoButtonColor = false,
+	Font = Enum.Font.GothamBold,
+	Text = "Revive Character",
+	TextColor3 = C.TxtWhite,
+	TextSize = 13,
+}, utilRoot)
+Corner(10, reviveCharacterBtn)
+Stroke(C.Divider, 1, reviveCharacterBtn).Transparency = 0.18
+reviveCharacterBtn.MouseEnter:Connect(function()
+	UI_Tween(reviveCharacterBtn, {BackgroundColor3 = Color3.fromRGB(12, 16, 12)}, 0.12)
+end)
+reviveCharacterBtn.MouseLeave:Connect(function()
+	UI_Tween(reviveCharacterBtn, {BackgroundColor3 = Color3.fromRGB(34, 52, 38)}, 0.12)
+end)
+reviveCharacterBtn.MouseButton1Click:Connect(function()
+	pcall(reviveCharacterLikeRoblox)
+end)
 
 -- Redimensionar UI (estilo Solix: mainFrame 960x600, topbar 38, sidebar 185)
 function resizeUI(newWidth, newHeight)
@@ -10129,15 +11532,15 @@ function resizeUI(newWidth, newHeight)
 	end
 	local headerH = math.max(38, math.min(40, math.floor(newHeight * 38 / 600)))
 	header.Size = UDim2.new(1, 0, 0, headerH)
-	sidebar.Size = UDim2.new(0, 185, 1, -headerH)
-	content.Size = UDim2.new(1, -185, 1, -headerH)
-	content.Position = UDim2.new(0, 185, 0, headerH)
+	sidebar.Size = UDim2.new(0, 200, 1, -headerH)
+	content.Size = UDim2.new(1, -200, 1, -headerH)
+	content.Position = UDim2.new(0, 200, 0, headerH)
 	local fontScale = newHeight / 600
 	title.TextSize = math.max(12, 13 * fontScale)
 	for _, tabData in pairs(tabs) do
 		local label = tabData[3]
 		if label and label:IsA("TextLabel") then
-			label.TextSize = math.max(12, 13 * fontScale)
+			label.TextSize = math.max(11, 12 * fontScale)
 		end
 	end
 	for _, page in pairs(pages) do
@@ -10186,15 +11589,20 @@ task.defer(refreshUtilCanvas)
 utilRootLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(refreshUtilCanvas)
 -- Mostrar/ocultar painel Solix (com fade-in ao abrir)
 function showPanel(show)
-	if panelVisible == show then return end
+	if panelVisible == show then
+		if show and mainFrame and not mainFrame.Visible then
+			mainFrame.Visible = true
+		elseif not show and mainFrame then
+			mainFrame.Visible = false
+		end
+		return
+	end
 	panelVisible = show
 	hideAllInlineHints()
 	hideAllBindHints()
 	activeBindCapture = nil
 	mainFrame.Visible = show and not menuIsMinimized
-	if minimizedDock then
-		minimizedDock.Visible = show and menuIsMinimized
-	end
+	-- Removed minimizedDock reference since we use restoreButton now
 
 	if show then
 		-- Fade-in ao abrir (estilo Solix premium)
@@ -10244,7 +11652,7 @@ function addPlayerToRow(p)
 	if selectedPlayer == p then
 		selectionIndicator.Visible = true
 		playerBtn.BackgroundColor3 = SAKURA.surfaceLight
-		nameLbl.TextColor3 = Color3.fromRGB(255, 214, 90)
+		nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 	end
 
 	playerBtn.MouseButton1Click:Connect(function()
@@ -10266,7 +11674,7 @@ function addPlayerToRow(p)
 		-- Selecionar atual
 		selectionIndicator.Visible = true
 		playerBtn.BackgroundColor3 = SAKURA.surfaceLight
-		nameLbl.TextColor3 = Color3.fromRGB(255, 214, 90)
+		nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 		selectedPlayer = p
 
 		-- Show actions panel
@@ -10317,6 +11725,7 @@ end)
 Players.PlayerRemoving:Connect(function(p)
 	if selectedPlayer == p then
 		selectedPlayer = nil
+		stopInfinitePush()
 	end
 	rebuildPlayersList()
 end)
@@ -10329,31 +11738,32 @@ function getClosestPlayer()
 	local camera = workspace.CurrentCamera
 	local centerPos = aimbotMobile and UserInputService:GetMouseLocation() or Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
 
-	for player in pairs(ESPData) do
-		local data = syncPlayerCharacter(player)
-		if data and isValidPlayer(player) and isEnemy(player) then
-			local character = data.character
-			
-			-- Verificar se estÃƒÂ¡ na mesma dimensÃƒÂ£o
-			if not isInSameDimension(character) then
-				continue
-			end
-			
-local targetPart = (aimbotTarget == "Head") and character:FindFirstChild("Head") or (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and isValidPlayer(player) and isEnemy(player) then
+			local data = syncPlayerCharacter(player)
+			if data and data.character then
+				local character = data.character
 
-			if targetPart then
-				local screenPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
-				if onScreen then
-					local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
-					if distance <= closestDistance then
-						if aimbotOnlyVisible then
-							local highlight = highlights[character]
-							if not highlight or highlight.FillColor ~= Color3.fromRGB(0, 255, 0) then
-								continue
+				if not isInSameDimension(character) then
+					continue
+				end
+
+				local targetPart = (aimbotTarget == "Head") and character:FindFirstChild("Head") or (character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso"))
+
+				if targetPart then
+					local screenPos, onScreen = camera:WorldToViewportPoint(targetPart.Position)
+					if onScreen then
+						local distance = (Vector2.new(screenPos.X, screenPos.Y) - centerPos).Magnitude
+						if distance <= closestDistance then
+							if aimbotOnlyVisible then
+								local highlight = highlights[character]
+								if not highlight or highlight.FillColor ~= Color3.fromRGB(0, 255, 0) then
+									continue
+								end
 							end
+							closestDistance = distance
+							closestPlayer = player
 						end
-						closestDistance = distance
-						closestPlayer = player
 					end
 				end
 			end
@@ -10726,9 +12136,9 @@ function refreshConfigList()
 		local emptyLabel = New("TextLabel", {
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, -8, 0, 26),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextSize = 12,
-			TextColor3 = C.TxtDim,
+			TextColor3 = C.TxtWhite,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Text = getPageText("config", "no_saved_configs", "No saved configs yet."),
 		}, configListScroll)
@@ -10752,7 +12162,7 @@ function refreshConfigList()
 				BackgroundTransparency = 1,
 				Position = UDim2.new(0, 10, 0, 4),
 				Size = UDim2.new(1, -92, 0, 20),
-				Font = Enum.Font.GothamSemibold,
+				Font = Enum.Font.GothamBold,
 				TextSize = 12,
 				TextColor3 = C.TxtWhite,
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -10764,9 +12174,9 @@ function refreshConfigList()
 				BackgroundTransparency = 1,
 				Position = UDim2.new(0, 10, 0, 24),
 				Size = UDim2.new(1, -92, 0, 22),
-				Font = Enum.Font.Gotham,
+				Font = Enum.Font.GothamBold,
 				TextSize = 10,
-				TextColor3 = C.TxtDim,
+				TextColor3 = C.TxtWhite,
 				TextXAlignment = Enum.TextXAlignment.Left,
 				Text = "Created: " .. getConfigTimestampText(configData and configData.createdAt) .. " | Last Use: " .. getConfigTimestampText(configData and configData.lastUsed),
 			}, row)
@@ -10776,7 +12186,7 @@ function refreshConfigList()
 				BorderSizePixel = 0,
 				Position = UDim2.new(1, -74, 0.5, -11),
 				Size = UDim2.new(0, 64, 0, 22),
-				Font = Enum.Font.GothamSemibold,
+				Font = Enum.Font.GothamBold,
 				TextSize = 11,
 				TextColor3 = C.TxtWhite,
 				Text = "Load",
@@ -10799,9 +12209,9 @@ function refreshConfigList()
 		local emptySearchLabel = New("TextLabel", {
 			BackgroundTransparency = 1,
 			Size = UDim2.new(1, -8, 0, 26),
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamBold,
 			TextSize = 12,
-			TextColor3 = C.TxtDim,
+			TextColor3 = C.TxtWhite,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			Text = "No configs match your search.",
 		}, configListScroll)
@@ -10884,6 +12294,7 @@ function loadConfig(configName)
 				end
 			end
 		end
+		if refreshKeybindManager then task.defer(refreshKeybindManager) end
 	end
 
 	if type(configData.toggles) == "table" then
@@ -11045,7 +12456,11 @@ function unloadNightMenu()
 		instantInteractEnabled = false
 		freeflyOn = false
 		kickPushEnabled = false
+		infinitePushEnabled = false
+		antiFlyingEnabled = false
 		toggleKickPush(false)
+		stopInfinitePush()
+		stopAntiFlying()
 	end)
 
 	pcall(function()
@@ -11429,6 +12844,7 @@ function initESPPlayerEvents()
 		if selectedPlayer == player then
 			selectedPlayer = nil
 			if actionsPanel then actionsPanel.Visible = false end
+			stopInfinitePush()
 		end
 		updatePlayerCounter()
 	end)
@@ -11471,44 +12887,44 @@ createConfigActionButton(configInfoCard, "Save", 0, 170, 0.235, function()
 end)
 
 THEME_PRESETS = {
-	["Purple Storm"] = {
+	["Astrix Dark"] = {
 		sakura = {
-			primary = Color3.fromRGB(221, 186, 248),
-			secondary = Color3.fromRGB(236, 217, 250),
-			accent = Color3.fromRGB(156, 129, 184),
-			background = Color3.fromRGB(12, 10, 16),
-			surface = Color3.fromRGB(18, 14, 24),
-			surfaceLight = Color3.fromRGB(33, 28, 42),
-			buttonBg = Color3.fromRGB(22, 18, 28),
-			border = Color3.fromRGB(107, 90, 133),
-			text = Color3.fromRGB(244, 244, 248),
-			textMuted = Color3.fromRGB(170, 166, 181),
+			primary = Color3.fromRGB(40, 40, 48),
+			secondary = Color3.fromRGB(55, 55, 65),
+			accent = Color3.fromRGB(30, 30, 38),
+			background = Color3.fromRGB(5, 5, 7),
+			surface = Color3.fromRGB(9, 9, 12),
+			surfaceLight = Color3.fromRGB(14, 14, 18),
+			buttonBg = Color3.fromRGB(12, 12, 16),
+			border = Color3.fromRGB(22, 22, 28),
+			text = Color3.fromRGB(235, 235, 240),
+			textMuted = Color3.fromRGB(110, 110, 125),
 		},
 		c = {
-			BgMain = Color3.fromRGB(12, 10, 16),
-			BgSidebar = Color3.fromRGB(15, 12, 20),
-			BgTopbar = Color3.fromRGB(12, 10, 16),
-			BgSection = Color3.fromRGB(18, 14, 24),
-			BgCard = Color3.fromRGB(22, 18, 28),
-			BgInput = Color3.fromRGB(27, 22, 35),
-			Purple = Color3.fromRGB(221, 186, 248),
-			PurpleDark = Color3.fromRGB(107, 90, 133),
-			PurpleGlow = Color3.fromRGB(236, 217, 250),
-			PurpleLine = Color3.fromRGB(121, 102, 149),
-			Pink = Color3.fromRGB(221, 186, 248),
-			TxtWhite = Color3.fromRGB(244, 244, 248),
-			TxtMid = Color3.fromRGB(214, 214, 220),
-			TxtDim = Color3.fromRGB(159, 153, 171),
-			Divider = Color3.fromRGB(72, 63, 89),
-			DividerSoft = Color3.fromRGB(42, 36, 53),
-			ToggleOff = Color3.fromRGB(110, 100, 128),
-			ToggleOn = Color3.fromRGB(221, 186, 248),
-			SliderBg = Color3.fromRGB(27, 24, 34),
-			DropBorder = Color3.fromRGB(121, 102, 149),
-			ActiveTabBg = Color3.fromRGB(27, 22, 35),
-			TabHover = Color3.fromRGB(22, 18, 28),
-			BindBg = Color3.fromRGB(23, 20, 29),
-			BindActive = Color3.fromRGB(78, 67, 99),
+			BgMain = Color3.fromRGB(5, 5, 7),
+			BgSidebar = Color3.fromRGB(7, 7, 10),
+			BgTopbar = Color3.fromRGB(5, 5, 7),
+			BgSection = Color3.fromRGB(9, 9, 12),
+			BgCard = Color3.fromRGB(12, 12, 16),
+			BgInput = Color3.fromRGB(15, 15, 20),
+			Purple = Color3.fromRGB(40, 40, 48),
+			PurpleDark = Color3.fromRGB(25, 25, 32),
+			PurpleGlow = Color3.fromRGB(55, 55, 65),
+			PurpleLine = Color3.fromRGB(30, 30, 38),
+			Pink = Color3.fromRGB(40, 40, 48),
+			TxtWhite = Color3.fromRGB(235, 235, 240),
+			TxtMid = Color3.fromRGB(130, 130, 145),
+			TxtDim = Color3.fromRGB(70, 70, 82),
+			Divider = Color3.fromRGB(22, 22, 28),
+			DividerSoft = Color3.fromRGB(15, 15, 20),
+			ToggleOff = Color3.fromRGB(25, 25, 32),
+			ToggleOn = Color3.fromRGB(50, 50, 60),
+			SliderBg = Color3.fromRGB(15, 15, 20),
+			DropBorder = Color3.fromRGB(30, 30, 38),
+			ActiveTabBg = Color3.fromRGB(22, 22, 28),
+			TabHover = Color3.fromRGB(10, 10, 14),
+			BindBg = Color3.fromRGB(12, 12, 16),
+			BindActive = Color3.fromRGB(35, 35, 42),
 		},
 	},
 	["Ocean"] = {
@@ -11619,20 +13035,20 @@ function updateThemeStatus()
 	if themeButtonGroups.presets then
 		for themeName, btn in pairs(themeButtonGroups.presets) do
 			btn.BackgroundColor3 = themeName == currentThemeName and C.BindActive or C.BindBg
-			btn.TextColor3 = themeName == currentThemeName and C.TxtWhite or C.TxtMid
+			btn.TextColor3 = themeName == currentThemeName and C.TxtWhite or C.TxtWhite
 		end
 	end
 	if themeButtonGroups.styles then
 		for styleName, btn in pairs(themeButtonGroups.styles) do
 			btn.BackgroundColor3 = styleName == currentThemeStyle and C.BindActive or C.BindBg
-			btn.TextColor3 = styleName == currentThemeStyle and C.TxtWhite or C.TxtMid
+			btn.TextColor3 = styleName == currentThemeStyle and C.TxtWhite or C.TxtWhite
 		end
 	end
 	if themeButtonGroups.sizes and menuSizes and menuSizes[currentSizeIndex] then
 		local currentSizeName = menuSizes[currentSizeIndex].name
 		for sizeName, btn in pairs(themeButtonGroups.sizes) do
 			btn.BackgroundColor3 = sizeName == currentSizeName and C.BindActive or C.BindBg
-			btn.TextColor3 = sizeName == currentSizeName and C.TxtWhite or C.TxtMid
+			btn.TextColor3 = sizeName == currentSizeName and C.TxtWhite or C.TxtWhite
 		end
 	end
 end
@@ -11700,7 +13116,7 @@ function applyThemeStyle(styleName)
 	updateThemeStatus()
 	if not suppressThemeFeedback then
 		saveLibrarySettings()
-		showMenuToast("Style Applied", styleName, C.PurpleGlow)
+		showMenuToast("Style Applied", styleName, C.TxtWhite)
 	end
 	return true
 end
@@ -11718,7 +13134,7 @@ function applyThemeSize(sizeIndex)
 	updateThemeStatus()
 	if not suppressThemeFeedback then
 		saveLibrarySettings()
-		showMenuToast("Size Applied", size.name, C.PurpleGlow)
+		showMenuToast("Size Applied", size.name, C.TxtWhite)
 	end
 	return true
 end
@@ -11762,7 +13178,7 @@ function setupAutoExecute()
 			end
 		end)
 		pcall(function()
-			writefile("autoexec/night_menu_autoexec.lua", loaderSource)
+				writefile("autoexec/night_menu_autoexec.lua", loaderSource)
 		end)
 	end
 
@@ -11813,9 +13229,9 @@ themeStyleLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 0, 0, 24),
 	Size = UDim2.new(1, 0, 0, 18),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
-	TextColor3 = C.TxtDim,
+	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = getPageText("theme", "style_prefix", "Style: ") .. currentThemeStyle,
 }, themeCard)
@@ -11824,9 +13240,9 @@ themeSizeLabel = New("TextLabel", {
 	BackgroundTransparency = 1,
 	Position = UDim2.new(0, 0, 0, 44),
 	Size = UDim2.new(1, 0, 0, 18),
-	Font = Enum.Font.Gotham,
+	Font = Enum.Font.GothamBold,
 	TextSize = 12,
-	TextColor3 = C.TxtDim,
+	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Text = getPageText("theme", "size_prefix", "Size: ") .. getPageText("theme", "size_default", "Padrao") .. " (960x600)",
 }, themeCard)
@@ -11836,7 +13252,7 @@ themeStatusLabel = New("TextLabel", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0, 0, 0, 72),
 	Size = UDim2.new(1, 0, 0, 34),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
 	TextColor3 = C.TxtWhite,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -11852,17 +13268,17 @@ function createThemeButton(parent, buttonText, xScale, yOffset, callback)
 		BorderSizePixel = 0,
 		Position = UDim2.new(xScale, 0, 0, yOffset),
 		Size = UDim2.new(0.31, 0, 0, 42),
-		Font = Enum.Font.GothamSemibold,
-		TextSize = 13,
-		TextColor3 = C.TxtMid,
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextColor3 = C.TxtWhite,
 		Text = buttonText,
 		AutoButtonColor = false,
 	}, parent)
-	Corner(8, button)
+	Corner(6, button)
 	Stroke(C.Divider, 1, button).Transparency = 0.25
 	button.MouseEnter:Connect(function()
 		if button.BackgroundColor3 ~= C.BindActive then
-			UI_Tween(button, {BackgroundColor3 = C.TabHover}, 0.12)
+			UI_Tween(button, {BackgroundColor3 = Color3.fromRGB(35, 35, 42)}, 0.12)
 		end
 	end)
 	button.MouseLeave:Connect(function()
@@ -11897,9 +13313,9 @@ function createThemeSection(parent, titleText, descriptionText, yOffset, height)
 		BackgroundTransparency = 1,
 		Position = UDim2.new(0, 14, 0, 32),
 		Size = UDim2.new(1, -28, 0, 16),
-		Font = Enum.Font.Gotham,
+		Font = Enum.Font.GothamBold,
 		TextSize = 11,
-		TextColor3 = C.TxtDim,
+		TextColor3 = C.TxtWhite,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		Text = descriptionText,
 	}, section)
@@ -11914,7 +13330,7 @@ themeButtonGroups = {
 }
 
 themeColorSection, themeColorTitleLabel, themeColorDescLabel = createThemeSection(themeCard, getPageText("theme", "color_presets_title", "Color Presets"), getLocalizedText("theme", "color_presets", "Choose the main color palette for the whole menu."), 122, 110)
-themeButtonGroups.presets["Purple Storm"] = createThemeButton(themeColorSection, "Purple Storm", 0.03, 56, function() applyThemePreset("Purple Storm") end)
+	themeButtonGroups.presets["Astrix Dark"] = createThemeButton(themeColorSection, "Astrix Dark", 0.03, 56, function() applyThemePreset("Astrix Dark") end)
 themeButtonGroups.presets["Ocean"] = createThemeButton(themeColorSection, "Ocean", 0.345, 56, function() applyThemePreset("Ocean") end)
 themeButtonGroups.presets["Crimson"] = createThemeButton(themeColorSection, "Crimson", 0.66, 56, function() applyThemePreset("Crimson") end)
 
@@ -11940,7 +13356,7 @@ autoExecThemeBtn = New("TextButton", {
 	BorderSizePixel = 0,
 	Position = UDim2.new(0.03, 0, 0, 48),
 	Size = UDim2.new(0.94, 0, 0, 36),
-	Font = Enum.Font.GothamSemibold,
+	Font = Enum.Font.GothamBold,
 	TextSize = 13,
 	TextColor3 = C.TxtWhite,
 	Text = "A?",
@@ -12029,27 +13445,6 @@ applyStoredMenuSettings()
 -- Input geral - Corrigido para evitar conflitos
 UserInputService.InputBegan:Connect(function(input, processed)
 	-- Menu toggle (M) - Prioridade mÃƒÂ¡xima (sempre funciona)
-	if inputMatchesBind(input, UI_TOGGLE_KEY) then
-		if menuIsMinimized then
-			if setMinimizedState then
-				setMinimizedState(false)
-			end
-			showPanel(true)
-		elseif panelVisible then
-			if setMinimizedState then
-				setMinimizedState(true)
-			else
-				showPanel(false)
-			end
-		else
-			showPanel(true)
-			if setMinimizedState then
-				setMinimizedState(false)
-			end
-		end
-		return
-	end
-
 	if processed then return end
 
 	-- Fly (F) e Destravar Mouse (P) - Funcionam sempre
@@ -12081,3 +13476,5 @@ task.defer(function()
 	updateThemeStatus()
 	refreshConfigList()
 end)
+
+end
