@@ -2596,6 +2596,8 @@ Players.PlayerRemoving:Connect(function(p)
 		if tpBtn then tpBtn.Visible = false end
 		if spectateToggle then spectateToggle.Visible = false end
 		if infinitePushBtn then infinitePushBtn.Visible = false end
+		if whisperChatBtn then whisperChatBtn.Visible = false end
+		if whisperChatMsgFrame then whisperChatMsgFrame.Visible = false end
 		if spectateActive then
 			spectateActive = false
 			stopSpectate()
@@ -8123,12 +8125,96 @@ magnetKillBtn.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Esconder aÃƒÂ§ÃƒÂµes inicialmente
+-- Botão Whisper Chat
+whisperChatBtn = Instance.new("TextButton")
+whisperChatBtn.Size = UDim2.new(1, 0, 0, 40)
+whisperChatBtn.BackgroundColor3 = Color3.fromRGB(25, 60, 90)
+whisperChatBtn.BackgroundTransparency = 0.2
+whisperChatBtn.Text = "WHISPER CHAT"
+whisperChatBtn.Font = Enum.Font.GothamBold
+whisperChatBtn.TextSize = 14
+whisperChatBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+whisperChatBtn.Parent = actionsContainer
+Instance.new("UICorner", whisperChatBtn).CornerRadius = UDim.new(0, 8)
+
+whisperChatMsgFrame = Instance.new("Frame")
+whisperChatMsgFrame.Size = UDim2.new(1, 0, 0, 35)
+whisperChatMsgFrame.BackgroundTransparency = 1
+whisperChatMsgFrame.Visible = false
+whisperChatMsgFrame.Parent = actionsContainer
+
+whisperChatMsgInput = Instance.new("TextBox")
+whisperChatMsgInput.Size = UDim2.new(0.7, -5, 0, 30)
+whisperChatMsgInput.Position = UDim2.new(0, 0, 0, 2)
+whisperChatMsgInput.BackgroundColor3 = C.BgInput
+whisperChatMsgInput.TextColor3 = Color3.fromRGB(255, 255, 255)
+whisperChatMsgInput.PlaceholderText = "Digite sua mensagem..."
+whisperChatMsgInput.Text = ""
+whisperChatMsgInput.Font = Enum.Font.GothamBold
+whisperChatMsgInput.TextSize = 14
+whisperChatMsgInput.ClearTextOnFocus = false
+whisperChatMsgInput.Parent = whisperChatMsgFrame
+Instance.new("UICorner", whisperChatMsgInput).CornerRadius = UDim.new(0, 6)
+Stroke(C.Divider, 1, whisperChatMsgInput).Transparency = 0.25
+
+whisperChatSendBtn = Instance.new("TextButton")
+whisperChatSendBtn.Size = UDim2.new(0.3, -5, 0, 30)
+whisperChatSendBtn.Position = UDim2.new(0.7, 5, 0, 2)
+whisperChatSendBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
+whisperChatSendBtn.Text = "ENVIAR"
+whisperChatSendBtn.Font = Enum.Font.GothamBold
+whisperChatSendBtn.TextSize = 13
+whisperChatSendBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+whisperChatSendBtn.Parent = whisperChatMsgFrame
+Instance.new("UICorner", whisperChatSendBtn).CornerRadius = UDim.new(0, 6)
+
+whisperChatSendBtn.MouseButton1Click:Connect(function()
+	if not selectedPlayer then return end
+	local message = whisperChatMsgInput.Text
+	if message == "" then return end
+
+	local rs = game:GetService("ReplicatedStorage")
+	local expChat = rs:FindFirstChild("ExperienceChat")
+	local whisperChat = expChat and expChat:FindFirstChild("WhisperChat")
+	local canChatWith = rs:FindFirstChild("CanChatWith")
+
+	if whisperChat and whisperChat:IsA("RemoteFunction") then
+		if canChatWith and canChatWith:IsA("RemoteEvent") then
+			pcall(function()
+				canChatWith:FireServer(selectedPlayer)
+			end)
+		end
+		pcall(function()
+			whisperChat:InvokeServer(selectedPlayer.Name, message)
+		end)
+		whisperChatMsgInput.Text = ""
+		showMenuToast("Whisper Chat", "Mensagem enviada para " .. selectedPlayer.Name, Color3.fromRGB(0, 200, 100))
+	else
+		showMenuToast("Whisper Chat", "Remote WhisperChat nao encontrado", Color3.fromRGB(255, 100, 100))
+	end
+end)
+
+whisperChatMsgInput.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		whisperChatSendBtn.MouseButton1Click:Fire()
+	end
+end)
+
+whisperChatBtn.MouseButton1Click:Connect(function()
+	whisperChatMsgFrame.Visible = not whisperChatMsgFrame.Visible
+	if whisperChatMsgFrame.Visible then
+		whisperChatMsgInput:CaptureFocus()
+	end
+end)
+
+-- Esconder ações inicialmente
 tpBtn.Visible = false
 spectateToggle.Visible = false
 infinitePushBtn.Visible = false
 killBtn.Visible = false
 magnetKillBtn.Visible = false
+whisperChatBtn.Visible = false
+whisperChatMsgFrame.Visible = false
 killBtn.Parent = nil
 magnetKillBtn.Parent = nil
 
@@ -8213,6 +8299,8 @@ function createPlayerButton(player)
 			if tpBtn then tpBtn.Visible = false end
 			if spectateToggle then spectateToggle.Visible = false end
 			if infinitePushBtn then infinitePushBtn.Visible = false end
+			if whisperChatBtn then whisperChatBtn.Visible = false end
+			if whisperChatMsgFrame then whisperChatMsgFrame.Visible = false end
 			stopInfinitePush()
 			return
 		end
@@ -8229,6 +8317,8 @@ function createPlayerButton(player)
 		if tpBtn then tpBtn.Visible = true end
 		if spectateToggle then spectateToggle.Visible = true end
 		if infinitePushBtn then infinitePushBtn.Visible = true end
+		if whisperChatBtn then whisperChatBtn.Visible = true end
+		if whisperChatMsgFrame then whisperChatMsgFrame.Visible = false end
 		if spectateActive then
 			spectateActive = false
 			stopSpectate()
@@ -12790,16 +12880,34 @@ chatSpammerToggle = createToggle(nil, "Chat Spammer", function(enabled)
 		if _G._chatSpammerThread then task.cancel(_G._chatSpammerThread) _G._chatSpammerThread = nil end
 		_G._chatSpammerThread = task.spawn(function()
 			local chatFound = false
-			-- Detect chat system once
+			local useWhisperChat = false
 			local useLegacy = false
 			local useNew = false
+
+			-- 1. Tentar WhisperChat (RemoteFunction)
 			pcall(function()
-				local events = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
-				if events and events:FindFirstChild("SayMessageRequest") then
-					useLegacy = true
+				local rs = game:GetService("ReplicatedStorage")
+				local expChat = rs:FindFirstChild("ExperienceChat")
+				if expChat then
+					local whisperChat = expChat:FindFirstChild("WhisperChat")
+					if whisperChat and whisperChat:IsA("RemoteFunction") then
+						useWhisperChat = true
+					end
 				end
 			end)
-			if not useLegacy then
+
+			-- 2. Tentar sistema legado (SayMessageRequest)
+			if not useWhisperChat then
+				pcall(function()
+					local events = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+					if events and events:FindFirstChild("SayMessageRequest") then
+						useLegacy = true
+					end
+				end)
+			end
+
+			-- 3. Tentar TextChatService
+			if not useWhisperChat and not useLegacy then
 				pcall(function()
 					local tcs = game:GetService("TextChatService")
 					if tcs then
@@ -12807,7 +12915,8 @@ chatSpammerToggle = createToggle(nil, "Chat Spammer", function(enabled)
 					end
 				end)
 			end
-			if not useLegacy and not useNew then
+
+			if not useWhisperChat and not useLegacy and not useNew then
 				warn("[NIGHT MENU] Chat Spammer: Nenhum sistema de chat detectado neste jogo.")
 				showMenuToast("Chat Spammer", "Chat nao suportado neste jogo", Color3.fromRGB(255, 100, 100))
 				chatSpammerEnabled = false
@@ -12817,9 +12926,31 @@ chatSpammerToggle = createToggle(nil, "Chat Spammer", function(enabled)
 				end
 				return
 			end
+
 			while chatSpammerEnabled do
 				pcall(function()
-					if useLegacy then
+					if useWhisperChat then
+						local rs = game:GetService("ReplicatedStorage")
+						local expChat = rs:FindFirstChild("ExperienceChat")
+						local whisperChat = expChat and expChat:FindFirstChild("WhisperChat")
+						local canChatWith = rs:FindFirstChild("CanChatWith")
+
+						for _, player in ipairs(Players:GetPlayers()) do
+							if player ~= LocalPlayer then
+								if canChatWith and canChatWith:IsA("RemoteEvent") then
+									pcall(function()
+										canChatWith:FireServer(player)
+									end)
+								end
+								if whisperChat then
+									pcall(function()
+										whisperChat:InvokeServer(player.Name, chatSpammerMessage)
+									end)
+									chatFound = true
+								end
+							end
+						end
+					elseif useLegacy then
 						local events = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
 						if events then
 							local sayReq = events:FindFirstChild("SayMessageRequest")
