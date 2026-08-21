@@ -107,6 +107,9 @@ aimbotTeamCheck = true
 aimbotShowFOV = false
 espBind = nil
 espBindString = "None"
+radarEnabled = false
+radarBind = nil
+radarBindString = "None"
 hitboxBind = nil
 hitboxBindString = "None"
 hitboxShowBind = nil
@@ -5289,16 +5292,49 @@ local function ListLayout(spacing, p)
 end
 
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local CoreGui = game:GetService("CoreGui")
+
+-- Limpar menus antigos no PlayerGui E no CoreGui (de execuções anteriores)
+pcall(function()
+	local oldCore = CoreGui:FindFirstChild("NightModMenu")
+	if oldCore then oldCore:Destroy() end
+end)
 local oldGui = playerGui:FindFirstChild("NightModMenu")
 if oldGui then
 	oldGui:Destroy()
 end
+
 gui = Instance.new("ScreenGui")
 gui.Name = "NightModMenu"
 gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true -- cobre também a área da topbar do Roblox
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.DisplayOrder = 999999999
-gui.Parent = playerGui
+
+-- Subpor TODA a UI do jogo: parentar no CoreGui coloca o menu acima de
+-- qualquer ScreenGui do jogo e dos elementos core (topbar, chat, etc.)
+_G.nightMenuOnCore = false
+local parentedToCore = pcall(function()
+	gui.Parent = CoreGui
+end)
+if not parentedToCore then
+	gui.Parent = playerGui
+end
+_G.nightMenuOnCore = parentedToCore
+
+-- Guarda: se o jogo tentar mover/remover o menu da frente, repõe-o
+_G.nightMenuUnloaded = false
+task.spawn(function()
+	while not _G.nightMenuUnloaded and gui and gui.Parent do
+		task.wait(0.5)
+		if _G.nightMenuUnloaded then break end
+		if gui.Parent and not gui:IsDescendantOf(CoreGui) and not gui:IsDescendantOf(playerGui) then
+			pcall(function()
+				gui.Parent = _G.nightMenuOnCore and CoreGui or playerGui
+			end)
+		end
+	end
+end)
 
 MENU_FONT = Enum.Font.GothamBold
 function forceMenuFont(obj)
@@ -6366,6 +6402,7 @@ mainFrame = New("Frame", {
 	Size = UDim2.new(0, 960, 0, 600),
 	ClipsDescendants = true,
 	Visible = true,
+	Active = true, -- consome cliques sobre o menu (evita clicar através na UI do jogo)
 	ZIndex = 10000001,
 }, gui)
 Corner(12, mainFrame)
@@ -7890,6 +7927,43 @@ setTab("UPDATES")
 panelVisible = true
 mainFrame.Visible = true
 
+-- ========= ANTI CLICK-THROUGH =========
+-- Cliques/taps que caiam sobre o menu são absorvidos e nunca chegam ao jogo.
+local function isNightPointOverMenu(pos)
+	if not panelVisible or not mainFrame or not mainFrame.Visible then
+		return false
+	end
+	local ap, as = mainFrame.AbsolutePosition, mainFrame.AbsoluteSize
+	if pos.X >= ap.X and pos.X <= ap.X + as.X and pos.Y >= ap.Y and pos.Y <= ap.Y + as.Y then
+		return true
+	end
+	if restoreButton and restoreButton.Visible and restoreButton.Parent then
+		local rap, ras = restoreButton.AbsolutePosition, restoreButton.AbsoluteSize
+		if pos.X >= rap.X and pos.X <= rap.X + ras.X and pos.Y >= rap.Y and pos.Y <= rap.Y + ras.Y then
+			return true
+		end
+	end
+	return false
+end
+
+ContextActionService:BindActionAtPriority(
+	"NightMenuClickShield",
+	function(_, inputState)
+		local ok, over = pcall(function()
+			return isNightPointOverMenu(UserInputService:GetMouseLocation())
+		end)
+		if ok and over then
+			return Enum.ContextActionResult.Sink
+		end
+		return Enum.ContextActionResult.Pass
+	end,
+	false,
+	Enum.ContextActionPriority.High.Value + 1,
+	Enum.UserInputType.MouseButton1,
+	Enum.UserInputType.MouseButton2,
+	Enum.UserInputType.Touch
+)
+
 -- Drag pela Topbar
 dragging = false
 dragStart = nil
@@ -9380,6 +9454,11 @@ espToggle = createToggle(espVisualContent, "Esp", function(enabled)
 	espEnabled = enabled
 	if not enabled then
 		clearAllESPVisuals()
+		if radarEnabled then
+			local radarEntry = configToggleRegistry["radar"]
+			if radarEntry then radarEntry.setState(false) end
+			setRadarEnabled(false)
+		end
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end, "Turns the full ESP system on or off.", {
@@ -9456,6 +9535,19 @@ local healthToggle = createToggle(healthFrame, "Health Bar", function(enabled)
 	end
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end, "Exibe uma barra de vida 2D ao lado do jogador.")
+
+-- Radar (abaixo da Health Bar)
+radarVisualToggle = createToggle(espVisualContent, "Radar", function(enabled)
+	setRadarEnabled(enabled)
+end, "Minimapa estilo Counter-Strike. Arraste pelo radar apenas com o menu aberto.", {
+	bindId = "radar",
+	getBindValue = function() return radarBind end,
+	getBindName = function() return radarBindString end,
+	setBind = function(bindValue, bindName)
+		radarBind = bindValue
+		radarBindString = bindDisplayName(bindValue, bindName)
+	end,
+})
 
 -- Atualizar tamanho da subcategoria visual
 espVisualSub.Size = UDim2.new(1, -20, 0, espVisualLayout.AbsoluteContentSize.Y + 40)
@@ -9783,7 +9875,7 @@ positionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 positionBtn.Parent = positionFrame
 Instance.new("UICorner", positionBtn).CornerRadius = UDim.new(0, 8)
 
-positionBtn.MouseButton1Click:Connect(function()
+	positionBtn.MouseButton1Click:Connect(function()
 	if espPosition == "Topo" then
 		espPosition = "Baixo"
 	elseif espPosition == "Baixo" then
@@ -9794,6 +9886,313 @@ positionBtn.MouseButton1Click:Connect(function()
 	positionBtn.Text = "Position: " .. espPosition
 	for _, p in ipairs(Players:GetPlayers()) do refreshESPForPlayer(p) end
 end)
+
+-- ========= RADAR (ESTILO CS) =========
+radarRange = 250 -- studs do centro até a borda
+radarFrame = nil
+radarBody = nil
+radarCompass = nil
+radarSelfArrow = nil
+radarFov = nil
+radarBlips = {}
+radarRenderConn = nil
+radarPlayersConn = nil
+radarDragEndedConn = nil
+radarDragMovedConn = nil
+radarDragging = false
+radarDragStart = nil
+radarStartPos = nil
+
+local function radarDestroyBlips()
+	for player, blip in pairs(radarBlips) do
+		pcall(function() blip:Destroy() end)
+		radarBlips[player] = nil
+	end
+end
+
+function ensureRadarWidget()
+	if radarFrame and radarFrame.Parent then return end
+	radarDestroyBlips()
+
+	local root = New("Frame", {
+		Name = "NightRadar",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -24, 0, 64),
+		Size = UDim2.new(0, 216, 0, 216),
+		BackgroundTransparency = 1,
+		Active = true,
+		ZIndex = 10000100,
+	}, gui)
+
+	local body = New("Frame", {
+		Name = "RadarBody",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 10000101,
+	}, root)
+
+	local circle = New("Frame", {
+		Name = "Circle",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(1, -8, 1, -8),
+		BackgroundColor3 = Color3.fromRGB(10, 10, 14),
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
+		Active = true,
+		ZIndex = 10000102,
+	}, body)
+	Corner(200, circle)
+	local cstroke = Stroke(Color3.fromRGB(255, 150, 20), 1.5, circle)
+	cstroke.Transparency = 0.25
+
+	-- Anéis internos
+	for _, scale in ipairs({0.66, 0.33}) do
+		local ring = New("Frame", {
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.fromScale(scale, scale),
+			BackgroundTransparency = 1,
+			ZIndex = 10000103,
+		}, circle)
+		Corner(100, ring)
+		local rs = Stroke(Color3.fromRGB(120, 120, 140), 1, ring)
+		rs.Transparency = 0.55
+	end
+
+	-- Bússola (cruz + N) fixa — o mapa fica com o norte sempre em cima
+	radarCompass = New("Frame", {
+		Name = "Compass",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		ZIndex = 10000103,
+	}, circle)
+
+	New("Frame", { -- cruz horizontal
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, -14, 0, 1),
+		BackgroundColor3 = Color3.fromRGB(150, 150, 170),
+		BackgroundTransparency = 0.65,
+		BorderSizePixel = 0,
+		ZIndex = 10000103,
+	}, radarCompass)
+	New("Frame", { -- cruz vertical
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 1, 1, -14),
+		BackgroundColor3 = Color3.fromRGB(150, 150, 170),
+		BackgroundTransparency = 0.65,
+		BorderSizePixel = 0,
+		ZIndex = 10000103,
+	}, radarCompass)
+	New("TextLabel", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(0.5, 0, 0, 12),
+		Size = UDim2.new(0, 18, 0, 14),
+		BackgroundTransparency = 1,
+		Text = "N",
+		TextSize = 11,
+		TextColor3 = Color3.fromRGB(255, 90, 90),
+		ZIndex = 10000104,
+	}, radarCompass)
+
+	-- Setinha do jogador: triângulo que gira para o lado da câmera
+	radarSelfArrow = New("TextLabel", {
+		Name = "SelfArrow",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0, 24, 0, 24),
+		BackgroundTransparency = 1,
+		Text = "▲",
+		TextSize = 20,
+		TextColor3 = Color3.fromRGB(255, 255, 255),
+		TextStrokeColor3 = Color3.fromRGB(0, 0, 0),
+		TextStrokeTransparency = 0.5,
+		Rotation = 0,
+		ZIndex = 10000106,
+	}, circle)
+
+	-- Zona de visão: cone translúcido que acompanha a seta
+	radarFov = New("Frame", {
+		Name = "FovCone",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Rotation = 0,
+		ZIndex = 10000105,
+	}, circle)
+	do
+		local rayCount = 25
+		local coneAngle = 90 -- graus de visão total
+		local rayLen = 92 -- pixels (raio do círculo ~100)
+		for i = 1, rayCount do
+			local t = ((i - 1) / (rayCount - 1)) * 2 - 1 -- -1 .. 1
+			local rad = math.rad(t * (coneAngle / 2))
+			New("Frame", {
+				Name = "FovRay" .. i,
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(0.5, math.sin(rad) * rayLen * 0.5, 0.5, -math.cos(rad) * rayLen * 0.5),
+				Size = UDim2.new(0, 3, 0, rayLen),
+				BackgroundColor3 = Color3.fromRGB(255, 185, 90),
+				BackgroundTransparency = 0.84 + (math.abs(t) ^ 1.4) * 0.12,
+				BorderSizePixel = 0,
+				Rotation = math.deg(rad),
+				ZIndex = 10000105,
+			}, radarFov)
+		end
+	end
+
+	radarBody = circle
+
+	-- Drag: arrasta pelo próprio radar, apenas quando o menu está aberto
+	circle.InputBegan:Connect(function(input)
+		if not panelVisible then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			radarDragging = true
+			radarDragStart = input.Position
+			radarStartPos = root.Position
+		end
+	end)
+
+	if not radarDragEndedConn then
+		radarDragEndedConn = UserInputService.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+				radarDragging = false
+			end
+		end)
+	end
+	if not radarDragMovedConn then
+		radarDragMovedConn = UserInputService.InputChanged:Connect(function(input)
+			if radarDragging and panelVisible and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+				local delta = input.Position - radarDragStart
+				radarFrame.Position = UDim2.new(
+					radarStartPos.X.Scale, radarStartPos.X.Offset + delta.X,
+					radarStartPos.Y.Scale, radarStartPos.Y.Offset + delta.Y
+				)
+			end
+		end)
+	end
+
+	radarFrame = root
+end
+
+local function radarGetBlip(player)
+	local blip = radarBlips[player]
+	if not blip or not blip.Parent then
+		blip = New("Frame", {
+			Name = player.Name,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Position = UDim2.fromScale(0.5, 0.5),
+			Size = UDim2.new(0, 11, 0, 11),
+			BackgroundColor3 = Color3.fromRGB(255, 70, 70),
+			BorderSizePixel = 0,
+			Visible = false,
+			ZIndex = 10000107,
+		}, radarBody)
+		Instance.new("UICorner", blip).CornerRadius = UDim.new(1, 0)
+		local outline = Stroke(Color3.fromRGB(0, 0, 0), 1, blip)
+		outline.Transparency = 0.35
+		radarBlips[player] = blip
+	end
+	return blip
+end
+
+function updateRadar()
+	if not radarEnabled or not radarFrame or not radarFrame.Visible or not radarBody then return end
+
+	local character = LocalPlayer.Character
+	local myRoot = character and character:FindFirstChild("HumanoidRootPart")
+	local cam = workspace.CurrentCamera
+	if not myRoot or not cam then
+		for _, blip in pairs(radarBlips) do blip.Visible = false end
+		return
+	end
+
+	local look = cam.CFrame.LookVector
+	local f = Vector3.new(look.X, 0, look.Z)
+	f = (f.Magnitude > 0.001) and f.Unit or Vector3.new(0, 0, -1)
+
+	-- Norte fixo em cima
+	if radarCompass then
+		radarCompass.Rotation = 0
+	end
+
+	-- Triângulo gira conforme a direção da câmera (▲ aponta para o norte)
+	if radarSelfArrow then
+		radarSelfArrow.Rotation = math.deg(math.atan2(f.X, -f.Z))
+	end
+
+	-- Cone de visão acompanha a seta
+	if radarFov then
+		radarFov.Rotation = radarSelfArrow and radarSelfArrow.Rotation or 0
+	end
+
+	local radiusPx = math.max(radarBody.AbsoluteSize.X * 0.5 - 8, 20)
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player == LocalPlayer then continue end
+		local blip = radarGetBlip(player)
+		local visible = false
+
+		local tChar = player.Character
+		local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+		local tHum = tChar and tChar:FindFirstChildOfClass("Humanoid")
+		if tRoot and tHum and tHum.Health > 0 and isInSameDimension(tChar) then
+			local d = tRoot.Position - myRoot.Position
+			local sx = d.X -- leste = direita
+			local sz = d.Z -- sul = baixo (norte fixo no topo)
+			local flatDist = math.sqrt(sx * sx + sz * sz)
+			if flatDist <= radarRange then
+				visible = true
+				blip.AnchorPoint = Vector2.new(0.5, 0.5)
+				blip.Position = UDim2.new(0.5, sx / radarRange * radiusPx, 0.5, sz / radarRange * radiusPx)
+				local friendly = (LocalPlayer.Team ~= nil and player.Team == LocalPlayer.Team)
+				blip.BackgroundColor3 = friendly and Color3.fromRGB(80, 170, 255) or Color3.fromRGB(255, 70, 70)
+				blip.BorderSizePixel = 0
+			end
+		end
+
+		blip.Visible = visible
+	end
+end
+
+function setRadarEnabled(enabled)
+	enabled = enabled and true or false
+	if enabled and not espEnabled then
+		radarEnabled = false
+		local radarEntry = configToggleRegistry["radar"]
+		if radarEntry then radarEntry.setState(false) end
+		pcall(function()
+			showMenuToast("Radar", "Ativa o ESP primeiro para usar o Radar.", Color3.fromRGB(255, 120, 60))
+		end)
+		return
+	end
+	radarEnabled = enabled
+	if radarEnabled then
+		ensureRadarWidget()
+		if radarFrame then radarFrame.Visible = true end
+		if not radarPlayersConn then
+			radarPlayersConn = Players.PlayerRemoving:Connect(function(p)
+				local blip = radarBlips[p]
+				if blip then
+					pcall(function() blip:Destroy() end)
+					radarBlips[p] = nil
+				end
+			end)
+		end
+		if not radarRenderConn then
+			radarRenderConn = RunService.RenderStepped:Connect(updateRadar)
+		end
+	else
+		if radarRenderConn then radarRenderConn:Disconnect() radarRenderConn = nil end
+		if radarPlayersConn then radarPlayersConn:Disconnect() radarPlayersConn = nil end
+		if radarFrame then radarFrame.Visible = false end
+	end
+end
 
 -- ========= SUBCATEGORIA: NPC ESP =========
 npcEspSub = Instance.new("Frame")
@@ -12398,6 +12797,32 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
+-- ========= BLOCK CLICK INPUT =========
+-- Bloqueia cliques (mouse/touch) para o jogo via ContextActionService em prioridade alta.
+blockClickInputEnabled = false
+
+function toggleBlockClickInput(enabled)
+	blockClickInputEnabled = enabled and true or false
+	if blockClickInputEnabled then
+		ContextActionService:BindActionAtPriority(
+			"NightBlockClickInput",
+			function(_, inputState)
+				return Enum.ContextActionResult.Sink
+			end,
+			false,
+			Enum.ContextActionPriority.High.Value + 1,
+			Enum.UserInputType.MouseButton1,
+			Enum.UserInputType.MouseButton2,
+			Enum.UserInputType.MouseButton3,
+			Enum.UserInputType.Touch
+		)
+	else
+		pcall(function()
+			ContextActionService:UnbindAction("NightBlockClickInput")
+		end)
+	end
+end
+
 -- ========= SUBCATEGORIA: UTILITÃƒÂRIOS =========
 utilsSubCategory = Instance.new("Frame")
 utilsSubCategory.Size = UDim2.new(1, -20, 0, 0)
@@ -14102,6 +14527,12 @@ end, "Cancela empurrões e lançamentos externos, sem travar as ações do menu.
 antiFlyingToggle.LayoutOrder = 4
 antiFlyingToggle.Parent = utilRoot
 
+blockClickToggle = createToggle(utilsContent, "Block Click Input", function(enabled)
+	toggleBlockClickInput(enabled)
+end, "Bloqueia cliques/taps para o jogo (o menu continua clicável).")
+blockClickToggle.LayoutOrder = 8
+blockClickToggle.Parent = utilRoot
+
 resetCharacterBtn = New("TextButton", {
 	Name = "ResetCharacterButton",
 	LayoutOrder = 6,
@@ -15282,6 +15713,7 @@ function unloadNightMenu()
 		toggleKickPush(false)
 		stopInfinitePush()
 		stopAntiFlying()
+		toggleBlockClickInput(false)
 	end)
 
 	pcall(function()
@@ -15339,6 +15771,20 @@ function unloadNightMenu()
 
 	pcall(function() RunService:UnbindFromRenderStep("NightCursorForce") end)
 	pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
+	pcall(function() ContextActionService:UnbindAction("NightMenuClickShield") end)
+	pcall(function() ContextActionService:UnbindAction("NightBlockClickInput") end)
+
+	pcall(setRadarEnabled(false))
+	radarDragging = false
+	if radarFrame then
+		pcall(function() radarFrame:Destroy() end)
+	end
+	radarFrame = nil
+	radarBody = nil
+	radarCompass = nil
+	radarSelfArrow = nil
+	radarFov = nil
+	radarDestroyBlips()
 	if _G._nightCursorStepped then _G._nightCursorStepped:Disconnect() _G._nightCursorStepped = nil end
 	if _G._nightCursorHeartbeat then _G._nightCursorHeartbeat:Disconnect() _G._nightCursorHeartbeat = nil end
 	if _G._nightThirdPersonStepped then _G._nightThirdPersonStepped:Disconnect() _G._nightThirdPersonStepped = nil end
@@ -15349,6 +15795,7 @@ function unloadNightMenu()
 	panelVisible = false
 	menuIsMinimized = false
 
+	_G.nightMenuUnloaded = true
 	if gui and gui.Parent then
 		gui:Destroy()
 	end
