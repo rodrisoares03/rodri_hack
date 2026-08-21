@@ -18,6 +18,9 @@ ProximityPromptService = game:GetService("ProximityPromptService")
 VirtualInputManager = game:GetService("VirtualInputManager")
 TextChatService = game:GetService("TextChatService")
 
+-- BUILD MARKER: se esta linha NAO aparecer no console (F9), o executor carregou uma copia antiga/truncada
+print("[NIGHT MENU] BUILD NPC-ESP-FIX v2 | " .. os.date("%d/%m/%Y %H:%M"))
+
 -- Limpar logs F9 a cada 5 segundos
 task.spawn(function()
 	while true do
@@ -1810,6 +1813,7 @@ npcBoxes = {}          -- [Model] = BillboardGui
 npcNameLabels = {}     -- [Model] = Drawing.Text
 npcDistanceLabels = {} -- [Model] = Drawing.Text
 npcHealthBars = {}     -- [Model] = {bg, fill}
+npcVisibilityCache = setmetatable({}, {__mode = "k"}) -- [Model] = {visible, at} - weak keys, GC limpa sozinho
 
 npcAimbotEnabled = false
 npcAimbotTarget = "Head"
@@ -1821,7 +1825,7 @@ npcAimbotBindString = "None"
 npcAimbotKeyHeld = false
 
 npcEspLastScanTime = 0
-npcEspScanInterval = 1.5
+npcEspScanInterval = 0.35
 npcEspCachedModels = {}
 
 -- Fly-to target
@@ -4446,8 +4450,11 @@ function getNPCsFromWorkspace()
 	local npcs = {}
 	local myChar = LocalPlayer.Character
 	local myRoot = myChar and getPrimaryPart(myChar)
-	local camera = workspace.CurrentCamera
+	if not myRoot then return npcs end
 
+	-- Sem filtro de "onScreen" aqui: NPCs fora do ecra no momento do scan ficavam
+	-- fora da cache durante o intervalo inteiro e o ESP so aparecia depois ("reload").
+	-- O culling visual por-frame ja e feito nos ensure* (Visible=false quando off-screen).
 	for _, model in ipairs(workspace:GetDescendants()) do
 		if model:IsA("Model") and model ~= myChar then
 			local humanoid = model:FindFirstChildOfClass("Humanoid")
@@ -4455,16 +4462,9 @@ function getNPCsFromWorkspace()
 			if humanoid and root and root:IsA("BasePart") and humanoid.Health > 0 then
 				local isPlayer = Players:GetPlayerFromCharacter(model)
 				if not isPlayer then
-					if myRoot then
-						local dist = (root.Position - myRoot.Position).Magnitude
-						if dist <= ESP_MAX_DISTANCE then
-							if camera then
-								local _, onScreen = camera:WorldToViewportPoint(root.Position)
-								if onScreen then
-									table.insert(npcs, {model = model, humanoid = humanoid, root = root, distance = dist})
-								end
-							end
-						end
+					local dist = (root.Position - myRoot.Position).Magnitude
+					if dist <= ESP_MAX_DISTANCE then
+						table.insert(npcs, {model = model, humanoid = humanoid, root = root, distance = dist})
 					end
 				end
 			end
@@ -4506,21 +4506,28 @@ function ensureNpcHighlight(model)
 		npcHighlights[model] = h
 	end
 
-	if npcAutoEspEnabled then
-		local rayOrigin = workspace.CurrentCamera.CFrame.Position
-		local rayDir = (targetRoot.Position - rayOrigin).Unit * 100
-		local raycastParams = RaycastParams.new()
-		raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, model}
-		raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-		local result = workspace:Raycast(rayOrigin, rayDir, raycastParams)
-		if result then
-			h.FillColor = Color3.fromRGB(255, 0, 0)
-			h.OutlineColor = Color3.fromRGB(255, 0, 0)
-		else
+	if npcAutoEspEnabled and targetRoot then
+		-- Raycast com cache de 0.2s por NPC (antes: 1 raycast por NPC POR FRAME = stutter)
+		local now = tick()
+		local visibility = npcVisibilityCache[model]
+		if not visibility or now - visibility.at > 0.2 then
+			local rayOrigin = workspace.CurrentCamera.CFrame.Position
+			local rayDir = (targetRoot.Position - rayOrigin).Unit * 100
+			local raycastParams = RaycastParams.new()
+			raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, model}
+			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+			local result = workspace:Raycast(rayOrigin, rayDir, raycastParams)
+			visibility = {visible = (result == nil), at = now}
+			npcVisibilityCache[model] = visibility
+		end
+		if visibility.visible then
 			h.FillColor = Color3.fromRGB(0, 255, 0)
 			h.OutlineColor = Color3.fromRGB(0, 255, 0)
+		else
+			h.FillColor = Color3.fromRGB(255, 0, 0)
+			h.OutlineColor = Color3.fromRGB(255, 0, 0)
 		end
-	else
+	elseif not npcAutoEspEnabled then
 		h.FillColor = npcEspColor
 		h.OutlineColor = Color3.fromRGB(255, 255, 255)
 	end
@@ -4533,11 +4540,7 @@ function ensureNpcHighlight(model)
 		h.OutlineTransparency = 0
 	end
 
-	if npcShowSkeleton then
-		h.Enabled = true
-	else
-		h.Enabled = false
-	end
+	h.Enabled = true
 end
 
 function ensureNpcBox3D(model)
@@ -4823,7 +4826,17 @@ function ensureNpcHealthBar(model)
 	local bottomPos = root.Position - Vector3.new(0, 3, 0)
 	local topScreen, topOnScreen = camera:WorldToViewportPoint(topPos)
 	local bottomScreen, bottomOnScreen = camera:WorldToViewportPoint(bottomPos)
-	if not topOnScreen or not bottomOnScreen then return end
+	if not topOnScreen or not bottomOnScreen then
+		-- BUGFIX: antes fazia return sem esconder -> barra ficava congelada no ecra
+		local bar = npcHealthBars[model]
+		if bar then
+			pcall(function()
+				if bar.bg then bar.bg.Visible = false end
+				if bar.fill then bar.fill.Visible = false end
+			end)
+		end
+		return
+	end
 
 	if not npcHealthBars[model] then
 		npcHealthBars[model] = {
@@ -10436,6 +10449,12 @@ npcSkeletonFrame.Parent = npcEspContent
 
 createToggle(npcSkeletonFrame, "Skeleton", function(enabled)
 	npcShowSkeleton = enabled
+	if not enabled then
+		for m, h in pairs(npcHighlights) do
+			if h then pcall(function() h:Destroy() end) end
+		end
+		npcHighlights = {}
+	end
 end, "Highlights NPC body through walls with an outline.", {configKey = "npc_skeleton"})
 
 -- ========= NPC ESP CONFIGURACOES =========
@@ -16061,14 +16080,13 @@ RunService.RenderStepped:Connect(function()
 			if model and model.Parent and npcInfo.humanoid and npcInfo.humanoid.Health > 0 then
 				validNpcs[model] = true
 				if not panelVisible then
-					pcall(function()
-						if npcShowSkeleton or npcShowBox then ensureNpcHighlight(model) end
-						if npcShowBox then ensureNpcBox3D(model) end
-						if npcShowTracers then ensureNpcTracer(model) end
-						if npcShowDistance then ensureNpcDistanceLabel(model) end
-						if npcShowName then ensureNpcNameLabel(model) end
-						if npcShowHealth then ensureNpcHealthBar(model) end
-					end)
+					-- pcall separado por elemento: uma falha (ex: Drawing API) ja nao mata os restantes
+					pcall(function() if npcShowSkeleton then ensureNpcHighlight(model) end end)
+					pcall(function() if npcShowBox then ensureNpcBox3D(model) end end)
+					pcall(function() if npcShowTracers then ensureNpcTracer(model) end end)
+					pcall(function() if npcShowDistance then ensureNpcDistanceLabel(model) end end)
+					pcall(function() if npcShowName then ensureNpcNameLabel(model) end end)
+					pcall(function() if npcShowHealth then ensureNpcHealthBar(model) end end)
 				end
 			end
 		end
@@ -16985,4 +17003,4 @@ task.defer(function()
 	refreshConfigList()
 end)
 
-ends
+end
