@@ -12108,88 +12108,70 @@ end, "Fires automatically when Aimbot has a clear target.", {
 })
 
 -- NOVO: Terceira Pessoa
+local function nightThirdPersonStop()
+	_G._nightThirdPersonActive = false
+	if _G._nightThirdPersonStepped then _G._nightThirdPersonStepped:Disconnect() _G._nightThirdPersonStepped = nil end
+	pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
+	_G._nightThirdPersonLoop = nil
+	pcall(function()
+		LocalPlayer.CameraMode = Enum.CameraMode.Classic
+		LocalPlayer.CameraMinZoomDistance = 0.5
+		LocalPlayer.CameraMaxZoomDistance = 50
+		local cam = workspace.CurrentCamera
+		if cam then
+			cam.CameraType = Enum.CameraType.Custom
+			local char = LocalPlayer.Character
+			local hum = char and char:FindFirstChildOfClass("Humanoid")
+			if hum then cam.CameraSubject = hum end
+		end
+	end)
+end
+
 thirdPersonToggle = createToggle(combatContent, "Third Person", function(enabled)
 	if enabled then
-		pcall(function()
-			local sp = game:GetService("StarterPlayer")
-			if sp then
-				sp.CameraMinZoomDistance = 12
-				sp.CameraMaxZoomDistance = 100
-			end
-		end)
+		nightThirdPersonStop()
 
-		LocalPlayer.CameraMaxZoomDistance = 100
-		LocalPlayer.CameraMinZoomDistance = 12
-
-		_G._nightThirdPersonYaw = 0
-		_G._nightThirdPersonPitch = 0
 		_G._nightThirdPersonActive = true
-
-		if _G._nightThirdPersonLoop then
-			pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
-			_G._nightThirdPersonLoop = nil
-		end
 		_G._nightThirdPersonLoop = true
 
 		pcall(function()
-			RunService:BindToRenderStep("NightThirdPerson", Enum.RenderPriority.Last.Value + 3, function()
-				if not enabled or not _G._nightThirdPersonActive then
-					pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
-					_G._nightThirdPersonLoop = nil
-					return
-				end
-
-				local cam = workspace.CurrentCamera
-				if not cam then return end
-				cam.CameraType = Enum.CameraType.Scriptable
-
+			LocalPlayer.CameraMode = Enum.CameraMode.Classic
+			LocalPlayer.CameraMinZoomDistance = 5
+			LocalPlayer.CameraMaxZoomDistance = 15
+			local cam = workspace.CurrentCamera
+			if cam then
+				cam.CameraType = Enum.CameraType.Custom
 				local char = LocalPlayer.Character
-				if not char then return end
-				local root = char:FindFirstChild("HumanoidRootPart")
-				if not root then return end
+				local hum = char and char:FindFirstChildOfClass("Humanoid")
+				if hum then cam.CameraSubject = hum end
+			end
+		end)
 
-				local delta = UserInputService:GetMouseDelta()
-				if not panelVisible and delta.Magnitude > 0 then
-					_G._nightThirdPersonYaw = (_G._nightThirdPersonYaw or 0) - delta.X * 0.004
-					_G._nightThirdPersonPitch = math.clamp(
-						(_G._nightThirdPersonPitch or 0) - delta.Y * 0.004,
-						-0.8, 0.8
-					)
+		_G._nightThirdPersonStepped = RunService.RenderStepped:Connect(function()
+			if not _G._nightThirdPersonActive then return end
+			pcall(function()
+				LocalPlayer.CameraMode = Enum.CameraMode.Classic
+				LocalPlayer.CameraMinZoomDistance = 5
+				LocalPlayer.CameraMaxZoomDistance = 15
+				local cam = workspace.CurrentCamera
+				if cam then
+					if cam.CameraType ~= Enum.CameraType.Custom then
+						cam.CameraType = Enum.CameraType.Custom
+					end
+					local char = LocalPlayer.Character
+					local hum = char and char:FindFirstChildOfClass("Humanoid")
+					if hum and cam.CameraSubject ~= hum then
+						cam.CameraSubject = hum
+					end
 				end
-
-				local rootPos = root.CFrame.Position
-				local dist = 8
-				local yaw = _G._nightThirdPersonYaw or 0
-				local pitch = _G._nightThirdPersonPitch or 0
-
-				local camX = rootPos.X - math.sin(yaw) * dist
-				local camY = rootPos.Y + 3 + pitch * 6
-				local camZ = rootPos.Z - math.cos(yaw) * dist
-				local camPos = Vector3.new(camX, camY, camZ)
-				local lookAt = rootPos + Vector3.new(0, 2, 0)
-				cam.CFrame = CFrame.lookAt(camPos, lookAt)
-				cam.Focus = root.CFrame
+				if not panelVisible then
+					UserInputService.MouseBehavior = Enum.MouseBehavior.LockCenter
+					UserInputService.MouseIconEnabled = false
+				end
 			end)
 		end)
 	else
-		_G._nightThirdPersonActive = false
-		LocalPlayer.CameraMaxZoomDistance = 400
-		LocalPlayer.CameraMinZoomDistance = 0.5
-		if _G._nightThirdPersonLoop then
-			pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
-			_G._nightThirdPersonLoop = nil
-		end
-		pcall(function()
-			local cam = workspace.CurrentCamera
-			if cam then cam.CameraType = Enum.CameraType.Custom end
-		end)
-		pcall(function()
-			local char = LocalPlayer.Character
-			if char then
-				local hum = char:FindFirstChildOfClass("Humanoid")
-				if hum then hum.CameraOffset = Vector3.new(0, 0, 0) end
-			end
-		end)
+		nightThirdPersonStop()
 	end
 end, "Forces your character into a third-person view.", {
 	bindId = "thirdperson",
