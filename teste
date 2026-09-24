@@ -123,6 +123,16 @@ spinbotBind = nil
 spinbotBindString = "None"
 flyBind = nil
 flyBindString = "None"
+noclipSoloBind = nil
+noclipSoloBindString = "None"
+noclipSoloMode = "Toggle"
+noclipSoloOwnsFly = false
+-- Mantidos para compatibilidade com configurações antigas.
+noclipSoloHoldBind = nil
+noclipSoloHoldBindString = "None"
+noclipSoloEnabled = false
+noclipSoloHoldConn = nil
+noclipSoloToggleApi = nil
 autoKillBind = nil
 autoKillBindString = "None"
 autofireBind = nil
@@ -3470,9 +3480,11 @@ local FlySystem = {
     control = {F = 0, B = 0, L = 0, R = 0, U = 0, D = 0}
 }
 
--- FunÃƒÂ§ÃƒÂ£o para ativar/desativar Fly
-function FlySystem:toggleFly()
-    self.flying = not self.flying
+-- Ativação interna do Fly, sem alterar o toggle visual do menu.
+function FlySystem:setFlyEnabled(enabled)
+    enabled = enabled and true or false
+    if self.flying == enabled then return end
+    self.flying = enabled
 
     local character = LocalPlayer.Character
     if not character then return end
@@ -3499,6 +3511,11 @@ function FlySystem:toggleFly()
         self.bodyGyro = nil
         self.bodyVelocity = nil
     end
+end
+
+-- Função usada exclusivamente pelo toggle manual do menu/bind do Fly.
+function FlySystem:toggleFly()
+    self:setFlyEnabled(not self.flying)
 end
 
 -- FunÃƒÂ§ÃƒÂ£o para ativar/desativar Noclip
@@ -8659,7 +8676,7 @@ function createToggle(parent, text, callback, tooltipText, options)
 	end)
 
 	if hasBindGear then
-		toggleBindActions[options.bindId] = function()
+		toggleBindActions[options.bindId] = options.onBindInput or function()
 			toggleState()
 		end
 		toggleBindGetters[options.bindId] = options.getBindValue
@@ -12499,7 +12516,7 @@ end)
 task.spawn(function()
 	while true do
 		task.wait(0.1)
-		if flyToggle then
+		if flyToggle and not noclipSoloEnabled then
 			local track = flyToggle:FindFirstChild("ToggleTrack")
 			if track then
 				if FlySystem.flying then
@@ -12511,6 +12528,295 @@ task.spawn(function()
 		end
 	end
 end)
+
+-- ================================================
+-- Noclip
+-- ================================================
+do
+	local noclipBind = nil
+	local noclipBindString = "None"
+	local noclipConn = nil
+
+	local function setNoclip(enabled)
+		if enabled then
+			if not noclipConn then
+				noclipConn = RunService.RenderStepped:Connect(function()
+					local char = LocalPlayer.Character
+					if not char then return end
+					for _, v in pairs(char:GetDescendants()) do
+						if v:IsA("BasePart") and v.CanCollide then
+							v.CanCollide = false
+						end
+					end
+				end)
+			end
+		else
+			if noclipConn then
+				noclipConn:Disconnect()
+				noclipConn = nil
+			end
+			-- Restaura colisão
+			local char = LocalPlayer.Character
+			if char then
+				for _, v in pairs(char:GetDescendants()) do
+					if v:IsA("BasePart") then
+						pcall(function() v.CanCollide = true end)
+					end
+				end
+			end
+		end
+	end
+
+	createToggle(movementContent, "Noclip", function(enabled)
+		setNoclip(enabled)
+	end, "Desativa a colisão do personagem — atravessa paredes e objetos.", {
+		bindId = "noclip",
+		getBindValue = function() return noclipBind end,
+		getBindName = function() return noclipBindString end,
+		setBind = function(bindValue, bindName)
+			noclipBind = bindValue
+			noclipBindString = bindDisplayName(bindValue, bindName)
+		end,
+	})
+end
+
+-- ================================================
+-- Noclip Solo Session
+-- ================================================
+local function enableNoclipSolo()
+	if noclipSoloEnabled then return end
+	noclipSoloEnabled = true
+	-- Ativa o Fly internamente, sem alterar o toggle visual do Fly.
+	noclipSoloOwnsFly = false
+	if not FlySystem.flying then
+		FlySystem:setFlyEnabled(true)
+		noclipSoloOwnsFly = true
+	end
+	if not soloDimensionEnabled then
+		local fn = _G._soloDimEnable
+		if fn then fn() end
+	end
+	if noclipSoloToggleApi then
+		noclipSoloToggleApi.setState(true)
+	end
+end
+
+local function disableNoclipSolo()
+	if not noclipSoloEnabled then return end
+	noclipSoloEnabled = false
+	-- Desativa apenas o Fly interno que foi iniciado pelo No-Clip Solo.
+	if noclipSoloOwnsFly then
+		FlySystem:setFlyEnabled(false)
+		noclipSoloOwnsFly = false
+	end
+	if soloDimensionEnabled then
+		local fn = _G._soloDimDisable
+		if fn then fn() end
+	end
+	if noclipSoloToggleApi then
+		noclipSoloToggleApi.setState(false)
+	end
+end
+
+	-- O modo do No-Clip Solo e escolhido no proprio engrenagem do bind.
+	-- Em Toggle, pressionar o bind alterna o estado; em Hold, o estado
+	-- permanece ativo somente enquanto o bind estiver pressionado.
+		local noclipSoloHoldInputConn = nil
+		local noclipSoloModePopup
+		local noclipSoloBindHint
+		local noclipSoloPendingGear
+		local noclipSoloPendingTag
+
+	local function stopNoclipSoloHoldInput()
+		if noclipSoloHoldInputConn then
+			noclipSoloHoldInputConn:Disconnect()
+			noclipSoloHoldInputConn = nil
+		end
+	end
+
+	local function startNoclipSoloHoldInput()
+		stopNoclipSoloHoldInput()
+		noclipSoloHoldInputConn = UserInputService.InputEnded:Connect(function(input)
+			if noclipSoloMode == "Hold" and noclipSoloBind and inputMatchesBind(input, noclipSoloBind) then
+				disableNoclipSolo()
+				stopNoclipSoloHoldInput()
+			end
+		end)
+	end
+
+	local function beginNoclipSoloBindCapture(gear, bindTag)
+		if noclipSoloBindHint then
+			noclipSoloBindHint.Visible = true
+			local gearPos = gear.AbsolutePosition
+			local gearSize = gear.AbsoluteSize
+			noclipSoloBindHint.Position = UDim2.new(0, gearPos.X - 180, 0, gearPos.Y + gearSize.Y + 8)
+				noclipSoloBindHint.Text = (noclipSoloMode == "Hold" and "Press a key/button for Hold" or "Press a key/button for Toggle") .. " | Esc clears"
+			activeBindHints[noclipSoloBindHint] = true
+		end
+		activeBindCapture = {
+			bindId = "noclipSolo",
+			hint = noclipSoloBindHint,
+			gear = gear,
+			setBind = function(bindValue, bindName)
+				noclipSoloBind = bindValue
+				noclipSoloBindString = bindDisplayName(bindValue, bindName)
+			end,
+			waitingForNextInput = true,
+			refreshBindTag = function()
+				local shown = noclipSoloBindString
+				if not shown or shown == "" or shown == "None" then shown = "--" end
+				if #shown > 6 then shown = shown:sub(1, 6) end
+				bindTag.Text = shown
+			end,
+		}
+		gear.TextColor3 = C.TxtWhite
+		bindTag.BackgroundColor3 = C.BindActive
+	end
+
+	local function setNoclipSoloMode(mode)
+		noclipSoloMode = mode == "Hold" and "Hold" or "Toggle"
+		if noclipSoloModePopup then
+			local toggleButton = noclipSoloModePopup:FindFirstChild("ToggleMode")
+			local holdButton = noclipSoloModePopup:FindFirstChild("HoldMode")
+			if toggleButton then toggleButton.BackgroundColor3 = noclipSoloMode == "Toggle" and C.BindActive or C.BgInput end
+			if holdButton then holdButton.BackgroundColor3 = noclipSoloMode == "Hold" and C.BindActive or C.BgInput end
+		end
+		if noclipSoloMode ~= "Hold" then
+			stopNoclipSoloHoldInput()
+			if noclipSoloEnabled then disableNoclipSolo() end
+		end
+	end
+
+		local function showNoclipSoloModePicker(gear, bindTag)
+			if not noclipSoloModePopup then return end
+			hideAllBindHints()
+			activeBindCapture = nil
+			noclipSoloPendingGear = gear
+			noclipSoloPendingTag = bindTag
+		noclipSoloModePopup.Position = UDim2.new(0, gear.AbsolutePosition.X - 174, 0, gear.AbsolutePosition.Y + gear.AbsoluteSize.Y + 8)
+		noclipSoloModePopup.Visible = true
+		activeBindHints[noclipSoloModePopup] = true
+		local toggleButton = noclipSoloModePopup:FindFirstChild("ToggleMode")
+		local holdButton = noclipSoloModePopup:FindFirstChild("HoldMode")
+		if toggleButton then toggleButton.BackgroundColor3 = noclipSoloMode == "Toggle" and C.BindActive or C.BgInput end
+		if holdButton then holdButton.BackgroundColor3 = noclipSoloMode == "Hold" and C.BindActive or C.BgInput end
+		end
+
+	UserInputService.InputBegan:Connect(function(input, gpe)
+		if gpe or noclipSoloMode ~= "Hold" then return end
+		if noclipSoloBind and inputMatchesBind(input, noclipSoloBind) then
+			enableNoclipSolo()
+			startNoclipSoloHoldInput()
+		end
+	end)
+
+	local noclipSoloApi
+	noclipSoloApi = createToggle(movementContent, "Noclip Solo Session", function(enabled)
+		if enabled then
+			enableNoclipSolo()
+		else
+			disableNoclipSolo()
+		end
+	end, "Ativa somente a Sessão Solo. Escolha Toggle ou Hold no engrenagem do bind.", {
+		bindId = "noclipSolo",
+		getBindValue = function() return noclipSoloBind end,
+		getBindName = function() return noclipSoloBindString end,
+		setBind = function(bindValue, bindName)
+			noclipSoloBind = bindValue
+			noclipSoloBindString = bindDisplayName(bindValue, bindName)
+		end,
+		onBindInput = function()
+			if noclipSoloMode == "Toggle" then
+				noclipSoloToggleApi.toggle()
+			end
+		end,
+		onReady = function(api)
+			noclipSoloToggleApi = api
+		end,
+	})
+
+	-- Popup exibido ao clicar com o botao direito no engrenagem.
+	noclipSoloModePopup = Instance.new("Frame")
+	noclipSoloModePopup.Name = "NoclipSoloBindModePopup"
+	noclipSoloModePopup.BackgroundColor3 = C.BgCard
+	noclipSoloModePopup.Size = UDim2.new(0, 164, 0, 78)
+	noclipSoloModePopup.Visible = false
+	noclipSoloModePopup.ZIndex = 10000032
+	noclipSoloModePopup.Parent = gui
+	Instance.new("UICorner", noclipSoloModePopup).CornerRadius = UDim.new(0, 7)
+	Stroke(C.Divider, 1, noclipSoloModePopup).Transparency = 0.15
+
+	local modeTitle = Instance.new("TextLabel")
+	modeTitle.BackgroundTransparency = 1
+	modeTitle.Position = UDim2.new(0, 8, 0, 3)
+	modeTitle.Size = UDim2.new(1, -16, 0, 20)
+	modeTitle.Text = "Bind mode"
+	modeTitle.Font = Enum.Font.GothamBold
+	modeTitle.TextSize = 11
+	modeTitle.TextColor3 = C.TxtWhite
+	modeTitle.ZIndex = 10000033
+	modeTitle.Parent = noclipSoloModePopup
+
+	local function makeModeButton(name, text, y)
+		local button = Instance.new("TextButton")
+		button.Name = name
+		button.BackgroundColor3 = C.BgInput
+		button.Position = UDim2.new(0, 8, 0, y)
+		button.Size = UDim2.new(1, -16, 0, 23)
+		button.Text = text
+		button.Font = Enum.Font.GothamBold
+		button.TextSize = 11
+		button.TextColor3 = C.TxtWhite
+		button.AutoButtonColor = false
+		button.ZIndex = 10000033
+		button.Parent = noclipSoloModePopup
+		Instance.new("UICorner", button).CornerRadius = UDim.new(0, 5)
+		return button
+		end
+		makeModeButton("ToggleMode", "Toggle", 24)
+		makeModeButton("HoldMode", "Hold", 50)
+		local toggleModeButton = noclipSoloModePopup:FindFirstChild("ToggleMode")
+		local holdModeButton = noclipSoloModePopup:FindFirstChild("HoldMode")
+		local function chooseNoclipSoloMode(mode)
+			if not noclipSoloPendingGear or not noclipSoloPendingTag then return end
+			setNoclipSoloMode(mode)
+			noclipSoloModePopup.Visible = false
+			activeBindHints[noclipSoloModePopup] = nil
+			beginNoclipSoloBindCapture(noclipSoloPendingGear, noclipSoloPendingTag)
+		end
+		if toggleModeButton then
+			toggleModeButton.MouseButton1Click:Connect(function() chooseNoclipSoloMode("Toggle") end)
+		end
+		if holdModeButton then
+			holdModeButton.MouseButton1Click:Connect(function() chooseNoclipSoloMode("Hold") end)
+		end
+
+		noclipSoloBindHint = Instance.new("TextLabel")
+		noclipSoloBindHint.Name = "NoclipSoloBindHint"
+		noclipSoloBindHint.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+		noclipSoloBindHint.BackgroundTransparency = 0.08
+		noclipSoloBindHint.Size = UDim2.new(0, 220, 0, 26)
+		noclipSoloBindHint.Font = Enum.Font.GothamBold
+		noclipSoloBindHint.TextColor3 = Color3.fromRGB(242, 242, 246)
+		noclipSoloBindHint.TextSize = 13
+		noclipSoloBindHint.TextXAlignment = Enum.TextXAlignment.Center
+		noclipSoloBindHint.TextYAlignment = Enum.TextYAlignment.Center
+		noclipSoloBindHint.Visible = false
+		noclipSoloBindHint.ZIndex = 10000031
+		noclipSoloBindHint.Parent = gui
+		Instance.new("UICorner", noclipSoloBindHint).CornerRadius = UDim.new(0, 6)
+
+		local noclipSoloCard = noclipSoloApi and noclipSoloApi.Parent
+	local noclipSoloGear = noclipSoloCard and noclipSoloCard:FindFirstChild("BindGear")
+		local noclipSoloTag = noclipSoloCard and noclipSoloCard:FindFirstChild("BindTag")
+		if noclipSoloGear and noclipSoloTag then
+			noclipSoloGear.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton2 then
+				showNoclipSoloModePicker(noclipSoloGear, noclipSoloTag)
+			end
+		end)
+	end
+
 
 -- NOVO: Bypass WalkSpeed (CFrame Speed)
 cframeMultiplicador = 1.5
@@ -12568,36 +12874,7 @@ cframeSliderInput:GetPropertyChangedSignal("Text"):Connect(function()
 	end
 end)
 
-noclipToggle = createToggle(movementContent, "No Clip", function(enabled)
-	noclip = enabled
-end, "Lets your character pass through walls and solid objects.", {
-	onReady = function(api)
-		noclipToggleApi = api
-	end,
-})
 
--- Sistema Noclip Melhorado - Loop contÃƒÂ­nuo para garantir que atravessa TODAS as paredes
-task.spawn(function()
-	while true do
-		task.wait(0.05) -- VerificaÃƒÂ§ÃƒÂ£o frequente
-		if noclip then
-			local character = LocalPlayer.Character
-			if character then
-				-- Desabilitar colisÃƒÂ£o em TODAS as partes do personagem
-				forEachCharacterPart(character, function(part)
-					if part.CanCollide == true then
-						part.CanCollide = false
-					end
-				end)
-				-- TambÃƒÂ©m desabilitar colisÃƒÂ£o em partes especÃƒÂ­ficas que podem ser esquecidas
-				local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-				if humanoidRootPart and humanoidRootPart.CanCollide == true then
-					humanoidRootPart.CanCollide = false
-				end
-			end
-		end
-	end
-end)
 
 -- ========= SUBCATEGORIA: BOOSTS =========
 boostsSubCategory = Instance.new("Frame")
@@ -14189,6 +14466,642 @@ freecamSpeedInput.FocusLost:Connect(function()
 	end
 end)
 
+-- ========= DIMENSÃO SOLO (Troll) =========
+soloDimensionEnabled = false
+soloDimensionBind = nil
+soloDimensionBindString = "None"
+soloDimFakeChar = nil
+soloDimLoopConn = nil
+soloDimOldCamSubject = nil
+soloDimOldCamType = nil
+soloDimStoredOffset = Vector3.zero
+soloDimLastRealCF = CFrame.identity
+soloDimBanner = nil
+soloDimAPI = nil
+soloDimJumpRequestConn = nil
+soloDimVerticalVelocity = 0
+soloDimGrounded = true
+
+local function soloDimSetAnchored(char, anchored)
+	if not char then return end
+	if anchored then
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.Anchored = true
+			end
+		end
+	else
+		for _, part in ipairs(char:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.Anchored = false
+			end
+		end
+	end
+end
+
+local function soloDimShiftAssembly(char, delta)
+	if not char then return end
+	for _, part in ipairs(char:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.CFrame = part.CFrame + delta
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+end
+
+local function soloDimShowBanner(show)
+	if not soloDimBanner then
+		soloDimBanner = New("Frame", {
+			Name = "SoloDimBanner",
+			BackgroundColor3 = C.BgCard,
+			BackgroundTransparency = 0.02,
+			BorderSizePixel = 0,
+			Size = UDim2.new(0, 300, 0, 54),
+			Position = UDim2.new(0.5, 0, 1, -72),
+			AnchorPoint = Vector2.new(0.5, 1),
+			ZIndex = 100000,
+			Visible = false,
+		}, gui)
+		Corner(14, soloDimBanner)
+		local bannerStroke = Stroke(C.Purple, 1, soloDimBanner)
+		bannerStroke.Transparency = 0.2
+
+		local glowBar = New("Frame", {
+			Name = "GlowBar",
+			BackgroundColor3 = C.Purple,
+			BackgroundTransparency = 0.25,
+			BorderSizePixel = 0,
+			Size = UDim2.new(0, 4, 0, 38),
+			Position = UDim2.new(0, 10, 0.5, 0),
+			AnchorPoint = Vector2.new(0, 0.5),
+			ZIndex = 100001,
+		}, soloDimBanner)
+		Corner(2, glowBar)
+
+		local dimIcon = New("TextLabel", {
+			Name = "DimIcon",
+			BackgroundTransparency = 1,
+			Text = "◈",
+			Font = Enum.Font.GothamBold,
+			TextSize = 24,
+			TextColor3 = C.PurpleGlow,
+			Size = UDim2.new(0, 40, 1, 0),
+			Position = UDim2.new(0, 20, 0, 0),
+			ZIndex = 100001,
+		}, soloDimBanner)
+
+		local dimTitle = New("TextLabel", {
+			Name = "DimTitle",
+			BackgroundTransparency = 1,
+			Text = "Modo Solo",
+			Font = Enum.Font.GothamBold,
+			TextSize = 18,
+			TextColor3 = Color3.fromRGB(255, 255, 255),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Size = UDim2.new(1, -76, 0, 24),
+			Position = UDim2.new(0, 68, 0, 6),
+			ZIndex = 100001,
+		}, soloDimBanner)
+
+		New("TextLabel", {
+			Name = "DimSub",
+			BackgroundTransparency = 1,
+			Text = "Corpo real escondido fora do mapa",
+			Font = Enum.Font.GothamBold,
+			TextSize = 11,
+			TextColor3 = C.TxtDim,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Size = UDim2.new(1, -76, 0, 16),
+			Position = UDim2.new(0, 68, 0, 30),
+			ZIndex = 100001,
+		}, soloDimBanner)
+	end
+	if show then
+		if soloDimBanner.Parent ~= gui then soloDimBanner.Parent = gui end
+		soloDimBanner.Visible = true
+		soloDimBanner.BackgroundTransparency = 0.45
+		UI_Tween(soloDimBanner, {BackgroundTransparency = 0.02}, 0.25)
+	else
+		UI_Tween(soloDimBanner, {BackgroundTransparency = 1}, 0.25)
+		task.delay(0.3, function()
+			if soloDimBanner and not soloDimensionEnabled then
+				soloDimBanner.Visible = false
+			end
+		end)
+	end
+end
+
+local function soloDimRotationOnly(cf)
+	if not cf then return CFrame.identity end
+	return CFrame.new(cf.Position):Inverse() * cf
+end
+
+local function soloDimMoveFake(fake, cf)
+	if fake and cf then pcall(function() fake:PivotTo(cf) end) end
+end
+
+local soloDimIdleTrack = nil
+local soloDimWalkTrack = nil
+local soloDimJumpTrack = nil
+local soloDimJointBase = {}
+local soloDimBodyMoving = false
+local soloDimBodyAirborne = false
+local soloDimBodyAnimBound = false
+
+local function soloDimAnimateBody(fake, moving, airborne, clock)
+	if not fake then return end
+	local swing = moving and math.sin(clock * 9) * 0.72 or 0
+	local bob = moving and math.abs(math.sin(clock * 9)) * 0.045 or 0
+	for _, joint in ipairs(fake:GetDescendants()) do
+		if joint:IsA("Motor6D") then
+			if not soloDimJointBase[joint] then
+				soloDimJointBase[joint] = joint.Transform
+			end
+			local base = soloDimJointBase[joint]
+			local name = string.lower(joint.Name)
+			local angle = 0
+			if name:find("left shoulder") or name:find("leftshoulder") then
+				angle = swing
+			elseif name:find("right shoulder") or name:find("rightshoulder") then
+				angle = -swing
+			elseif name:find("left hip") or name:find("lefthip") then
+				angle = -swing
+			elseif name:find("right hip") or name:find("righthip") then
+				angle = swing
+			elseif name:find("left knee") or name:find("leftknee") then
+				angle = math.max(0, -swing) * 0.35
+			elseif name:find("right knee") or name:find("rightknee") then
+				angle = math.max(0, swing) * 0.35
+			elseif name == "waist" or name == "root" then
+				joint.Transform = base * CFrame.new(0, -bob, 0)
+				continue
+			end
+			if airborne and (name:find("shoulder") or name:find("hip") or name:find("knee")) then
+				angle = 0
+			end
+			joint.Transform = base * CFrame.Angles(angle, 0, 0)
+		end
+	end
+end
+
+local function soloDimSyncRealPose(realChar, fake)
+	if not realChar or not fake then return end
+	local hasTool = realChar:FindFirstChildOfClass("Tool") ~= nil
+	local realJoints = {}
+	for _, joint in ipairs(realChar:GetDescendants()) do
+		if joint:IsA("Motor6D") then
+			local key = joint.Name .. "|" .. (joint.Part0 and joint.Part0.Name or "") .. "|" .. (joint.Part1 and joint.Part1.Name or "")
+			realJoints[key] = joint
+		end
+	end
+	for _, joint in ipairs(fake:GetDescendants()) do
+		if joint:IsA("Motor6D") then
+			local name = string.lower(joint.Name)
+			local isLeg = name:find("hip") or name:find("knee") or name:find("ankle") or name:find("leg") or name:find("foot")
+			local isArm = name:find("shoulder") or name:find("elbow") or name:find("wrist") or name:find("arm") or name:find("hand")
+			
+			if soloDimBodyMoving or soloDimBodyAirborne then
+				if isLeg then continue end
+				if isArm and not hasTool then continue end
+				if name:find("root") or name == "waist" then continue end
+			end
+			
+			local key = joint.Name .. "|" .. (joint.Part0 and joint.Part0.Name or "") .. "|" .. (joint.Part1 and joint.Part1.Name or "")
+			local source = realJoints[key]
+			if source then joint.Transform = source.Transform end
+		end
+	end
+end
+
+local function soloDimSetupAnimations(fakeHum)
+	if not fakeHum then return end
+	soloDimJointBase = {}
+	pcall(function()
+		local oldAnimator = fakeHum:FindFirstChildOfClass("Animator")
+		if oldAnimator then oldAnimator:Destroy() end
+		local animator = Instance.new("Animator")
+		animator.Parent = fakeHum
+		
+		local function getPlayerAnim(animType, fallback)
+			local char = LocalPlayer.Character
+			if char and char:FindFirstChild("Animate") then
+				local folder = char.Animate:FindFirstChild(animType)
+				if folder then
+					local anim = folder:FindFirstChildOfClass("Animation")
+					if anim and anim.AnimationId ~= "" then
+						return anim.AnimationId
+					end
+				end
+			end
+			return "rbxassetid://" .. tostring(fallback)
+		end
+
+		local idleId = getPlayerAnim("idle", 507766666)
+		local walkId = getPlayerAnim("walk", 180426354)
+		if walkId == "rbxassetid://180426354" then walkId = getPlayerAnim("run", 180426354) end
+		local jumpId = getPlayerAnim("jump", 125750702)
+
+		local function loadTrack(animIdStr, looped, priority)
+			local animation = Instance.new("Animation")
+			animation.AnimationId = animIdStr
+			local track = animator:LoadAnimation(animation)
+			track.Looped = looped
+			track.Priority = priority
+			return track
+		end
+
+		soloDimIdleTrack = loadTrack(idleId, true, Enum.AnimationPriority.Idle)
+		soloDimWalkTrack = loadTrack(walkId, true, Enum.AnimationPriority.Movement)
+		soloDimJumpTrack = loadTrack(jumpId, false, Enum.AnimationPriority.Action)
+		
+		if soloDimIdleTrack then soloDimIdleTrack:Play(0.15) end
+	end)
+end
+
+local function soloDimStopAnimations()
+	for _, track in ipairs({soloDimIdleTrack, soloDimWalkTrack, soloDimJumpTrack}) do
+		if track then pcall(function() track:Stop(0.1); track:Destroy() end) end
+	end
+	soloDimIdleTrack = nil
+	soloDimWalkTrack = nil
+	soloDimJumpTrack = nil
+end
+
+local function soloDimBindBodyAnimation()
+	if soloDimBodyAnimBound then return end
+	soloDimBodyAnimBound = true
+	RunService:BindToRenderStep("NightSoloDimBodyAnimation", Enum.RenderPriority.Last.Value, function()
+		if soloDimensionEnabled and soloDimFakeChar then
+			-- Sync real pose but conditionally ignore legs/arms while moving to allow animations to play
+			soloDimSyncRealPose(LocalPlayer.Character, soloDimFakeChar)
+		end
+	end)
+end
+
+local function soloDimUnbindBodyAnimation()
+	if not soloDimBodyAnimBound then return end
+	soloDimBodyAnimBound = false
+	pcall(function() RunService:UnbindFromRenderStep("NightSoloDimBodyAnimation") end)
+	soloDimBodyMoving = false
+	soloDimBodyAirborne = false
+end
+
+local function soloDimMakeFakeVisible(fake)
+	if not fake then return end
+	for _, desc in ipairs(fake:GetDescendants()) do
+		if desc:IsA("BasePart") then
+			desc.LocalTransparencyModifier = 0
+			if desc.Name ~= "HumanoidRootPart" then
+				desc.Transparency = 0
+			end
+			desc.CanCollide = false
+			desc.Anchored = true
+		elseif desc:IsA("ForceField") then
+			desc:Destroy()
+		end
+	end
+	local hum = fake:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		hum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	end
+end
+
+local function soloDimEnable()
+	if soloDimensionEnabled then return true end
+	local failMsg = nil
+	local ok, err = pcall(function()
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not char or not root or not hum then
+			failMsg = "Personagem invalido"
+			return false
+		end
+
+		if soloDimFakeChar then
+			pcall(function() soloDimFakeChar:Destroy() end)
+			soloDimFakeChar = nil
+		end
+
+		local cam = workspace.CurrentCamera
+		soloDimOldCamSubject = cam and cam.CameraSubject
+		soloDimOldCamType = cam and cam.CameraType
+
+		local fake = nil
+		pcall(function()
+			local oldArchivable = char.Archivable
+			char.Archivable = true
+			fake = char:Clone()
+			char.Archivable = oldArchivable
+		end)
+		local fakeRoot, fakeHum
+		if fake and typeof(fake) == "Instance" then
+			pcall(function()
+				fake.Name = (char.Name or "SoloDim") .. "_SoloDim"
+				for _, desc in ipairs(fake:GetDescendants()) do
+					if desc:IsA("Script") or desc:IsA("LocalScript") or desc:IsA("ModuleScript") then
+						desc:Destroy()
+					end
+				end
+				fake.Parent = workspace
+			end)
+			fakeRoot = fake:FindFirstChild("HumanoidRootPart")
+			fakeHum = fake:FindFirstChildOfClass("Humanoid")
+			if fakeRoot then
+				soloDimMakeFakeVisible(fake)
+			end
+		end
+
+		if not fake or not fakeRoot then
+			if fake then pcall(function() fake:Destroy() end) end
+			fake = Instance.new("Model")
+			fake.Name = "SoloDimProxy"
+			fakeRoot = Instance.new("Part")
+			fakeRoot.Name = "HumanoidRootPart"
+			fakeRoot.Size = Vector3.new(2, 2, 1)
+			fakeRoot.Transparency = 1
+			fakeRoot.Anchored = true
+			fakeRoot.CanCollide = false
+			fakeRoot.CFrame = root.CFrame
+			fakeRoot.Parent = fake
+			local head = Instance.new("Part")
+			head.Name = "Head"
+			head.Size = Vector3.new(1.2, 1.2, 1.2)
+			head.Transparency = 1
+			head.Anchored = true
+			head.CanCollide = false
+			head.CFrame = root.CFrame * CFrame.new(0, 1.5, 0)
+			head.Parent = fake
+			fakeHum = Instance.new("Humanoid")
+			fakeHum.Parent = fake
+			fake.Parent = workspace
+		end
+
+		if fakeRoot then
+			fakeRoot.Anchored = true
+			fakeRoot.CFrame = root.CFrame
+			fakeRoot.CanCollide = false
+		end
+			if fakeHum then
+				pcall(function()
+					fakeHum.WalkSpeed = 16
+					fakeHum.AutoRotate = false
+					fakeHum.PlatformStand = false
+					fakeHum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+					fakeHum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+				end)
+				soloDimSetupAnimations(fakeHum)
+			end
+		soloDimFakeChar = fake
+
+		soloDimStoredOffset = Vector3.new(0, 100000, 0)
+		soloDimSetAnchored(char, true)
+		soloDimShiftAssembly(char, soloDimStoredOffset)
+		soloDimLastRealCF = root.CFrame
+
+		if cam then
+			pcall(function()
+				cam.CameraType = Enum.CameraType.Custom
+				cam.CameraSubject = fakeHum or fakeRoot
+			end)
+		end
+
+			soloDimensionEnabled = true
+			soloDimBindBodyAnimation()
+
+		if soloDimLoopConn then
+			soloDimLoopConn:Disconnect()
+			soloDimLoopConn = nil
+		end
+		soloDimLoopConn = RunService.RenderStepped:Connect(function(dt)
+			if not soloDimensionEnabled then return end
+			local cam2 = workspace.CurrentCamera
+			local charNow = LocalPlayer.Character
+			local realRoot = charNow and charNow:FindFirstChild("HumanoidRootPart")
+			-- Personagem foi recriado (respawn): para a ponte e espera o handler desativar
+			if not hum or not hum.Parent then return end
+			if cam2 then
+				pcall(function()
+					if fakeHum and fakeHum.Parent then
+						cam2.CameraSubject = fakeHum
+					elseif fakeRoot and fakeRoot.Parent then
+						cam2.CameraType = Enum.CameraType.Scriptable
+						cam2.CFrame = CFrame.new(fakeRoot.Position + Vector3.new(0, 5, 10), fakeRoot.Position)
+					end
+				end)
+			end
+
+			-- Ponte de movimentação: espelha no corpo visível qualquer Fly/TP/Boost aplicado no corpo real
+			if realRoot and fakeRoot and fakeRoot.Parent then
+				local realNowCF = realRoot.CFrame
+				local realDelta = realNowCF.Position - soloDimLastRealCF.Position
+				if math.abs(realNowCF.Position.Y) < 40000 then
+					-- Escrita absoluta (TP Waypoint/Cursor/steal): corpo real foi movido para coordenadas do mapa
+					soloDimMoveFake(fake, CFrame.new(realNowCF.Position) * soloDimRotationOnly(realNowCF))
+				elseif realDelta.Magnitude > 0.001 then
+					-- Escrita relativa (Fly/Boost/Kidnap): corpo real continua escondido no offset, espelha o deslocamento
+					soloDimMoveFake(fake, CFrame.new(fakeRoot.Position + realDelta) * soloDimRotationOnly(realNowCF))
+				end
+
+				-- Caminhada manual do corpo visível
+					if hum and hum.Parent and hum.MoveDirection and hum.MoveDirection.Magnitude > 0.05 then
+						local walkSpeed = (hum.WalkSpeed and hum.WalkSpeed > 0 and hum.WalkSpeed) or 16
+						local moveDir = hum.MoveDirection
+						local currentCF = fakeRoot.CFrame
+						local targetLook = currentCF.Position + moveDir
+						local targetCF = CFrame.lookAt(currentCF.Position, targetLook)
+						local newCF = currentCF:Lerp(targetCF, 15 * (dt or 0.016))
+						newCF = newCF + moveDir * walkSpeed * (dt or 0.016)
+						soloDimMoveFake(fake, newCF)
+					end
+
+					-- Física vertical do corpo visível: aplica gravidade e corrige a altura no chão.
+					local step = math.clamp(dt or 0.016, 0, 0.1)
+					local isFlying = (FlySystem and FlySystem.flying) or freeflyOn
+					local isGrounded = true
+					
+					if not isFlying then
+						local rayParams = RaycastParams.new()
+						rayParams.FilterType = Enum.RaycastFilterType.Exclude
+						rayParams.FilterDescendantsInstances = {fake, charNow}
+						local groundHit = workspace:Raycast(fakeRoot.Position, Vector3.new(0, -6, 0), rayParams)
+						local groundY = groundHit and (groundHit.Position.Y + 3)
+						isGrounded = groundY and fakeRoot.Position.Y <= groundY + 0.12 and soloDimVerticalVelocity <= 0
+						if not isGrounded or soloDimVerticalVelocity > 0 then
+							soloDimVerticalVelocity = soloDimVerticalVelocity - workspace.Gravity * step
+							soloDimMoveFake(fake, fakeRoot.CFrame + Vector3.new(0, soloDimVerticalVelocity * step, 0))
+							fakeRoot = fake:FindFirstChild("HumanoidRootPart") or fakeRoot
+							if groundY and fakeRoot.Position.Y <= groundY then
+								soloDimMoveFake(fake, CFrame.new(fakeRoot.Position.X, groundY, fakeRoot.Position.Z) * soloDimRotationOnly(fakeRoot.CFrame))
+								soloDimVerticalVelocity = 0
+								isGrounded = true
+							end
+						end
+					else
+						soloDimVerticalVelocity = 0
+						isGrounded = false
+					end
+					
+					soloDimGrounded = isGrounded and true or false
+					soloDimBodyMoving = hum.MoveDirection.Magnitude > 0.05 or realDelta.Magnitude > 0.01
+					soloDimBodyAirborne = not soloDimGrounded
+					if soloDimWalkTrack and hum.MoveDirection.Magnitude > 0.05 and soloDimGrounded then
+						if not soloDimWalkTrack.IsPlaying then soloDimWalkTrack:Play(0.12) end
+					elseif soloDimWalkTrack and soloDimWalkTrack.IsPlaying then
+						soloDimWalkTrack:Stop(0.12)
+					end
+					if soloDimIdleTrack and soloDimGrounded and hum.MoveDirection.Magnitude <= 0.05 and not soloDimIdleTrack.IsPlaying then
+						soloDimIdleTrack:Play(0.12)
+					end
+					-- soloDimAnimateBody has been removed because it overrides the real Animator tracks
+
+					-- Trava o corpo real escondido atrás do corpo visível, preservando a rotação escolhida pelo sistema
+				pcall(function()
+					realRoot.CFrame = CFrame.new(fakeRoot.Position + soloDimStoredOffset) * soloDimRotationOnly(realNowCF)
+					realRoot.AssemblyLinearVelocity = Vector3.zero
+					realRoot.AssemblyAngularVelocity = Vector3.zero
+				end)
+				soloDimLastRealCF = realRoot.CFrame
+			end
+			end)
+
+					soloDimJumpRequestConn = UserInputService.JumpRequest:Connect(function()
+					if not soloDimensionEnabled or not soloDimFakeChar then return end
+					local isFlying = (FlySystem and FlySystem.flying) or freeflyOn
+					if isFlying then return end
+					if soloDimGrounded or infiniteJumpEnabled then
+						soloDimVerticalVelocity = 52
+						soloDimGrounded = false
+						if soloDimIdleTrack and soloDimIdleTrack.IsPlaying then soloDimIdleTrack:Stop(0.05) end
+						if soloDimWalkTrack and soloDimWalkTrack.IsPlaying then soloDimWalkTrack:Stop(0.05) end
+						if soloDimJumpTrack then soloDimJumpTrack:Play(0.05) end
+					end
+				end)
+		end)
+
+		if not ok and not failMsg then
+			failMsg = tostring(err)
+	end
+
+	if soloDimensionEnabled then
+		pcall(function() soloDimShowBanner(true) end)
+		return true
+	end
+	if failMsg and showMenuToast then
+		showMenuToast("Dimensão Solo", failMsg, Color3.fromRGB(255, 100, 100))
+	end
+	return false
+end
+_G._soloDimEnable = soloDimEnable
+
+local function soloDimDisable()
+	if not soloDimensionEnabled then return end
+	pcall(function()
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+
+		if root and soloDimFakeChar then
+			local fakeRoot = soloDimFakeChar:FindFirstChild("HumanoidRootPart")
+			if fakeRoot then
+				local delta = fakeRoot.Position - root.Position
+				soloDimShiftAssembly(char, delta)
+			else
+				soloDimShiftAssembly(char, -soloDimStoredOffset)
+			end
+		elseif root then
+			soloDimShiftAssembly(char, -soloDimStoredOffset)
+		end
+
+		if char then soloDimSetAnchored(char, false) end
+	end)
+
+	pcall(function()			if soloDimLoopConn then
+				soloDimLoopConn:Disconnect()
+				soloDimLoopConn = nil
+			end
+				if soloDimJumpRequestConn then
+					soloDimJumpRequestConn:Disconnect()
+					soloDimJumpRequestConn = nil
+				end
+				soloDimUnbindBodyAnimation()
+				soloDimStopAnimations()
+			soloDimVerticalVelocity = 0
+			soloDimGrounded = true
+			if soloDimFakeChar then
+			soloDimFakeChar:Destroy()
+			soloDimFakeChar = nil
+		end
+	end)
+
+	pcall(function()
+		local cam = workspace.CurrentCamera
+		if soloDimOldCamType then
+			cam.CameraType = soloDimOldCamType
+		end
+		local restoreSubject = soloDimOldCamSubject
+		if not restoreSubject or not restoreSubject.Parent then
+			local curHum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			restoreSubject = curHum
+		end
+		if restoreSubject then
+			cam.CameraSubject = restoreSubject
+		end
+		soloDimOldCamType = nil
+		soloDimOldCamSubject = nil
+	end)
+
+	soloDimensionEnabled = false
+	pcall(function() soloDimShowBanner(false) end)
+end
+_G._soloDimDisable = soloDimDisable
+
+soloDimToggle = createToggle(trollCategory, "Dimensão Solo", function(enabled)
+	local ok2, err2 = pcall(function()
+		if enabled then
+			local ok = soloDimEnable()
+			if not ok then
+				if soloDimAPI and soloDimAPI.setState then
+					soloDimAPI.setState(false)
+				end
+			end
+		else
+			soloDimDisable()
+		end
+	end)
+	if not ok2 then
+		if soloDimAPI and soloDimAPI.setState then
+			pcall(function() soloDimAPI.setState(false) end)
+		end
+		if showMenuToast then
+			showMenuToast("Dimensão Solo", "Erro: " .. tostring(err2), Color3.fromRGB(255, 100, 100))
+		end
+	end
+end, "Esconde o corpo real longe do mapa e mantém um corpo visível no lugar. Fly, TP e outras funções de movimento funcionam normalmente. Ao desativar, teleporta para a nova posição.", {
+	bindId = "solodim",
+	getBindValue = function() return soloDimensionBind end,
+	getBindName = function() return soloDimensionBindString end,
+	setBind = function(bindValue, bindName)
+		soloDimensionBind = bindValue
+		soloDimensionBindString = bindDisplayName(bindValue, bindName)
+	end,
+	onReady = function(api)
+		soloDimAPI = api
+	end,
+})
+soloDimToggle.LayoutOrder = 11
+
+local function soloDimOnCharAdded()
+	if not soloDimensionEnabled then return end
+	task.wait(0.5)
+	soloDimDisable()
+	if soloDimAPI and soloDimAPI.setState then
+		soloDimAPI.setState(false)
+	end
+end
+LocalPlayer.CharacterAdded:Connect(soloDimOnCharAdded)
+
 -- ========= AUTO REJOIN (Misc) =========
 autoRejoinToggle = createToggle(nil, "Auto Rejoin", function(enabled)
 	autoRejoinEnabled = enabled
@@ -15765,6 +16678,15 @@ function unloadNightMenu()
 		end
 		LocalPlayer.CameraMaxZoomDistance = 400
 		LocalPlayer.CameraMinZoomDistance = 0.5
+	end)
+
+	pcall(function()
+		if soloDimensionEnabled then
+			soloDimDisable()
+			if soloDimAPI and soloDimAPI.setState then
+				soloDimAPI.setState(false)
+			end
+		end
 	end)
 
 	pcall(clearAllESPVisuals)
