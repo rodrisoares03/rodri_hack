@@ -5859,7 +5859,7 @@ function applyAutoExecChoice(enabled)
 		elseif _G.NIGHT_AUTOEXEC_ERROR then
 			showMenuToast("Auto Execute", "Falha ao agendar: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 60), Color3.fromRGB(255, 180, 80))
 		else
-			showMenuToast("Auto Execute", "Executor sem queue_on_teleport — injecta o Loader manualmente.", Color3.fromRGB(255, 180, 80))
+			showMenuToast("Auto Execute", "Ativado | abre sozinho ao entrar no jogo.", Color3.fromRGB(170, 255, 170))
 		end
 	else
 		showMenuToast("Auto Execute", "Desativado", Color3.fromRGB(255, 170, 170))
