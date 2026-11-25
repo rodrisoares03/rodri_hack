@@ -18656,7 +18656,7 @@ function ensureSilentHooks()
 			end
 
 			-- SILENT: redireciona raycasts do proprio workflow de armas
-			if not skipSelf and silentAimEnabled and method == "Raycast" and self == workspace then
+			if silentAimEnabled and method == "Raycast" and self == workspace then
 				local target = getSilentTarget()
 				local origin = args[1]
 				if target and typeof(origin) == "Vector3" then
@@ -18668,7 +18668,7 @@ function ensureSilentHooks()
 			end
 
 			-- SILENT: redireciona raios vindos da camera (ScreenPointToRay / ViewportPointToRay)
-			if not skipSelf and silentAimEnabled and typeof(self) == "Instance" and self:IsA("Camera")
+			if silentAimEnabled and typeof(self) == "Instance" and self:IsA("Camera")
 				and (method == "ScreenPointToRay" or method == "ViewportPointToRay") then
 				local ray = originalNamecall(self, ...)
 				local target = getSilentTarget()
@@ -18681,8 +18681,12 @@ function ensureSilentHooks()
 				return ray
 			end
 
-			-- SILENT + NO SPREAD: reescreve argumentos de remotos de tiro
-			if not skipSelf and (silentAimEnabled or noSpreadEnabled) and isFireMethod(method) and remoteIsWeapon(self) then
+			-- SILENT + NO SPREAD: reescreve argumentos de QUALQUER remoto de tiro
+			-- (o nome do remote varia por jogo: RemoteEvent, MainEvent, etc.)
+			local weaponRemote = remoteIsWeapon(self)
+				or (typeof(self) == "Instance" and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")))
+			if (silentAimEnabled or noSpreadEnabled) and isFireMethod(method)
+				and (silentAimEnabled or weaponRemote) then
 				local target = silentAimEnabled and getSilentTarget() or nil
 				local targetPos = target and target.position or nil
 				silentTargetInstance = target and target.part or nil
