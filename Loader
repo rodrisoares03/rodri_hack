@@ -20,6 +20,18 @@ local LOAD_TIME = 2.8
 
 local HttpService = game:GetService("HttpService")
 
+-- Apagar loaders de injects anteriores (senao ficam versoes velhas por cima)
+pcall(function()
+	local cg = game:GetService("CoreGui")
+	local old = cg:FindFirstChild("NightLoader")
+	if old then old:Destroy() end
+	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if pg then
+		local old2 = pg:FindFirstChild("NightLoader")
+		if old2 then old2:Destroy() end
+	end
+end)
+
 -- Cores (mesma paleta Astrix Dark do Night Menu)
 local C = {
 	Bg      = Color3.fromRGB(15, 15, 20),
@@ -451,71 +463,20 @@ local function showLoadingScreen()
 		lStatus.Text = "Starting Night Menu..."
 		task.wait(0.25)
 
-		-- Carrega o Night Menu pelo URL
-		local loaderErr = nil
+		-- O loader DESAPARECE primeiro, so depois o menu e executado
+		pcall(function() gui:Destroy() end)
+		task.wait(0.2)
+
 		pcall(function()
 			local loader = loadstring or load
 			local okHttp, src = pcall(game.HttpGet, game, SCRIPT_URL)
-			if not okHttp or not src or src == "" or not loader then
-				loaderErr = "Falha ao carregar o menu: " .. tostring(src)
-				return
-			end
-			local fn, compileErr = loader(src)
-			if not fn then
-				loaderErr = "Erro ao compilar menu: " .. tostring(compileErr)
-				return
-			end
-			local okRun, runErr = pcall(fn)
-			if not okRun then loaderErr = tostring(runErr) end
-		end)
-
-		-- Confirma que o menu realmente abriu (key aceite) antes de fechar o loader
-		local confirmed = false
-		for _ = 1, 80 do
-			task.wait(0.15)
-			local okCheck, found = pcall(function()
-				local cg = game:GetService("CoreGui")
-				if cg:FindFirstChild("NightModMenu") then return true end
-				local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-				if pg and pg:FindFirstChild("NightModMenu") then return true end
-				for _, obj in ipairs(cg:GetChildren()) do
-					if obj:IsA("ScreenGui") and obj ~= gui and tostring(obj.Name):find("Night") then return true end
-				end
-				if _G.nightMenuUnloaded == false then return true end
-				return false
-			end)
-			if okCheck and found then
-				confirmed = true
-				break
-			end
-		end
-
-		if confirmed then
-			pcall(function() gui:Destroy() end)
-		else
-			-- Key recusada: volta ao painel de key para tentar de novo
-			for _, w in ipairs(loadingWidgets) do
-				if w and w.Parent then w.Visible = false end
-			end
-			for _, obj in ipairs(card:GetChildren()) do
-				if obj:IsA("TextBox") or obj:IsA("TextButton") or obj:IsA("TextLabel") then
-					local shouldHide = false
-					for _, w in ipairs(loadingWidgets) do
-						if w == obj then shouldHide = true break end
-					end
-					for _, w in ipairs(hwidWidgets) do
-						if w == obj then shouldHide = true break end
-					end
-					if not shouldHide then obj.Visible = true end
-				end
-			end
-			loading = false
-			if loaderErr then
-				setStatus(loaderErr:sub(1, 70), Color3.fromRGB(255, 120, 120))
+			if okHttp and src and src ~= "" and loader then
+				local fn = loader(src)
+				if fn then pcall(fn) end
 			else
-				setStatus("Nao foi possivel abrir o menu. Ve o F9.", Color3.fromRGB(255, 120, 120))
+				warn("[Night Loader] Falha ao carregar o menu.")
 			end
-		end
+		end)
 	end)
 end
 
