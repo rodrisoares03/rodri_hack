@@ -5771,7 +5771,11 @@ function applyAutoExecChoice(enabled)
 	writeAutoExecChoice(autoExecuteEnabled)
 	if autoExecuteEnabled then
 		pcall(setupAutoExecute)
-		showMenuToast("Auto Execute", "Ativado | o menu abrira sozinho no proximo jogo.", Color3.fromRGB(170, 255, 170))
+		if _G.NIGHT_AUTOEXEC_QUEUED then
+			showMenuToast("Auto Execute", "Ativado | abre sozinho no proximo teleporte.", Color3.fromRGB(170, 255, 170))
+		else
+			showMenuToast("Auto Execute", "Executor sem queue_on_teleport — injecta o Loader manualmente.", Color3.fromRGB(255, 180, 80))
+		end
 	else
 		showMenuToast("Auto Execute", "Desativado", Color3.fromRGB(255, 170, 170))
 	end
@@ -20487,7 +20491,12 @@ function getAutoExecuteLoaderSource()
 end
 
 function getTeleportQueueFunction()
-	return queue_on_teleport or queueonteleport or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)
+	return queue_on_teleport or queueonteleport
+		or (syn and syn.queue_on_teleport)
+		or (fluxus and fluxus.queue_on_teleport)
+		or (xeno and xeno.queue_on_teleport)
+		or (xenon and xenon.queue_on_teleport)
+		or queue_teleport
 end
 
 function setupAutoExecute()
@@ -20508,8 +20517,12 @@ function setupAutoExecute()
 	end
 
 	local queueFn = getTeleportQueueFunction()
+	_G.NIGHT_AUTOEXEC_QUEUED = false
 	if queueFn then
-		pcall(function() queueFn(loaderSource) end)
+		pcall(function()
+			queueFn(loaderSource)
+			_G.NIGHT_AUTOEXEC_QUEUED = true
+		end)
 	end
 
 	return true
