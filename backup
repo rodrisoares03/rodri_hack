@@ -80,159 +80,21 @@ Camera = workspace.CurrentCamera
 ESPData = {}
 
 -- Função para verificar se está na mesma dimensão/mapa
--- Caches fracos: evitar FindFirstChild + Magnitude repetidos por cada visual do ESP
-local dimResultCache = setmetatable({}, { __mode = "k" })
-local dimTimeCache = setmetatable({}, { __mode = "k" })
-local dimMyRootRef = nil
-
 function isInSameDimension(targetCharacter)
 	local myChar = LocalPlayer.Character
 	if not myChar or not targetCharacter then return false end
+	
+	-- Apenas verificamos a distancia para evitar a quebra em jogos que separam players por Pastas/Times
 	local myRoot = myChar:FindFirstChild("HumanoidRootPart")
 	local targetRoot = targetCharacter:FindFirstChild("HumanoidRootPart")
+	
 	if not myRoot or not targetRoot then return false end
-
-	if dimMyRootRef ~= myRoot then
-		dimMyRootRef = myRoot
-		dimResultCache = setmetatable({}, { __mode = "k" })
-		dimTimeCache = setmetatable({}, { __mode = "k" })
-	end
-	local now = tick()
-	local cachedAt = dimTimeCache[targetCharacter]
-	if cachedAt and now - cachedAt < 0.25 then
-		return dimResultCache[targetCharacter]
-	end
-
-	-- Distancia absurdamente grande (>10000) = dimensao diferente
-	local result = (targetRoot.Position - myRoot.Position).Magnitude <= 10000
-	dimResultCache[targetCharacter] = result
-	dimTimeCache[targetCharacter] = now
-	return result
-end
-
--- Distancia ate ao jogador com cache de 50ms (antes: 3 FindFirstChild por visual)
-local espDistCache = setmetatable({}, { __mode = "k" })
-local espDistTime = setmetatable({}, { __mode = "k" })
-local espDistMyRootRef = nil
-
-function getEspDistanceCached(character)
-	if not character then return math.huge end
-	local myChar = LocalPlayer.Character
-	local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-	if not myRoot then return math.huge end
-	if espDistMyRootRef ~= myRoot then
-		espDistMyRootRef = myRoot
-		espDistCache = setmetatable({}, { __mode = "k" })
-		espDistTime = setmetatable({}, { __mode = "k" })
-	end
-	local now = tick()
-	local cachedAt = espDistTime[character]
-	if cachedAt and now - cachedAt < 0.05 then
-		return espDistCache[character]
-	end
-	local targetRoot = character:FindFirstChild("HumanoidRootPart") or getPrimaryPart(character)
-	local dist = targetRoot and (targetRoot.Position - myRoot.Position).Magnitude or math.huge
-	espDistCache[character] = dist
-	espDistTime[character] = now
-	return dist
-end
-
--- Evita reescrever propriedades de Drawing com o mesmo valor (cada write custa caro)
-local drawTextCache = setmetatable({}, { __mode = "k" })
-local drawSizeCache = setmetatable({}, { __mode = "k" })
-local drawColorCache = setmetatable({}, { __mode = "k" })
-
-function setDrawText(obj, text)
-	if drawTextCache[obj] ~= text then
-		drawTextCache[obj] = text
-		pcall(function() obj.Text = text end)
-	end
-end
-
-function setDrawSize(obj, size)
-	if drawSizeCache[obj] ~= size then
-		drawSizeCache[obj] = size
-		pcall(function() obj.Size = size end)
-	end
-end
-
-function setDrawColor(obj, color)
-	if not color then return end
-	local c = drawColorCache[obj]
-	if not c or c.r ~= color.R or c.g ~= color.G or c.b ~= color.B then
-		drawColorCache[obj] = { r = color.R, g = color.G, b = color.B }
-		pcall(function() obj.Color = color end)
-	end
-end
-
--- UI do ESP: so escreve Size/Offset/Cor quando mudam (evita relayout por frame)
-local boxSizeCache = setmetatable({}, { __mode = "k" })
-local boxOffsetCache = setmetatable({}, { __mode = "k" })
-local boxColorCache = setmetatable({}, { __mode = "k" })
-local boxPartsCache = setmetatable({}, { __mode = "k" })
-
-function setBillboardBoxSize(billboard, w, h, offsetY)
-	local c = boxSizeCache[billboard]
-	if not c or c.w ~= w or c.h ~= h then
-		boxSizeCache[billboard] = { w = w, h = h }
-		billboard.Size = UDim2.new(w, 0, h, 0)
-	end
-	if boxOffsetCache[billboard] ~= offsetY then
-		boxOffsetCache[billboard] = offsetY
-		billboard.StudsOffset = Vector3.new(0, offsetY, 0)
-	end
-end
-
-local partsCache = setmetatable({}, { __mode = "k" })
-
-function getCachedTorso(character)
-	local cached = partsCache[character]
-	if cached and cached.Parent then return cached end
-	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-	partsCache[character] = torso
-	return torso
-end
-
-function setBillboardBoxOffsetSize(billboard, w, h, offsetY)
-	local c = boxSizeCache[billboard]
-	if not c or c.w ~= w or c.h ~= h then
-		boxSizeCache[billboard] = { w = w, h = h }
-		billboard.Size = UDim2.fromOffset(w, h)
-	end
-	if boxOffsetCache[billboard] ~= offsetY then
-		boxOffsetCache[billboard] = offsetY
-		billboard.StudsOffset = Vector3.new(0, offsetY, 0)
-	end
-end
-
-local npcVisRayParams = RaycastParams.new()
-npcVisRayParams.FilterType = Enum.RaycastFilterType.Exclude
-local npcVisIgnore = {}
-
-local RED_ESP_COLOR = Color3.fromRGB(255, 0, 0)
-local hlColorCache = setmetatable({}, { __mode = "k" })
-
-function setHighlightColors(h, fill, outline)
-	if not fill or not outline then return end
-	local c = hlColorCache[h]
-	if not c or c.fr ~= fill.R or c.fg ~= fill.G or c.fb ~= fill.B
-		or c.orr ~= outline.R or c.ogg ~= outline.G or c.obb ~= outline.B then
-		hlColorCache[h] = {
-			fr = fill.R, fg = fill.G, fb = fill.B,
-			orr = outline.R, ogg = outline.G, obb = outline.B,
-		}
-		h.FillColor = fill
-		h.OutlineColor = outline
-	end
-end
-
-function setStrokeColor(stroke, color)
-	if not color then return end
-	local c = boxColorCache[stroke]
-	if not c or c.r ~= color.R or c.g ~= color.G or c.b ~= color.B then
-		boxColorCache[stroke] = { r = color.R, g = color.G, b = color.B }
-		stroke.Color = color
-	end
+	
+	-- Se a distância for absurdamente grande (>10000), provavelmente estão em dimensões diferentes
+	local distance = (targetRoot.Position - myRoot.Position).Magnitude
+	if distance > 10000 then return false end
+	
+	return true
 end
 
 function isValidPlayer(player)
@@ -4106,45 +3968,31 @@ function applyHighlightMode(highlight)
 	end
 end
 
--- Antes: 1 Raycast + RaycastParams novo POR JOGADOR POR FRAME (causa de freezes)
-local autoEspRayParams = RaycastParams.new()
-autoEspRayParams.FilterType = Enum.RaycastFilterType.Blacklist
-local autoEspIgnore = {}
-local autoEspColorCache = setmetatable({}, { __mode = "k" })
-local GREEN_ESP_COLOR = Color3.fromRGB(0, 255, 0)
-
 function getPlayerAutoEspColor(character)
 	local player = Players:GetPlayerFromCharacter(character)
 	if player and isMenuFriend and isMenuFriend(player) then return FRIEND_ESP_COLOR end
 	if not espAutoEnabled then return espColor end
-
-	local now = tick()
-	local cached = autoEspColorCache[character]
-	if cached and now - cached.at < 0.15 then return cached.color end
-
-	local result = skeletonColor
 	local camera = workspace.CurrentCamera
 	local myChar = LocalPlayer.Character
 	local targetRoot = getPrimaryPart(character)
-	if camera and myChar and targetRoot then
-		local screenPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
-		local viewport = camera.ViewportSize
-		local insideViewport = onScreen and screenPos.Z > 0
-			and screenPos.X >= 0 and screenPos.X <= viewport.X
-			and screenPos.Y >= 0 and screenPos.Y <= viewport.Y
-		if insideViewport then
-			autoEspIgnore[1] = myChar
-			autoEspRayParams.FilterDescendantsInstances = autoEspIgnore
-			local direction = targetRoot.Position - camera.CFrame.Position
-			local rayResult = workspace:Raycast(camera.CFrame.Position, direction, autoEspRayParams)
-			if not rayResult or rayResult.Instance:IsDescendantOf(character) then
-				result = GREEN_ESP_COLOR
-			end
-		end
-	end
+	if not camera or not myChar or not targetRoot then return skeletonColor end
 
-	autoEspColorCache[character] = { color = result, at = now }
-	return result
+	local screenPos, onScreen = camera:WorldToViewportPoint(targetRoot.Position)
+	local viewport = camera.ViewportSize
+	local insideViewport = onScreen and screenPos.Z > 0
+		and screenPos.X >= 0 and screenPos.X <= viewport.X
+		and screenPos.Y >= 0 and screenPos.Y <= viewport.Y
+	if not insideViewport then return skeletonColor end
+
+	local rayParams = RaycastParams.new()
+	rayParams.FilterDescendantsInstances = {myChar}
+	rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+	local direction = targetRoot.Position - camera.CFrame.Position
+	local rayResult = workspace:Raycast(camera.CFrame.Position, direction, rayParams)
+	if not rayResult or rayResult.Instance:IsDescendantOf(character) then
+		return Color3.fromRGB(0, 255, 0)
+	end
+	return skeletonColor
 end
 
 function ensureHighlight(character)
@@ -4173,13 +4021,21 @@ function ensureHighlight(character)
 		return
 	end
 	
-	-- Verificar distância ANTES de criar (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if highlights[character] then
-			pcall(function() highlights[character]:Destroy() end)
-			highlights[character] = nil
+	-- Verificar distância ANTES de criar
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if highlights[character] then
+					pcall(function() highlights[character]:Destroy() end)
+					highlights[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 	
 	-- Criar highlight se não existir
@@ -4238,13 +4094,21 @@ function ensureDistanceLabel(character)
 		return
 	end
 	
-	-- Verificar distância máxima (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if distanceLabels[character] then
-			pcall(function() distanceLabels[character]:Remove() end)
-			distanceLabels[character] = nil
+	-- Verificar distância máxima
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if distanceLabels[character] then
+					pcall(function() distanceLabels[character]:Remove() end)
+					distanceLabels[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 	
 	local root = getPrimaryPart(character)
@@ -4266,22 +4130,28 @@ function ensureDistanceLabel(character)
 		return
 	end
 	
-	local dist = math.floor(getEspDistanceCached(character))
-	local label = distanceLabels[character]
-	if not label then
-		label = Drawing.new("Text")
-		label.Size = 14
-		label.Center = true
-		label.Outline = true
-		distanceLabels[character] = label
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local dist = math.floor((targetRoot.Position - myRoot.Position).Magnitude)
+			local label = distanceLabels[character]
+			if not label then
+				label = Drawing.new("Text")
+				label.Size = 14
+				label.Center = true
+				label.Outline = true
+				distanceLabels[character] = label
+			end
+			label.Text = dist .. "m"
+			label.Size = math.clamp(14 - dist / 80, 8, 14)
+			local targetPlayer = Players:GetPlayerFromCharacter(character)
+			label.Color = targetPlayer and isMenuFriend(targetPlayer) and FRIEND_ESP_COLOR or espDistanceColor
+			label.Position = Vector2.new(screenPos.X, screenPos.Y + label.Size * 0.4)
+			label.Visible = true
+		end
 	end
-	setDrawText(label, dist .. "m")
-	local labelSize = math.floor(math.clamp(14 - dist / 80, 8, 14) * 2) / 2
-	setDrawSize(label, labelSize)
-	local targetPlayer = Players:GetPlayerFromCharacter(character)
-	setDrawColor(label, targetPlayer and isMenuFriend(targetPlayer) and FRIEND_ESP_COLOR or espDistanceColor)
-	label.Position = Vector2.new(screenPos.X, screenPos.Y + labelSize * 0.4)
-	label.Visible = true
 end
 
 -- Função para exibir nome (em cima da box)
@@ -4311,13 +4181,21 @@ function ensureNameLabel(character, player)
 		return
 	end
 	
-	-- Verificar distância (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if nameLabels[character] then
-			pcall(function() nameLabels[character]:Remove() end)
-			nameLabels[character] = nil
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if nameLabels[character] then
+					pcall(function() nameLabels[character]:Remove() end)
+					nameLabels[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 	
 	local root = getPrimaryPart(character)
@@ -4347,12 +4225,11 @@ function ensureNameLabel(character, player)
 		label.Outline = true
 		nameLabels[character] = label
 	end
-	setDrawText(label, player.Name)
+	label.Text = player.Name
 	local cameraDistance = (root.Position - camera.CFrame.Position).Magnitude
-	local labelSize = math.floor(math.clamp(14 - cameraDistance / 100, 8, 14) * 2) / 2
-	setDrawSize(label, labelSize)
-	setDrawColor(label, isMenuFriend(player) and FRIEND_ESP_COLOR or espNameColor)
-	label.Position = Vector2.new(screenPos.X, screenPos.Y - labelSize)
+	label.Size = math.clamp(14 - cameraDistance / 100, 8, 14)
+	label.Color = isMenuFriend(player) and FRIEND_ESP_COLOR or espNameColor
+	label.Position = Vector2.new(screenPos.X, screenPos.Y - label.Size)
 	label.Visible = true
 end
 
@@ -4431,9 +4308,9 @@ function ensureWeaponLabel(character, player)
 		weaponLabels[character] = label
 	end
 	local cameraDistance = (targetRoot.Position - camera.CFrame.Position).Magnitude
-	setDrawSize(label, math.floor(math.clamp(13 - cameraDistance / 100, 8, 13) * 2) / 2)
-	setDrawColor(label, weaponNameColor)
-	setDrawText(label, weaponText)
+	label.Size = math.clamp(13 - cameraDistance / 100, 8, 13)
+	label.Color = weaponNameColor
+	label.Text = weaponText
 	local distLabel = distanceLabels[character]
 	local distOffset = (distLabel and distLabel.Visible) and (distLabel.Size * 0.4 + 2) or 0
 	label.Position = Vector2.new(screenPos.X, screenPos.Y + distOffset + label.Size * 0.5 + 12)
@@ -4467,13 +4344,21 @@ function ensureBox3D(character)
 		return
 	end
 	
-	-- Verificar distância (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if boxes[character] then
-			pcall(function() boxes[character]:Destroy() end)
-			boxes[character] = nil
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if boxes[character] then
+					pcall(function() boxes[character]:Destroy() end)
+					boxes[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 
 	local head = character:FindFirstChild("Head")
@@ -4519,7 +4404,8 @@ function ensureBox3D(character)
 		local billboard = Instance.new("BillboardGui")
 		billboard.Name = "ESP_Box"
 		billboard.Adornee = humanoidRootPart
-		setBillboardBoxSize(billboard, boxWidthStuds, boxHeightStuds, offsetY)
+		billboard.Size = UDim2.new(boxWidthStuds, 0, boxHeightStuds, 0)
+		billboard.StudsOffset = Vector3.new(0, offsetY, 0)
 		billboard.AlwaysOnTop = true
 		billboard.Parent = humanoidRootPart
 		
@@ -4537,13 +4423,12 @@ function ensureBox3D(character)
 		
 		-- Criar bordas com espessura melhorada
 		local stroke = Instance.new("UIStroke")
-		setStrokeColor(stroke, getPlayerAutoEspColor(character))
+		stroke.Color = getPlayerAutoEspColor(character)
 		stroke.Thickness = 2.5
 		stroke.Transparency = 0.1
 		stroke.Parent = frame
 		
 		boxes[character] = billboard
-		boxPartsCache[billboard] = { frame = frame, stroke = stroke }
 	end
 	
 	-- Atualizar tamanho e cor dinamicamente
@@ -4554,16 +4439,16 @@ function ensureBox3D(character)
 			billboard.Adornee = humanoidRootPart
 			billboard.Parent = humanoidRootPart
 		end
-		setBillboardBoxSize(billboard, boxWidthStuds, boxHeightStuds, offsetY)
-
-		local parts = boxPartsCache[billboard]
-		local stroke = parts and parts.stroke
-		if not stroke then
-			local frame = billboard:FindFirstChild("BoxFrame") or billboard:FindFirstChildOfClass("Frame")
-			stroke = frame and frame:FindFirstChildOfClass("UIStroke")
-			boxPartsCache[billboard] = { frame = frame, stroke = stroke }
+		billboard.Size = UDim2.new(boxWidthStuds, 0, boxHeightStuds, 0)
+		billboard.StudsOffset = Vector3.new(0, offsetY, 0)
+		
+		local frame = billboard:FindFirstChild("BoxFrame") or billboard:FindFirstChildOfClass("Frame")
+		if frame then
+			local stroke = frame:FindFirstChildOfClass("UIStroke")
+			if stroke then
+				stroke.Color = getPlayerAutoEspColor(character)
+			end
 		end
-		if stroke then setStrokeColor(stroke, getPlayerAutoEspColor(character)) end
 	end
 end
 
@@ -4594,13 +4479,21 @@ function ensureTracer(character)
 		return
 	end
 	
-	-- Verificar distância (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if tracers[character] then
-			pcall(function() tracers[character]:Remove() end)
-			tracers[character] = nil
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if tracers[character] then
+					pcall(function() tracers[character]:Remove() end)
+					tracers[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 	
 	local tracer = tracers[character]
@@ -4613,9 +4506,10 @@ function ensureTracer(character)
 	
 	-- Usar cor independente dos tracers
 	local targetPlayer = Players:GetPlayerFromCharacter(character)
-	setDrawColor(tracer, targetPlayer and isMenuFriend(targetPlayer) and FRIEND_ESP_COLOR or espTracerColor)
-
-	local torso = getCachedTorso(character)
+	tracer.Color = targetPlayer and isMenuFriend(targetPlayer) and FRIEND_ESP_COLOR or espTracerColor
+	tracer.Thickness = 1
+	
+	local torso = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
 	if not torso then
 		tracer.Visible = false
 		return
@@ -4678,16 +4572,24 @@ function ensureHealthBar(character)
 		return
 	end
 	
-	-- Verificar distância (cache partilhado)
-	if getEspDistanceCached(character) >= ESP_MAX_DISTANCE then
-		if healthBars[character] then
-			pcall(function()
-				if healthBars[character].bg then healthBars[character].bg:Remove() end
-				if healthBars[character].fill then healthBars[character].fill:Remove() end
-			end)
-			healthBars[character] = nil
+	-- Verificar distância
+	local myChar = LocalPlayer.Character
+	if myChar then
+		local myRoot = getPrimaryPart(myChar)
+		local targetRoot = getPrimaryPart(character)
+		if myRoot and targetRoot then
+			local distance = (targetRoot.Position - myRoot.Position).Magnitude
+			if distance >= ESP_MAX_DISTANCE then
+				if healthBars[character] then
+					pcall(function()
+						if healthBars[character].bg then healthBars[character].bg:Remove() end
+						if healthBars[character].fill then healthBars[character].fill:Remove() end
+					end)
+					healthBars[character] = nil
+				end
+				return
+			end
 		end
-		return
 	end
 
 	local head = character:FindFirstChild("Head")
@@ -4901,14 +4803,19 @@ function ensureNpcHighlight(model)
 		return
 	end
 
-	if getEspDistanceCached(model) >= ESP_MAX_DISTANCE then
-		if npcHighlights[model] then
-			pcall(function() npcHighlights[model]:Destroy() end)
-			npcHighlights[model] = nil
-		end
-		return
-	end
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
 	local targetRoot = getPrimaryPart(model)
+	if myRoot and targetRoot then
+		local distance = (targetRoot.Position - myRoot.Position).Magnitude
+		if distance >= ESP_MAX_DISTANCE then
+			if npcHighlights[model] then
+				pcall(function() npcHighlights[model]:Destroy() end)
+				npcHighlights[model] = nil
+			end
+			return
+		end
+	end
 
 	local h = npcHighlights[model]
 	if not h or not h.Parent then
@@ -4927,22 +4834,28 @@ function ensureNpcHighlight(model)
 		if not visibility or now - visibility.at > 0.2 then
 			local rayOrigin = workspace.CurrentCamera.CFrame.Position
 			local rayDir = (targetRoot.Position - rayOrigin).Unit * 100
-			local ignore = npcVisIgnore
-			for k in pairs(ignore) do ignore[k] = nil end
-			table.insert(ignore, model)
+			local raycastParams = RaycastParams.new()
+			local ignore = {model}
 			if myChar then table.insert(ignore, myChar) end
-			npcVisRayParams.FilterDescendantsInstances = ignore
-			local result = workspace:Raycast(rayOrigin, rayDir, npcVisRayParams)
+			raycastParams.FilterDescendantsInstances = ignore
+			raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+			local result = workspace:Raycast(rayOrigin, rayDir, raycastParams)
 			visibility = {visible = (result == nil), at = now}
 			npcVisibilityCache[model] = visibility
 		end
 		if visibility.visible then
-			setHighlightColors(h, npcSkeletonColor, npcSkeletonColor)
+			-- Cor escolhida no botao COLOR quando visivel
+			h.FillColor = npcSkeletonColor
+			h.OutlineColor = npcSkeletonColor
 		else
-			setHighlightColors(h, RED_ESP_COLOR, RED_ESP_COLOR)
+			-- Vermelho quando oculto
+			h.FillColor = Color3.fromRGB(255, 0, 0)
+			h.OutlineColor = Color3.fromRGB(255, 0, 0)
 		end
 	else
-		setHighlightColors(h, npcSkeletonColor, npcSkeletonColor)
+		-- Sem Auto ESP (ou sem root para o raycast): usa sempre a cor escolhida
+		h.FillColor = npcSkeletonColor
+		h.OutlineColor = npcSkeletonColor
 	end
 
 	if npcEspMode == "Cheio" then
@@ -4965,12 +4878,18 @@ function ensureNpcBox3D(model)
 		return
 	end
 
-	if getEspDistanceCached(model) >= ESP_MAX_DISTANCE then
-		if npcBoxes[model] then
-			pcall(function() npcBoxes[model]:Destroy() end)
-			npcBoxes[model] = nil
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
+	local targetRoot = getPrimaryPart(model)
+	if myRoot and targetRoot then
+		local distance = (targetRoot.Position - myRoot.Position).Magnitude
+		if distance >= ESP_MAX_DISTANCE then
+			if npcBoxes[model] then
+				pcall(function() npcBoxes[model]:Destroy() end)
+				npcBoxes[model] = nil
+			end
+			return
 		end
-		return
 	end
 
 	local head = model:FindFirstChild("Head")
@@ -5022,20 +4941,17 @@ function ensureNpcBox3D(model)
 		stroke.Parent = frame
 
 		npcBoxes[model] = billboard
-		boxPartsCache[billboard] = { frame = frame, stroke = stroke }
 	end
 
 	local billboard = npcBoxes[model]
 	if billboard and billboard.Parent then
-		setBillboardBoxOffsetSize(billboard, boxWPx, boxHPx, offsetY)
-		local parts = boxPartsCache[billboard]
-		local stroke = parts and parts.stroke
-		if not stroke then
-			local frame = billboard:FindFirstChild("BoxFrame") or billboard:FindFirstChildOfClass("Frame")
-			stroke = frame and frame:FindFirstChildOfClass("UIStroke")
-			boxPartsCache[billboard] = { frame = frame, stroke = stroke }
+		billboard.Size = UDim2.fromOffset(boxWPx, boxHPx)
+		billboard.StudsOffset = Vector3.new(0, offsetY, 0)
+		local frame = billboard:FindFirstChild("BoxFrame") or billboard:FindFirstChildOfClass("Frame")
+		if frame then
+			local stroke = frame:FindFirstChildOfClass("UIStroke")
+			if stroke then stroke.Color = npcEspColor end
 		end
-		if stroke then setStrokeColor(stroke, npcEspColor) end
 	end
 end
 
@@ -5048,12 +4964,18 @@ function ensureNpcNameLabel(model)
 		return
 	end
 
-	if getEspDistanceCached(model) >= ESP_MAX_DISTANCE then
-		if npcNameLabels[model] then
-			pcall(function() npcNameLabels[model]:Remove() end)
-			npcNameLabels[model] = nil
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
+	local targetRoot = getPrimaryPart(model)
+	if myRoot and targetRoot then
+		local distance = (targetRoot.Position - myRoot.Position).Magnitude
+		if distance >= ESP_MAX_DISTANCE then
+			if npcNameLabels[model] then
+				pcall(function() npcNameLabels[model]:Remove() end)
+				npcNameLabels[model] = nil
+			end
+			return
 		end
-		return
 	end
 
 	local root = getPrimaryPart(model)
@@ -5083,8 +5005,8 @@ function ensureNpcNameLabel(model)
 		label.Outline = true
 		npcNameLabels[model] = label
 	end
-	setDrawText(label, model.Name)
-	setDrawColor(label, npcEspNameColor)
+	label.Text = model.Name
+	label.Color = npcEspNameColor
 	if npcEspPosition == "Lado" then
 		label.Position = Vector2.new(screenPos.X + 10, screenPos.Y)
 	else
@@ -5116,7 +5038,9 @@ function ensureNpcWeaponLabel(model)
 		removeNpcWeaponLabel(model)
 		return
 	end
-	if getEspDistanceCached(model) >= ESP_MAX_DISTANCE then
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
+	if myRoot and (root.Position - myRoot.Position).Magnitude >= ESP_MAX_DISTANCE then
 		removeNpcWeaponLabel(model)
 		return
 	end
@@ -5144,9 +5068,9 @@ function ensureNpcWeaponLabel(model)
 		npcWeaponLabels[model] = label
 	end
 	local cameraDistance = (root.Position - camera.CFrame.Position).Magnitude
-	setDrawSize(label, math.floor(math.clamp(13 - cameraDistance / 100, 8, 13) * 2) / 2)
-	setDrawColor(label, npcWeaponNameColor)
-	setDrawText(label, weaponText)
+	label.Size = math.clamp(13 - cameraDistance / 100, 8, 13)
+	label.Color = npcWeaponNameColor
+	label.Text = weaponText
 	local distLabel = npcDistanceLabels[model]
 	local distOffset = (distLabel and distLabel.Visible) and (distLabel.Size * 0.4 + 2) or 0
 	label.Position = Vector2.new(screenPos.X, screenPos.Y + distOffset + label.Size * 0.5 + 12)
@@ -5162,12 +5086,18 @@ function ensureNpcDistanceLabel(model)
 		return
 	end
 
-	if getEspDistanceCached(model) >= ESP_MAX_DISTANCE then
-		if npcDistanceLabels[model] then
-			pcall(function() npcDistanceLabels[model]:Remove() end)
-			npcDistanceLabels[model] = nil
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
+	local targetRoot = getPrimaryPart(model)
+	if myRoot and targetRoot then
+		local distance = (targetRoot.Position - myRoot.Position).Magnitude
+		if distance >= ESP_MAX_DISTANCE then
+			if npcDistanceLabels[model] then
+				pcall(function() npcDistanceLabels[model]:Remove() end)
+				npcDistanceLabels[model] = nil
+			end
+			return
 		end
-		return
 	end
 
 	local root = getPrimaryPart(model)
@@ -5181,19 +5111,21 @@ function ensureNpcDistanceLabel(model)
 		return
 	end
 
-	local dist = math.floor(getEspDistanceCached(model))
-	local label = npcDistanceLabels[model]
-	if not label then
-		label = Drawing.new("Text")
-		label.Size = 14
-		label.Center = true
-		label.Outline = true
-		npcDistanceLabels[model] = label
+	if myRoot and targetRoot then
+		local dist = math.floor((targetRoot.Position - myRoot.Position).Magnitude)
+		local label = npcDistanceLabels[model]
+		if not label then
+			label = Drawing.new("Text")
+			label.Size = 14
+			label.Center = true
+			label.Outline = true
+			npcDistanceLabels[model] = label
+		end
+		label.Text = dist .. "m"
+		label.Color = npcEspDistanceColor
+		label.Position = Vector2.new(screenPos.X, screenPos.Y + label.Size * 0.4)
+		label.Visible = true
 	end
-	setDrawText(label, dist .. "m")
-	setDrawColor(label, npcEspDistanceColor)
-	label.Position = Vector2.new(screenPos.X, screenPos.Y + label.Size * 0.4)
-	label.Visible = true
 end
 
 function ensureNpcTracer(model)
@@ -5205,7 +5137,12 @@ function ensureNpcTracer(model)
 		return
 	end
 
-	local distance = getEspDistanceCached(model)
+	local myChar = LocalPlayer.Character
+	local myRoot = myChar and getPrimaryPart(myChar)
+	local targetRoot = getPrimaryPart(model)
+	if not myRoot or not targetRoot then return end
+
+	local distance = (targetRoot.Position - myRoot.Position).Magnitude
 	if distance >= ESP_MAX_DISTANCE then
 		if npcTracers and npcTracers[model] then
 			pcall(function() npcTracers[model]:Remove() end)
@@ -5214,8 +5151,6 @@ function ensureNpcTracer(model)
 		return
 	end
 
-	local targetRoot = getPrimaryPart(model)
-	if not targetRoot then return end
 	local camera = workspace.CurrentCamera
 	local chestPos = targetRoot.Position
 	local screenPos, onScreen = camera:WorldToViewportPoint(chestPos)
@@ -5243,7 +5178,7 @@ function ensureNpcTracer(model)
 
 	tracer.From = startPos
 	tracer.To = Vector2.new(screenPos.X, screenPos.Y)
-	setDrawColor(tracer, npcEspTracerColor)
+	tracer.Color = npcEspTracerColor
 	tracer.Visible = true
 end
 
@@ -13415,23 +13350,19 @@ function isPenetrablePart(part)
 end
 
 -- Raycast que ignora paredes perfuraveis e devolve o primeiro bloqueio solido
--- (params reutilizados: antes eram criados ate 6x por frame pelo trigger)
-local triggerRayParams = RaycastParams.new()
-triggerRayParams.FilterType = Enum.RaycastFilterType.Exclude
-triggerRayParams.IgnoreWater = true
-local triggerIgnoreReuse = {}
-
 function raycastSkipPenetrable(origin, direction, maxDist, ignored)
-	local ignore = triggerIgnoreReuse
-	for k in pairs(ignore) do ignore[k] = nil end
+	local ignore = {}
 	for _, v in ipairs(ignored or {}) do if v then table.insert(ignore, v) end end
 	local start = origin
 	local travelled = 0
 	for _ = 1, 6 do
 		local remain = maxDist - travelled
 		if remain <= 0.05 then return nil end
-		triggerRayParams.FilterDescendantsInstances = ignore
-		local hit = workspace:Raycast(start, direction * remain, triggerRayParams)
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = ignore
+		params.IgnoreWater = true
+		local hit = workspace:Raycast(start, direction * remain, params)
 		if not hit then return nil end
 		travelled = travelled + (hit.Position - start).Magnitude
 		if not TRIGGER_WALL_PENETRATION or not isPenetrablePart(hit.Instance) then return hit end
@@ -13484,31 +13415,10 @@ function fireAutofireShot()
 end
 
 -- ========= CHAMADA BETA: spin + trigger 360 (nao mexe no autofire/trigger existentes) =========
--- Cache da cabeca por modelo (evita FindFirstChild por alvo por frame)
-local betaHeadCache = setmetatable({}, { __mode = "k" })
-local function betaGetHead(model, root)
-	local cached = betaHeadCache[model]
-	if cached and cached.Parent then return cached end
-	local head = model:FindFirstChild("Head") or root
-	betaHeadCache[model] = head
-	return head
-end
-
-local betaTargetCache = nil
-local betaTargetCacheAt = 0
-
 function betaFindTarget()
-	local now = tick()
-	-- Target so e recalculado a cada 80ms (o tiro ja tem cooldown proprio)
-	if betaTargetCache and now - betaTargetCacheAt < 0.08 then
-		local t = betaTargetCache
-		if t.model and t.model.Parent and t.root and t.root.Parent then return t end
-	end
-	betaTargetCacheAt = now
-
 	local char = LocalPlayer.Character
 	local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-	if not myRoot then betaTargetCache = nil return nil end
+	if not myRoot then return nil end
 	local best, bestDist = nil, math.huge
 
 	-- Players (inimigos)
@@ -13521,7 +13431,9 @@ function betaFindTarget()
 				if hum and root and hum.Health > 0 then
 					local dist = (root.Position - myRoot.Position).Magnitude
 					if dist <= betaSpinTriggerRange and dist < bestDist then
-						best = {model = targetChar, root = root, aimPart = betaGetHead(targetChar, root), dist = dist}
+						-- Silent aim mira SEMPRE na cabeca
+						local head = targetChar:FindFirstChild("Head") or root
+						best = {model = targetChar, root = root, aimPart = head, dist = dist}
 						bestDist = dist
 					end
 				end
@@ -13530,8 +13442,8 @@ function betaFindTarget()
 	end
 
 	-- NPCs: scan proprio com throttling (nao depende do ESP/NPC trigger estar ligado)
-	if now - betaLastNpcScan >= 0.2 then
-		betaLastNpcScan = now
+	if tick() - betaLastNpcScan >= 0.2 then
+		betaLastNpcScan = tick()
 		local scanned = getNPCsFromWorkspace()
 		if scanned then betaNpcCache = scanned end
 	end
@@ -13543,14 +13455,14 @@ function betaFindTarget()
 			if hum and hum.Health > 0 then
 				local dist = (root.Position - myRoot.Position).Magnitude
 				if dist <= betaSpinTriggerRange and dist < bestDist then
-					best = {model = model, root = root, aimPart = betaGetHead(model, root), dist = dist}
+					local head = model:FindFirstChild("Head") or root
+					best = {model = model, root = root, aimPart = head, dist = dist}
 					bestDist = dist
 				end
 			end
 		end
 	end
 
-	betaTargetCache = best
 	return best
 end
 
@@ -13579,69 +13491,44 @@ function betaFireShot()
 	end
 end
 
--- Linha de tiro rigida: qualquer parede bloqueia (params reutilizados)
-local betaClearRayParams = RaycastParams.new()
-betaClearRayParams.FilterType = Enum.RaycastFilterType.Exclude
-betaClearRayParams.IgnoreWater = true
-local betaClearIgnore = {}
-
+-- Linha de tiro rigida: qualquer parede bloqueia (nao usa penetracao)
 function betaHasClearShot(origin, endPos, ignored)
 	local delta = endPos - origin
 	local dist = delta.Magnitude
 	if dist < 0.01 then return true end
-	for k in pairs(betaClearIgnore) do betaClearIgnore[k] = nil end
-	if type(ignored) == "table" then
-		for i, v in ipairs(ignored) do betaClearIgnore[i] = v end
-	end
-	betaClearRayParams.FilterDescendantsInstances = betaClearIgnore
-	local result = workspace:Raycast(origin, delta.Unit * dist, betaClearRayParams)
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = type(ignored) == "table" and ignored or {}
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.IgnoreWater = true
+	local result = workspace:Raycast(origin, delta.Unit * dist, params)
 	return result == nil
 end
 
 -- Silent aim embutido: aumenta a hitbox da CABECA (cobre o corpo todo) e do torso.
 -- Size continua gigante (hitbox), mas Transparency = 1 esconde as partes da SUA visao (cliente).
--- Partes relevantes em cache: GetDescendants e caro e antes rodava a cada tiro
-local betaPartsCache = setmetatable({}, { __mode = "k" })
-local function betaGetHitboxParts(model)
-	local cached = betaPartsCache[model]
-	if cached then return cached end
-	local parts = {}
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			if part.Name == "Head" then
-				parts.head = part
-			elseif part.Name == "Torso" or part.Name == "UpperTorso" or part.Name == "LowerTorso" then
-				parts[#parts + 1] = part
-			end
-		end
-	end
-	betaPartsCache[model] = parts
-	return parts
-end
-
-local BETA_HUGE_HEAD = Vector3.new(8, 8, 8)
-
 function betaExpandHitbox(model)
 	if not model or betaHitboxBackup[model] then return betaHitboxGen[model] or 0 end
 	betaHitboxGen[model] = (betaHitboxGen[model] or 0) + 1
 	local backup = {}
-	local parts = betaGetHitboxParts(model)
-	local head = parts.head
-	if head and head.Parent then
-		backup[head] = {size = head.Size, transparency = head.Transparency}
-		pcall(function()
-			head.Size = BETA_HUGE_HEAD
-			head.Transparency = 1
-		end)
-	end
-	for i = 1, #parts do
-		local part = parts[i]
-		if part and part.Parent then
-			backup[part] = {size = part.Size, transparency = part.Transparency}
-			pcall(function()
-				part.Size = Vector3.new(part.Size.X * 3, part.Size.Y * 3, part.Size.Z * 3)
-				part.Transparency = 1
-			end)
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			local isHead = part.Name == "Head"
+			local isTorso = part.Name == "Torso" or part.Name == "UpperTorso" or part.Name == "LowerTorso"
+			if isHead or isTorso then
+				backup[part] = {size = part.Size, transparency = part.Transparency}
+				pcall(function()
+					if isHead then
+						-- Cabeca gigante (hitbox igual), mas oculta na SUA visao
+						-- Qualquer tiro no corpo continua contando como cabeca
+						part.Size = Vector3.new(8, 8, 8)
+						part.Transparency = 1
+					else
+						-- Torso gigante (hitbox igual), tambem oculto na sua visao
+						part.Size = Vector3.new(part.Size.X * 3, part.Size.Y * 3, part.Size.Z * 3)
+						part.Transparency = 1
+					end
+				end)
+			end
 		end
 	end
 	betaHitboxBackup[model] = backup
@@ -13693,29 +13580,23 @@ end
 function betaPureSpinStart()
 	betaPureSpinStop()
 	betaNoJumpAngle = 0
-	-- Referencias e anti-aim em cache: antes eram 4 pcall + FindFirstChild por frame
-	local cachedChar, cachedHum, cachedRoot = nil, nil, nil
-	local lookDownChar = nil
 	betaNoJumpSpinLoop = RunService.RenderStepped:Connect(function()
 		if not betaNoJumpSpinEnabled or betaNoSpinEnabled then return end
 		local char = LocalPlayer.Character
-		if char ~= cachedChar then
-			cachedChar = char
-			cachedHum = char and char:FindFirstChildOfClass("Humanoid")
-			cachedRoot = char and char:FindFirstChild("HumanoidRootPart")
-			lookDownChar = nil
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if not root or not hum then return end
+		if hum.WalkSpeed <= 0 then
+			pcall(function() hum.AutoRotate = true end)
+			return
 		end
-		local hum, root = cachedHum, cachedRoot
-		if not root or not root.Parent or not hum or not hum.Parent then return end
-		if hum.WalkSpeed <= 0 then return end
-		if hum.AutoRotate then hum.AutoRotate = false end
-		if lookDownChar ~= char then
-			pcall(applySpinLookDown, char)
-			lookDownChar = char
-		end
+		pcall(function() hum.AutoRotate = false end)
+		-- Mesmo anti-aim de cabeca do spinbot original, sem mexer na fisica do Root
+		pcall(function() applySpinLookDown(char) end)
 		betaNoJumpAngle = (betaNoJumpAngle + spinbotSpeed) % 360
-		-- 1 CFrame em vez de 2 + sem closure por frame
-		root.CFrame = CFrame.Angles(0, betaNoJumpAngle * 0.01745329252, 0) + root.Position
+		pcall(function()
+			root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(betaNoJumpAngle), 0)
+		end)
 	end)
 end
 
@@ -13780,22 +13661,26 @@ function betaStartLoop()
 		-- log de debug do beta removido
 		if clear then
 			-- SILENT EMBUTIDO: expande a cabeca do alvo antes de atirar
-			local model = target.model
-			local hitboxGen = betaExpandHitbox(model)
+			local hitboxGen = betaExpandHitbox(target.model)
 			-- Mesma logica do backup: mira no Root e devolve a camera no frame seguinte
 			local cam = workspace.CurrentCamera
 			local savedCam = cam and cam.CFrame or nil
-			if savedCam then
-				pcall(function() cam.CFrame = CFrame.lookAt(savedCam.Position, targetRoot.Position) end)
-			end
+			pcall(function()
+				if cam then cam.CFrame = CFrame.lookAt(savedCam.Position, targetRoot.Position) end
+			end)
 			betaFireShot()
-			-- Uma unica thread por tiro (antes: duas)
 			task.spawn(function()
 				task.wait()
-				if cam and cam.Parent and savedCam then cam.CFrame = savedCam end
-				-- Mantem a hitbox expandida o tempo suficiente para o servidor registrar
-				task.wait(0.19)
-				if betaHitboxGen[model] == hitboxGen then betaRestoreHitbox(model) end
+				pcall(function()
+					if cam and cam.Parent and savedCam then cam.CFrame = savedCam end
+				end)
+			end)
+			-- Mantem a hitbox expandida o tempo suficiente para o servidor registrar
+			task.spawn(function()
+				task.wait(0.2)
+				if betaHitboxGen[target.model] == hitboxGen then
+					betaRestoreHitbox(target.model)
+				end
 			end)
 		end
 	end)
@@ -13903,7 +13788,7 @@ function betaNoSpinFindTarget(myRoot)
 				if hum and root and hum.Health > 0 then
 					local dist = (root.Position - myRoot.Position).Magnitude
 					if dist <= betaSpinTriggerRange and dist < bestDist then
-						best = {model = targetChar, root = root, aimPart = betaGetHead(targetChar, root), dist = dist}
+						best = {model = targetChar, root = root, aimPart = targetChar:FindFirstChild("Head") or root, dist = dist}
 						bestDist = dist
 					end
 				end
@@ -13923,7 +13808,7 @@ function betaNoSpinFindTarget(myRoot)
 			if hum and hum.Health > 0 then
 				local dist = (root.Position - myRoot.Position).Magnitude
 				if dist <= betaSpinTriggerRange and dist < bestDist then
-					best = {model = model, root = root, aimPart = betaGetHead(model, root), dist = dist}
+					best = {model = model, root = root, aimPart = model:FindFirstChild("Head") or root, dist = dist}
 					bestDist = dist
 				end
 			end
@@ -14074,7 +13959,6 @@ function betaNoSpinStartLoop()
 		betaNoSpinSavedTP = saved
 	end)
 	betaNoSpinFrame = 0
-	local nsChar, nsHum, nsRoot = nil, nil, nil
 	betaNoSpinLoop = RunService.RenderStepped:Connect(function()
 		betaNoSpinFrame += 1
 		local now = tick()
@@ -14096,13 +13980,9 @@ function betaNoSpinStartLoop()
 
 		if not betaNoSpinEnabled or panelVisible then return end
 		local char = LocalPlayer.Character
-		if char ~= nsChar then
-			nsChar = char
-			nsHum = char and char:FindFirstChildOfClass("Humanoid")
-			nsRoot = char and char:FindFirstChild("HumanoidRootPart")
-		end
-		local hum, root = nsHum, nsRoot
-		if not hum or not hum.Parent or not root or not root.Parent or hum.Health <= 0 or hum.WalkSpeed <= 0 then return end
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		if not hum or not root or hum.Health <= 0 or hum.WalkSpeed <= 0 then return end
 		-- Espaca os tiros (menos input simulado, menos expansao de hitbox e menos mexida na camera)
 		if now - betaNoSpinLastShot < betaNoSpinShotDelay then return end
 
@@ -14435,15 +14315,9 @@ function restoreSpinLookDown()
 	_G.spinLookDownJoints = {}
 end
 
--- Raycast de movimento reutilizado (antes: RaycastParams.new() por frame)
-local spinMoveRayParams = RaycastParams.new()
-spinMoveRayParams.FilterType = Enum.RaycastFilterType.Exclude
-local spinMoveIgnore = {}
-
 spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabled)
 	if enabled then
 		_G.spinAngle = 0
-		local spinLookChar = nil
 		_G.spinLoop = RunService.RenderStepped:Connect(function()
 			local char = LocalPlayer.Character
 			if char and char:FindFirstChild("HumanoidRootPart") then
@@ -14456,7 +14330,7 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 						return
 					end
 
-					if hum.AutoRotate then hum.AutoRotate = false end -- Previne a tentativa de ficar de pé da engine
+					hum.AutoRotate = false -- Previne a tentativa de ficar de pé da engine
 					if hum.FloorMaterial ~= Enum.Material.Air then
 						hum.Jump = true -- Força a saltar normal
 					else
@@ -14469,11 +14343,12 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 					
 					-- Andar mais rápido enquanto gira (CFrame Speed EQUILIBRADO)
 					if hum.MoveDirection.Magnitude > 0 then
-						spinMoveIgnore[1] = char
-						spinMoveRayParams.FilterDescendantsInstances = spinMoveIgnore
-
+						local rayParams = RaycastParams.new()
+						rayParams.FilterDescendantsInstances = {char}
+						rayParams.FilterType = Enum.RaycastFilterType.Exclude
+						
 						-- Verificar se há uma parede/barreira no caminho antes de teleportar
-						local rayResult = workspace:Raycast(root.Position, hum.MoveDirection * 2, spinMoveRayParams)
+						local rayResult = workspace:Raycast(root.Position, hum.MoveDirection * 2, rayParams)
 						if not rayResult then
 							root.CFrame = root.CFrame + (hum.MoveDirection * 0.15)
 						end
@@ -14482,17 +14357,14 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 				
 				-- Inclina apenas a cabeca/tronco (anti-aim: olha para o chao). O Root continua direito.
 				-- A camara nao e tocada, por isso a tua visao continua normal.
-				if spinLookChar ~= char then
-					pcall(applySpinLookDown, char)
-					spinLookChar = char
-				end
+				pcall(function() applySpinLookDown(char) end)
 
 				-- Rotação Pura, Matemática (Impossível de deitar ou bugar física)
 				_G.spinAngle = _G.spinAngle + spinbotSpeed
 				if _G.spinAngle >= 360 then _G.spinAngle = _G.spinAngle - 360 end
 
-				-- Mantém a posição rodado apenas no eixo Y (1 CFrame em vez de 2)
-				root.CFrame = CFrame.Angles(0, _G.spinAngle * 0.01745329252, 0) + root.Position
+				-- Mantém a posição rodado apenas no eixo Y (sem inclinar o Root)
+				root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(_G.spinAngle), 0)
 			end
 		end)
 	else
@@ -19970,10 +19842,6 @@ function unloadNightMenu()
 end
 
 -- Continuous aiming
--- Tabelas reutilizadas (evita alocar por frame)
-local validCharsReuse = {}
-local validNpcsReuse = {}
-
 RunService.RenderStepped:Connect(function()
 	-- NPC Aimbot
 	if npcAimbotEnabled then
@@ -20080,8 +19948,7 @@ RunService.RenderStepped:Connect(function()
 
 	-- ESP with automatic cleanup (esconde os visuais com o menu aberto)
 	if espEnabled and not panelVisible then
-		for k in pairs(validCharsReuse) do validCharsReuse[k] = nil end
-		local validChars = validCharsReuse
+		local validChars = {}
 		for _, player in ipairs(Players:GetPlayers()) do
 			local data = syncPlayerCharacter(player)
 			if player ~= LocalPlayer and isEnemy(player) then
@@ -20178,30 +20045,27 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	-- NPC ESP (throttled scan) — also scan when aimbot needs targets or any sub-feature is active
-	if (npcEspEnabled or npcShowSkeleton or npcShowBox or npcShowTracers or npcShowDistance or npcShowName or npcShowHealth or npcShowWeapon or npcAimbotEnabled or npcTriggerEnabled or npcHitboxEnabled or (silentAimEnabled and silentIncludeNPCs)) then
+	if npcEspEnabled or npcShowSkeleton or npcShowBox or npcShowTracers or npcShowDistance or npcShowName or npcShowHealth or npcShowWeapon or npcAimbotEnabled or npcTriggerEnabled or npcHitboxEnabled or (silentAimEnabled and silentIncludeNPCs) then
 		local now = tick()
 		if now - npcEspLastScanTime >= npcEspScanInterval then
 			npcEspLastScanTime = now
 			local scanned = getNPCsFromWorkspace()
 			if scanned then npcEspCachedModels = scanned end
 		end
-		for k in pairs(validNpcsReuse) do validNpcsReuse[k] = nil end
-		local validNpcs = validNpcsReuse
+		local validNpcs = {}
 		for _, npcInfo in ipairs(npcEspCachedModels) do
 			local model = npcInfo.model
 			if model and model.Parent and npcInfo.humanoid and npcInfo.humanoid.Health > 0 then
 				validNpcs[model] = true
 				if not panelVisible then
-					-- Um unico pcall por NPC (antes: 7 closures por NPC por frame)
-					pcall(function()
-						if npcShowSkeleton then ensureNpcHighlight(model) end
-						if npcShowBox then ensureNpcBox3D(model) end
-						if npcShowTracers then ensureNpcTracer(model) end
-						if npcShowDistance then ensureNpcDistanceLabel(model) end
-						if npcShowName then ensureNpcNameLabel(model) end
-						if npcShowWeapon then ensureNpcWeaponLabel(model) end
-						if npcShowHealth then ensureNpcHealthBar(model) end
-					end)
+					-- pcall separado por elemento: uma falha (ex: Drawing API) ja nao mata os restantes
+					pcall(function() if npcShowSkeleton then ensureNpcHighlight(model) end end)
+					pcall(function() if npcShowBox then ensureNpcBox3D(model) end end)
+					pcall(function() if npcShowTracers then ensureNpcTracer(model) end end)
+					pcall(function() if npcShowDistance then ensureNpcDistanceLabel(model) end end)
+					pcall(function() if npcShowName then ensureNpcNameLabel(model) end end)
+					pcall(function() if npcShowWeapon then ensureNpcWeaponLabel(model) end end)
+					pcall(function() if npcShowHealth then ensureNpcHealthBar(model) end end)
 				end
 			end
 		end
