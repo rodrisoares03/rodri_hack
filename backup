@@ -13484,10 +13484,31 @@ function fireAutofireShot()
 end
 
 -- ========= CHAMADA BETA: spin + trigger 360 (nao mexe no autofire/trigger existentes) =========
+-- Cache da cabeca por modelo (evita FindFirstChild por alvo por frame)
+local betaHeadCache = setmetatable({}, { __mode = "k" })
+local function betaGetHead(model, root)
+	local cached = betaHeadCache[model]
+	if cached and cached.Parent then return cached end
+	local head = model:FindFirstChild("Head") or root
+	betaHeadCache[model] = head
+	return head
+end
+
+local betaTargetCache = nil
+local betaTargetCacheAt = 0
+
 function betaFindTarget()
+	local now = tick()
+	-- Target so e recalculado a cada 80ms (o tiro ja tem cooldown proprio)
+	if betaTargetCache and now - betaTargetCacheAt < 0.08 then
+		local t = betaTargetCache
+		if t.model and t.model.Parent and t.root and t.root.Parent then return t end
+	end
+	betaTargetCacheAt = now
+
 	local char = LocalPlayer.Character
 	local myRoot = char and char:FindFirstChild("HumanoidRootPart")
-	if not myRoot then return nil end
+	if not myRoot then betaTargetCache = nil return nil end
 	local best, bestDist = nil, math.huge
 
 	-- Players (inimigos)
@@ -13500,9 +13521,7 @@ function betaFindTarget()
 				if hum and root and hum.Health > 0 then
 					local dist = (root.Position - myRoot.Position).Magnitude
 					if dist <= betaSpinTriggerRange and dist < bestDist then
-						-- Silent aim mira SEMPRE na cabeca
-						local head = targetChar:FindFirstChild("Head") or root
-						best = {model = targetChar, root = root, aimPart = head, dist = dist}
+						best = {model = targetChar, root = root, aimPart = betaGetHead(targetChar, root), dist = dist}
 						bestDist = dist
 					end
 				end
@@ -13511,8 +13530,8 @@ function betaFindTarget()
 	end
 
 	-- NPCs: scan proprio com throttling (nao depende do ESP/NPC trigger estar ligado)
-	if tick() - betaLastNpcScan >= 0.2 then
-		betaLastNpcScan = tick()
+	if now - betaLastNpcScan >= 0.2 then
+		betaLastNpcScan = now
 		local scanned = getNPCsFromWorkspace()
 		if scanned then betaNpcCache = scanned end
 	end
@@ -13524,14 +13543,14 @@ function betaFindTarget()
 			if hum and hum.Health > 0 then
 				local dist = (root.Position - myRoot.Position).Magnitude
 				if dist <= betaSpinTriggerRange and dist < bestDist then
-					local head = model:FindFirstChild("Head") or root
-					best = {model = model, root = root, aimPart = head, dist = dist}
+					best = {model = model, root = root, aimPart = betaGetHead(model, root), dist = dist}
 					bestDist = dist
 				end
 			end
 		end
 	end
 
+	betaTargetCache = best
 	return best
 end
 
@@ -13560,44 +13579,69 @@ function betaFireShot()
 	end
 end
 
--- Linha de tiro rigida: qualquer parede bloqueia (nao usa penetracao)
+-- Linha de tiro rigida: qualquer parede bloqueia (params reutilizados)
+local betaClearRayParams = RaycastParams.new()
+betaClearRayParams.FilterType = Enum.RaycastFilterType.Exclude
+betaClearRayParams.IgnoreWater = true
+local betaClearIgnore = {}
+
 function betaHasClearShot(origin, endPos, ignored)
 	local delta = endPos - origin
 	local dist = delta.Magnitude
 	if dist < 0.01 then return true end
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = type(ignored) == "table" and ignored or {}
-	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.IgnoreWater = true
-	local result = workspace:Raycast(origin, delta.Unit * dist, params)
+	for k in pairs(betaClearIgnore) do betaClearIgnore[k] = nil end
+	if type(ignored) == "table" then
+		for i, v in ipairs(ignored) do betaClearIgnore[i] = v end
+	end
+	betaClearRayParams.FilterDescendantsInstances = betaClearIgnore
+	local result = workspace:Raycast(origin, delta.Unit * dist, betaClearRayParams)
 	return result == nil
 end
 
 -- Silent aim embutido: aumenta a hitbox da CABECA (cobre o corpo todo) e do torso.
 -- Size continua gigante (hitbox), mas Transparency = 1 esconde as partes da SUA visao (cliente).
+-- Partes relevantes em cache: GetDescendants e caro e antes rodava a cada tiro
+local betaPartsCache = setmetatable({}, { __mode = "k" })
+local function betaGetHitboxParts(model)
+	local cached = betaPartsCache[model]
+	if cached then return cached end
+	local parts = {}
+	for _, part in ipairs(model:GetDescendants()) do
+		if part:IsA("BasePart") then
+			if part.Name == "Head" then
+				parts.head = part
+			elseif part.Name == "Torso" or part.Name == "UpperTorso" or part.Name == "LowerTorso" then
+				parts[#parts + 1] = part
+			end
+		end
+	end
+	betaPartsCache[model] = parts
+	return parts
+end
+
+local BETA_HUGE_HEAD = Vector3.new(8, 8, 8)
+
 function betaExpandHitbox(model)
 	if not model or betaHitboxBackup[model] then return betaHitboxGen[model] or 0 end
 	betaHitboxGen[model] = (betaHitboxGen[model] or 0) + 1
 	local backup = {}
-	for _, part in ipairs(model:GetDescendants()) do
-		if part:IsA("BasePart") then
-			local isHead = part.Name == "Head"
-			local isTorso = part.Name == "Torso" or part.Name == "UpperTorso" or part.Name == "LowerTorso"
-			if isHead or isTorso then
-				backup[part] = {size = part.Size, transparency = part.Transparency}
-				pcall(function()
-					if isHead then
-						-- Cabeca gigante (hitbox igual), mas oculta na SUA visao
-						-- Qualquer tiro no corpo continua contando como cabeca
-						part.Size = Vector3.new(8, 8, 8)
-						part.Transparency = 1
-					else
-						-- Torso gigante (hitbox igual), tambem oculto na sua visao
-						part.Size = Vector3.new(part.Size.X * 3, part.Size.Y * 3, part.Size.Z * 3)
-						part.Transparency = 1
-					end
-				end)
-			end
+	local parts = betaGetHitboxParts(model)
+	local head = parts.head
+	if head and head.Parent then
+		backup[head] = {size = head.Size, transparency = head.Transparency}
+		pcall(function()
+			head.Size = BETA_HUGE_HEAD
+			head.Transparency = 1
+		end)
+	end
+	for i = 1, #parts do
+		local part = parts[i]
+		if part and part.Parent then
+			backup[part] = {size = part.Size, transparency = part.Transparency}
+			pcall(function()
+				part.Size = Vector3.new(part.Size.X * 3, part.Size.Y * 3, part.Size.Z * 3)
+				part.Transparency = 1
+			end)
 		end
 	end
 	betaHitboxBackup[model] = backup
@@ -13649,23 +13693,29 @@ end
 function betaPureSpinStart()
 	betaPureSpinStop()
 	betaNoJumpAngle = 0
+	-- Referencias e anti-aim em cache: antes eram 4 pcall + FindFirstChild por frame
+	local cachedChar, cachedHum, cachedRoot = nil, nil, nil
+	local lookDownChar = nil
 	betaNoJumpSpinLoop = RunService.RenderStepped:Connect(function()
 		if not betaNoJumpSpinEnabled or betaNoSpinEnabled then return end
 		local char = LocalPlayer.Character
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		if not root or not hum then return end
-		if hum.WalkSpeed <= 0 then
-			pcall(function() hum.AutoRotate = true end)
-			return
+		if char ~= cachedChar then
+			cachedChar = char
+			cachedHum = char and char:FindFirstChildOfClass("Humanoid")
+			cachedRoot = char and char:FindFirstChild("HumanoidRootPart")
+			lookDownChar = nil
 		end
-		pcall(function() hum.AutoRotate = false end)
-		-- Mesmo anti-aim de cabeca do spinbot original, sem mexer na fisica do Root
-		pcall(function() applySpinLookDown(char) end)
+		local hum, root = cachedHum, cachedRoot
+		if not root or not root.Parent or not hum or not hum.Parent then return end
+		if hum.WalkSpeed <= 0 then return end
+		if hum.AutoRotate then hum.AutoRotate = false end
+		if lookDownChar ~= char then
+			pcall(applySpinLookDown, char)
+			lookDownChar = char
+		end
 		betaNoJumpAngle = (betaNoJumpAngle + spinbotSpeed) % 360
-		pcall(function()
-			root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(betaNoJumpAngle), 0)
-		end)
+		-- 1 CFrame em vez de 2 + sem closure por frame
+		root.CFrame = CFrame.Angles(0, betaNoJumpAngle * 0.01745329252, 0) + root.Position
 	end)
 end
 
@@ -13730,26 +13780,22 @@ function betaStartLoop()
 		-- log de debug do beta removido
 		if clear then
 			-- SILENT EMBUTIDO: expande a cabeca do alvo antes de atirar
-			local hitboxGen = betaExpandHitbox(target.model)
+			local model = target.model
+			local hitboxGen = betaExpandHitbox(model)
 			-- Mesma logica do backup: mira no Root e devolve a camera no frame seguinte
 			local cam = workspace.CurrentCamera
 			local savedCam = cam and cam.CFrame or nil
-			pcall(function()
-				if cam then cam.CFrame = CFrame.lookAt(savedCam.Position, targetRoot.Position) end
-			end)
+			if savedCam then
+				pcall(function() cam.CFrame = CFrame.lookAt(savedCam.Position, targetRoot.Position) end)
+			end
 			betaFireShot()
+			-- Uma unica thread por tiro (antes: duas)
 			task.spawn(function()
 				task.wait()
-				pcall(function()
-					if cam and cam.Parent and savedCam then cam.CFrame = savedCam end
-				end)
-			end)
-			-- Mantem a hitbox expandida o tempo suficiente para o servidor registrar
-			task.spawn(function()
-				task.wait(0.2)
-				if betaHitboxGen[target.model] == hitboxGen then
-					betaRestoreHitbox(target.model)
-				end
+				if cam and cam.Parent and savedCam then cam.CFrame = savedCam end
+				-- Mantem a hitbox expandida o tempo suficiente para o servidor registrar
+				task.wait(0.19)
+				if betaHitboxGen[model] == hitboxGen then betaRestoreHitbox(model) end
 			end)
 		end
 	end)
@@ -13857,7 +13903,7 @@ function betaNoSpinFindTarget(myRoot)
 				if hum and root and hum.Health > 0 then
 					local dist = (root.Position - myRoot.Position).Magnitude
 					if dist <= betaSpinTriggerRange and dist < bestDist then
-						best = {model = targetChar, root = root, aimPart = targetChar:FindFirstChild("Head") or root, dist = dist}
+						best = {model = targetChar, root = root, aimPart = betaGetHead(targetChar, root), dist = dist}
 						bestDist = dist
 					end
 				end
@@ -13877,7 +13923,7 @@ function betaNoSpinFindTarget(myRoot)
 			if hum and hum.Health > 0 then
 				local dist = (root.Position - myRoot.Position).Magnitude
 				if dist <= betaSpinTriggerRange and dist < bestDist then
-					best = {model = model, root = root, aimPart = model:FindFirstChild("Head") or root, dist = dist}
+					best = {model = model, root = root, aimPart = betaGetHead(model, root), dist = dist}
 					bestDist = dist
 				end
 			end
@@ -14028,6 +14074,7 @@ function betaNoSpinStartLoop()
 		betaNoSpinSavedTP = saved
 	end)
 	betaNoSpinFrame = 0
+	local nsChar, nsHum, nsRoot = nil, nil, nil
 	betaNoSpinLoop = RunService.RenderStepped:Connect(function()
 		betaNoSpinFrame += 1
 		local now = tick()
@@ -14049,9 +14096,13 @@ function betaNoSpinStartLoop()
 
 		if not betaNoSpinEnabled or panelVisible then return end
 		local char = LocalPlayer.Character
-		local hum = char and char:FindFirstChildOfClass("Humanoid")
-		local root = char and char:FindFirstChild("HumanoidRootPart")
-		if not hum or not root or hum.Health <= 0 or hum.WalkSpeed <= 0 then return end
+		if char ~= nsChar then
+			nsChar = char
+			nsHum = char and char:FindFirstChildOfClass("Humanoid")
+			nsRoot = char and char:FindFirstChild("HumanoidRootPart")
+		end
+		local hum, root = nsHum, nsRoot
+		if not hum or not hum.Parent or not root or not root.Parent or hum.Health <= 0 or hum.WalkSpeed <= 0 then return end
 		-- Espaca os tiros (menos input simulado, menos expansao de hitbox e menos mexida na camera)
 		if now - betaNoSpinLastShot < betaNoSpinShotDelay then return end
 
@@ -14384,9 +14435,15 @@ function restoreSpinLookDown()
 	_G.spinLookDownJoints = {}
 end
 
+-- Raycast de movimento reutilizado (antes: RaycastParams.new() por frame)
+local spinMoveRayParams = RaycastParams.new()
+spinMoveRayParams.FilterType = Enum.RaycastFilterType.Exclude
+local spinMoveIgnore = {}
+
 spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabled)
 	if enabled then
 		_G.spinAngle = 0
+		local spinLookChar = nil
 		_G.spinLoop = RunService.RenderStepped:Connect(function()
 			local char = LocalPlayer.Character
 			if char and char:FindFirstChild("HumanoidRootPart") then
@@ -14399,7 +14456,7 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 						return
 					end
 
-					hum.AutoRotate = false -- Previne a tentativa de ficar de pé da engine
+					if hum.AutoRotate then hum.AutoRotate = false end -- Previne a tentativa de ficar de pé da engine
 					if hum.FloorMaterial ~= Enum.Material.Air then
 						hum.Jump = true -- Força a saltar normal
 					else
@@ -14412,12 +14469,11 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 					
 					-- Andar mais rápido enquanto gira (CFrame Speed EQUILIBRADO)
 					if hum.MoveDirection.Magnitude > 0 then
-						local rayParams = RaycastParams.new()
-						rayParams.FilterDescendantsInstances = {char}
-						rayParams.FilterType = Enum.RaycastFilterType.Exclude
-						
+						spinMoveIgnore[1] = char
+						spinMoveRayParams.FilterDescendantsInstances = spinMoveIgnore
+
 						-- Verificar se há uma parede/barreira no caminho antes de teleportar
-						local rayResult = workspace:Raycast(root.Position, hum.MoveDirection * 2, rayParams)
+						local rayResult = workspace:Raycast(root.Position, hum.MoveDirection * 2, spinMoveRayParams)
 						if not rayResult then
 							root.CFrame = root.CFrame + (hum.MoveDirection * 0.15)
 						end
@@ -14426,14 +14482,17 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 				
 				-- Inclina apenas a cabeca/tronco (anti-aim: olha para o chao). O Root continua direito.
 				-- A camara nao e tocada, por isso a tua visao continua normal.
-				pcall(function() applySpinLookDown(char) end)
+				if spinLookChar ~= char then
+					pcall(applySpinLookDown, char)
+					spinLookChar = char
+				end
 
 				-- Rotação Pura, Matemática (Impossível de deitar ou bugar física)
 				_G.spinAngle = _G.spinAngle + spinbotSpeed
 				if _G.spinAngle >= 360 then _G.spinAngle = _G.spinAngle - 360 end
 
-				-- Mantém a posição rodado apenas no eixo Y (sem inclinar o Root)
-				root.CFrame = CFrame.new(root.Position) * CFrame.Angles(0, math.rad(_G.spinAngle), 0)
+				-- Mantém a posição rodado apenas no eixo Y (1 CFrame em vez de 2)
+				root.CFrame = CFrame.Angles(0, _G.spinAngle * 0.01745329252, 0) + root.Position
 			end
 		end)
 	else
