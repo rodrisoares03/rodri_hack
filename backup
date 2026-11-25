@@ -5919,6 +5919,11 @@ if _G.NIGHT_MENU_AUTO_LAUNCH then
 		pcall(revealNightMenu)
 	end)
 else
+	-- Reescreve o ficheiro de autoexec em cada arranque se a escolha guardada era "sim"
+	if readAutoExecChoiceSaved() == true then
+		autoExecuteEnabled = true
+		task.defer(function() pcall(setupAutoExecute) end)
+	end
 	showAutoExecPrompt()
 end
 
@@ -20533,14 +20538,30 @@ function setupAutoExecute()
 
 	local loaderSource = getAutoExecuteLoaderSource()
 	if writefile then
+		-- Gravar em TODOS os caminhos de autoexec conhecidos (o Xeno apaga/consome
+		-- o ficheiro de queue_on_teleport depois de o executar uma vez)
+		local paths = {
+			"autoexec/night_menu_autoexec.lua",
+			"xeno/autoexec/night_menu_autoexec.lua",
+			"Xeno/autoexec/night_menu_autoexec.lua",
+			"../Xeno/autoexec/night_menu_autoexec.lua",
+		}
 		pcall(function()
-			if makefolder and isfolder and not isfolder("autoexec") then
-				makefolder("autoexec")
+			if os and os.getenv then
+				local env = os.getenv("LOCALAPPDATA")
+				if env and env ~= "" then
+					table.insert(paths, env .. "\\Xeno\\autoexec\\night_menu_autoexec.lua")
+					table.insert(paths, env .. "/Xeno/autoexec/night_menu_autoexec.lua")
+				end
 			end
 		end)
-		pcall(function()
-				writefile("autoexec/night_menu_autoexec.lua", loaderSource)
-		end)
+		for _, path in ipairs(paths) do
+			pcall(function()
+				local dir = path:match("^(.*)[\\/][^\\/]+$")
+				if dir and makefolder and isfolder and not isfolder(dir) then makefolder(dir) end
+				writefile(path, loaderSource)
+			end)
+		end
 	end
 
 	local queueFn = getTeleportQueueFunction()
