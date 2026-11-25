@@ -20,6 +20,18 @@ local LOAD_TIME = 2.8
 
 local HttpService = game:GetService("HttpService")
 
+-- Apagar loaders de injects anteriores (senao ficam versoes velhas por cima)
+pcall(function()
+	local cg = game:GetService("CoreGui")
+	local old = cg:FindFirstChild("NightLoader")
+	if old then old:Destroy() end
+	local pg = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+	if pg then
+		local old2 = pg:FindFirstChild("NightLoader")
+		if old2 then old2:Destroy() end
+	end
+end)
+
 -- Cores (mesma paleta Astrix Dark do Night Menu)
 local C = {
 	Bg      = Color3.fromRGB(15, 15, 20),
