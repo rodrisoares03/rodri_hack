@@ -5740,10 +5740,13 @@ end)
 -- AUTO EXECUTE: pergunta ANTES da interface principal
 -- =========================================================
 local AUTOEXEC_CHOICE_FILE = "night_autoexec_choice.txt"
+local NIGHT_MENU_VERSION = "v6.1-2026-11-25"
 
 local function writeAutoExecChoice(enabled)
 	if type(writefile) ~= "function" then return end
-	pcall(function() writefile(AUTOEXEC_CHOICE_FILE, enabled and "yes" or "no") end)
+	pcall(function()
+		writefile(AUTOEXEC_CHOICE_FILE, NIGHT_MENU_VERSION .. "|" .. (enabled and "yes" or "no"))
+	end)
 end
 
 local function readAutoExecChoice()
@@ -5753,8 +5756,11 @@ local function readAutoExecChoice()
 	local ok2, content = pcall(readfile, AUTOEXEC_CHOICE_FILE)
 	if not ok2 or not content then return nil end
 	local value = tostring(content):match("^%s*(.-)%s*$")
-	if value == "yes" then return true end
-	if value == "no" then return false end
+	-- formato antigo ("yes"/"no") conta como escolha de outra versao -> pergunta de novo
+	local savedVersion, choice = value:match("^([^|]+)|([^|]+)$")
+	if not savedVersion or savedVersion ~= NIGHT_MENU_VERSION then return nil end
+	if choice == "yes" then return true end
+	if choice == "no" then return false end
 	return nil
 end
 
@@ -5884,10 +5890,8 @@ local function showAutoExecPrompt()
 	noBtn.MouseButton1Click:Connect(function() close(false) end)
 end
 
--- Só pergunta na primeira vez; se já houver escolha guardada, aplica no fim
-if pendingAutoExecChoice == nil then
-	showAutoExecPrompt()
-end
+-- Pergunta uma vez em cada execucao do script
+showAutoExecPrompt()
 
 gui = Instance.new("ScreenGui")
 gui.Name = "NightModMenu"
@@ -20742,14 +20746,7 @@ end
 _G[NIGHT_RUN_KEY].Cleanup = unloadNightMenu
 
 -- arranque diferido: devolve o controlo ao executor antes de montar a UI pesada
-task.defer(function()
-	applyStoredMenuSettings()
-	if pendingAutoExecChoice ~= nil then
-		autoExecuteEnabled = pendingAutoExecChoice
-		if autoExecuteEnabled then pcall(setupAutoExecute) end
-		pcall(revealNightMenu)
-	end
-end)
+task.defer(applyStoredMenuSettings)
 
 
 
