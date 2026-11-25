@@ -464,8 +464,10 @@ local function showLoadingScreen()
 		task.wait(0.25)
 
 		-- O loader DESAPARECE primeiro, so depois o menu e executado
+		pcall(function() gui.Enabled = false end)
+		task.wait(0.35)
 		pcall(function() gui:Destroy() end)
-		task.wait(0.2)
+		task.wait(0.25)
 
 		pcall(function()
 			local loader = loadstring or load
