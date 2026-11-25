@@ -5910,13 +5910,14 @@ local function showAutoExecPrompt()
 end
 
 -- Arranque automatico (teleporte/autoexec): nao pergunta, aplica a escolha guardada e abre logo
+local autoLaunchPendingReveal = false
 if _G.NIGHT_MENU_AUTO_LAUNCH then
 	_G.NIGHT_MENU_AUTO_LAUNCH = nil
 	autoExecChoicePending = false
 	autoExecuteEnabled = (readAutoExecChoiceSaved() ~= false)
+	autoLaunchPendingReveal = true
 	task.defer(function()
 		if autoExecuteEnabled then pcall(setupAutoExecute) end
-		pcall(revealNightMenu)
 	end)
 else
 	-- Reescreve o ficheiro de autoexec em cada arranque se a escolha guardada era "sim"
@@ -20823,7 +20824,16 @@ end
 _G[NIGHT_RUN_KEY].Cleanup = unloadNightMenu
 
 -- arranque diferido: devolve o controlo ao executor antes de montar a UI pesada
-task.defer(applyStoredMenuSettings)
+task.defer(function()
+	applyStoredMenuSettings()
+	-- No auto-exec, revelar so no FIM (depois do bloco que esconde a UI em 8633)
+	if autoLaunchPendingReveal then
+		autoLaunchPendingReveal = false
+		pcall(revealNightMenu)
+		-- segunda passada para os layouts recalcularem depois do primeiro frame
+		task.delay(0.15, function() pcall(revealNightMenu) end)
+	end
+end)
 
 
 
