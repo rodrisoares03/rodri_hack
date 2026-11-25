@@ -5853,6 +5853,8 @@ function applyAutoExecChoice(enabled)
 		pcall(setupAutoExecute)
 		if _G.NIGHT_AUTOEXEC_QUEUED then
 			showMenuToast("Auto Execute", "Ativado | abre sozinho no proximo teleporte.", Color3.fromRGB(170, 255, 170))
+		elseif _G.NIGHT_AUTOEXEC_ERROR then
+			showMenuToast("Auto Execute", "Falha ao agendar: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 60), Color3.fromRGB(255, 180, 80))
 		else
 			showMenuToast("Auto Execute", "Executor sem queue_on_teleport — injecta o Loader manualmente.", Color3.fromRGB(255, 180, 80))
 		end
@@ -20692,12 +20694,14 @@ function getAutoExecuteLoaderSource()
 end
 
 function getTeleportQueueFunction()
-	return queue_on_teleport or queueonteleport
+	local g = (type(getgenv) == "function" and getgenv()) or _G
+	return g.queue_on_teleport or g.queueonteleport
+		or queue_on_teleport or queueonteleport
 		or (syn and syn.queue_on_teleport)
 		or (fluxus and fluxus.queue_on_teleport)
 		or (xeno and xeno.queue_on_teleport)
 		or (xenon and xenon.queue_on_teleport)
-		or queue_teleport
+		or g.queue_teleport or queue_teleport
 end
 
 function setupAutoExecute()
@@ -20740,11 +20744,24 @@ function setupAutoExecute()
 
 	local queueFn = getTeleportQueueFunction()
 	_G.NIGHT_AUTOEXEC_QUEUED = false
+	_G.NIGHT_AUTOEXEC_ERROR = nil
 	if queueFn then
-		pcall(function()
-			queueFn(loaderSource)
+		-- Alguns executores so aceitam o agendamento a partir da thread principal
+		local ok, err = pcall(queueFn, loaderSource)
+		if ok then
 			_G.NIGHT_AUTOEXEC_QUEUED = true
-		end)
+		else
+			_G.NIGHT_AUTOEXEC_ERROR = tostring(err)
+			task.defer(function()
+				local ok2, err2 = pcall(queueFn, loaderSource)
+				if ok2 then
+					_G.NIGHT_AUTOEXEC_QUEUED = true
+					_G.NIGHT_AUTOEXEC_ERROR = nil
+				else
+					_G.NIGHT_AUTOEXEC_ERROR = tostring(err2)
+				end
+			end)
+		end
 	end
 
 	return true
