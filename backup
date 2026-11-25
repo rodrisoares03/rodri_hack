@@ -19,7 +19,7 @@ VirtualInputManager = game:GetService("VirtualInputManager")
 TextChatService = game:GetService("TextChatService")
 
 -- BUILD MARKER: se esta linha NAO aparecer no console (F9), o executor carregou uma copia antiga/truncada
-print("[NIGHT MENU] BUILD LAG-SERVER BRUTAL v6 | " .. os.date("%d/%m/%Y %H:%M"))
+-- build marker silenciado (logs limpos)
 
 -- =========================================================
 -- GUARDA CONTRA EXECUCOES SEGUIDAS (evita duplicar loops/hooks e crash do executor)
@@ -13602,10 +13602,7 @@ function betaStartLoop()
 		local aimPart = target.aimPart or targetRoot
 		-- Nao atira se houver QUALQUER parede no meio (sem penetracao)
 		local clear = betaHasClearShot(root.Position, targetRoot.Position, {char, target.model, workspace.CurrentCamera})
-		if tick() - betaLastDebug > 1 then
-			betaLastDebug = tick()
-			print("[BETA] alvo=" .. tostring(target.model.Name) .. " dist=" .. tostring(math.floor(target.dist)) .. " clear=" .. tostring(clear) .. " head=" .. tostring(aimPart.Name))
-		end
+		-- log de debug do beta removido
 		if clear then
 			-- SILENT EMBUTIDO: expande a cabeca do alvo antes de atirar
 			local hitboxGen = betaExpandHitbox(target.model)
@@ -19170,11 +19167,6 @@ function nmCollectSettings()
 	if _G.hitboxColor then cfg.values.hitboxColor = nmEncodeValue(_G.hitboxColor) end
 	if FlySystem then cfg.values.flySpeed = FlySystem.speed end
 	cfg.values.friendUserIds = collectMenuFriendIds()
-	local valueCount = 0
-	for _ in pairs(cfg.values) do valueCount = valueCount + 1 end
-	print("[NIGHT CONFIG] coletados " .. valueCount .. " valores | FOV=" .. tostring(cfg.values.aimbotFOV)
-		.. " Smooth=" .. tostring(cfg.values.aimbotSmooth)
-		.. " CorBox=" .. tostring(cfg.values.espColor and cfg.values.espColor.t or "nil"))
 	return cfg
 end
 
@@ -19288,9 +19280,6 @@ function nmApplySettings(cfg)
 			end)
 		end
 	end
-	print("[NIGHT CONFIG] aplicados | FOV=" .. tostring(aimbotFOV) .. " Smooth=" .. tostring(aimbotSmooth)
-		.. " NPC_FOV=" .. tostring(npcAimbotFOV) .. " NPC_Smooth=" .. tostring(npcAimbotSmooth)
-		.. " CorBox=" .. tostring(espColor))
 	pcall(function() if refreshKeybindManager then refreshKeybindManager() end end)
 	nmSyncLabels()
 	-- Aplica imediatamente cores/modos carregados nos visuais ja existentes
@@ -20499,12 +20488,7 @@ function setupAutoExecute()
 
 	local queueFn = getTeleportQueueFunction()
 	if queueFn then
-		pcall(function()
-			queueFn(loaderSource)
-			print("[NIGHT MENU] Auto-execute por link raw agendado no teleporte.")
-		end)
-	else
-		print("[NIGHT MENU] queue_on_teleport indisponivel — auto-abertura nao ativada.")
+		pcall(function() queueFn(loaderSource) end)
 	end
 
 	return true
@@ -20776,7 +20760,7 @@ LocalPlayer.Idled:Connect(function()
 	VirtualUser:Button2Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
 	task.wait(1)
 	VirtualUser:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
-	warn("[NIGHT MENU] Anti-AFK ativado para prevenir kick.")
+	-- Anti-AFK silencioso
 end)
 
 -- ========= DISCORD WEBHOOK - Night Hub Tracker =========
