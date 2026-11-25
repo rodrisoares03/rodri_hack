@@ -19911,16 +19911,11 @@ function unloadNightMenu()
 end
 
 -- Continuous aiming
--- ESP visual: no maximo 45Hz (em 180 FPS corta 75% do trabalho sem perder fluidez)
-local espRenderTick = 0
+-- Tabelas reutilizadas (evita alocar por frame)
 local validCharsReuse = {}
 local validNpcsReuse = {}
 
 RunService.RenderStepped:Connect(function()
-	local renderNow = tick()
-	local doEspRender = renderNow - espRenderTick >= 0.022
-	if doEspRender then espRenderTick = renderNow end
-
 	-- NPC Aimbot
 	if npcAimbotEnabled then
 		if tick() - lastNpcTargetUpdateTime >= 0.15 then
@@ -20025,8 +20020,6 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	-- ESP with automatic cleanup (esconde os visuais com o menu aberto)
-	-- O throttle envolve os DOIS blocos: nos frames ignorados nao limpa nada
-	if doEspRender then
 	if espEnabled and not panelVisible then
 		for k in pairs(validCharsReuse) do validCharsReuse[k] = nil end
 		local validChars = validCharsReuse
@@ -20124,7 +20117,6 @@ RunService.RenderStepped:Connect(function()
 		else
 		clearAllESPVisuals()
 	end
-	end
 
 	-- NPC ESP (throttled scan) — also scan when aimbot needs targets or any sub-feature is active
 	if (npcEspEnabled or npcShowSkeleton or npcShowBox or npcShowTracers or npcShowDistance or npcShowName or npcShowHealth or npcShowWeapon or npcAimbotEnabled or npcTriggerEnabled or npcHitboxEnabled or (silentAimEnabled and silentIncludeNPCs)) then
@@ -20209,7 +20201,6 @@ RunService.RenderStepped:Connect(function()
 	else
 		clearAllNpcESP()
 		npcEspCachedModels = {}
-	end
 	end
 end)
 
