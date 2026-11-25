@@ -13545,6 +13545,10 @@ function betaPureSpinStart()
 end
 
 function betaPureSpinStop()
+	pcall(function()
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end)
 	if betaNoJumpSpinLoop then
 		betaNoJumpSpinLoop:Disconnect()
 		betaNoJumpSpinLoop = nil
@@ -13630,6 +13634,11 @@ function betaStartLoop()
 end
 
 function betaStopLoop()
+	-- garantir que o cursor volta sempre que o trigger e desligado
+	pcall(function()
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end)
 	if betaSpinLoop then
 		betaSpinLoop:Disconnect()
 		betaSpinLoop = nil
@@ -14129,6 +14138,11 @@ end)
 -- NOVO: Terceira Pessoa
 function nightThirdPersonStop()
 	_G._nightThirdPersonActive = false
+	-- devolver o cursor quando a terceira pessoa e desligada (inclusive pela Beta)
+	pcall(function()
+		UserInputService.MouseBehavior = Enum.MouseBehavior.Default
+		UserInputService.MouseIconEnabled = true
+	end)
 	if _G._nightThirdPersonStepped then _G._nightThirdPersonStepped:Disconnect() _G._nightThirdPersonStepped = nil end
 	pcall(function() RunService:UnbindFromRenderStep("NightThirdPerson") end)
 	_G._nightThirdPersonLoop = nil
@@ -14374,49 +14388,13 @@ end, "Gira o boneco em 360 sem pular e sem BHop, atirando em players e NPCs em 3
 	end,
 })
 
--- Novo modo: trigger 360 em 360 graus SEM girar o boneco e sem salto
-betaNoSpinToggle = createToggle(betaCategory, "Trigger 360 (Sem Girar)", function(enabled)
-	betaNoSpinEnabled = enabled
-	local triggerEntry = nmToggles["beta_spin_trigger_360"]
-	if enabled then
-		-- Garante que nenhum outro modo de giro fique ativo junto
-		local noJumpEntry = nmToggles["beta_spin_no_jump"]
-		if noJumpEntry and noJumpEntry.setState then noJumpEntry.setState(false, "force") end
-		betaNoJumpSpinEnabled = false
-		if triggerEntry and triggerEntry.setState then triggerEntry.setState(true, "force") end
-		betaSpinTriggerEnabled = true
-		betaStopLoop()
-		-- Desliga o spinbot da Combat (unico que gira/salta) e lembra o estado anterior
-		betaNoSpinHadSpinbot = betaCombatSpinbotState()
-		betaSetCombatSpinbot(false)
-		betaNoSpinStartLoop()
-	else
-		betaNoSpinEnabled = false
-		betaNoSpinStopLoop()
-		betaSpinTriggerEnabled = false
-		betaStopLoop()
-		if triggerEntry and triggerEntry.setState then triggerEntry.setState(false, "force") end
-		if betaNoSpinHadSpinbot then betaSetCombatSpinbot(true) end
-		betaNoSpinHadSpinbot = false
-	end
-end, "Trigger 360 em players e NPCs sem girar o personagem e sem saltar (a direcao do boneco fica a sua).", {
-	configKey = "beta_trigger_no_spin",
-	bindId = "betaNoSpin",
-	getBindValue = function() return betaNoSpinBind end,
-	getBindName = function() return betaNoSpinBindString end,
-	setBind = function(bindValue, bindName)
-		betaNoSpinBind = bindValue
-		betaNoSpinBindString = bindDisplayName(bindValue, bindName)
-	end,
-})
-
 betaSpinInfo = Instance.new("TextLabel")
 betaSpinInfo.Size = UDim2.new(1, 0, 0, 30)
 betaSpinInfo.BackgroundTransparency = 1
 betaSpinInfo.Font = Enum.Font.GothamBold
 betaSpinInfo.TextSize = 11
 betaSpinInfo.TextColor3 = Color3.fromRGB(200, 200, 210)
-betaSpinInfo.Text = "Trigger 360 em players e NPCs. Modos: normal (gira/salta), Sem Salto (gira) e Sem Girar (sem giro/salto)."
+betaSpinInfo.Text = "Trigger 360 em players e NPCs. Modos: normal (gira/salta) e Sem Salto (gira). O cursor volta ao normal ao desligar."
 betaSpinInfo.Parent = betaCategory
 
 betaRangeFrame = Instance.new("Frame")
@@ -17657,7 +17635,6 @@ function refreshKeybindManager()
 		{label = "Autofire", bind = autofireBindString},
 		{label = "Beta Spin+360", bind = betaSpinTriggerBindString},
 		{label = "Beta Spin+360 (Sem Salto)", bind = betaNoJumpSpinBindString},
-		{label = "Beta Trigger 360 (Sem Girar)", bind = betaNoSpinBindString},
 		{label = "Fast Hit", bind = fastHitBindString},
 		{label = "Auto Clicker", bind = autoclickerBindString},
 	}
@@ -19963,9 +19940,13 @@ RunService.RenderStepped:Connect(function()
 				boxes[char] = nil
 			end
 		end
-		for char, _ in pairs(nameLabels) do
-			if not validChars[char] then
-				pcall(function() nameLabels[char]:Remove() end)
+		for char, label in pairs(nameLabels) do
+			local orphan = not validChars[char] or not label or not label.Parent
+			if not orphan and label:IsA("BillboardGui") and label.Adornee then
+				orphan = label.Adornee.Parent ~= char
+			end
+			if orphan then
+				pcall(function() if label then label:Remove() end end)
 				nameLabels[char] = nil
 			end
 		end
@@ -19975,9 +19956,13 @@ RunService.RenderStepped:Connect(function()
 				weaponLabels[char] = nil
 			end
 		end
-		for char, _ in pairs(distanceLabels) do
-			if not validChars[char] then
-				pcall(function() distanceLabels[char]:Remove() end)
+		for char, label in pairs(distanceLabels) do
+			local orphan = not validChars[char] or not label or not label.Parent
+			if not orphan and label:IsA("BillboardGui") and label.Adornee then
+				orphan = label.Adornee.Parent ~= char
+			end
+			if orphan then
+				pcall(function() if label then label:Remove() end end)
 				distanceLabels[char] = nil
 			end
 		end
