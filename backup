@@ -5764,6 +5764,21 @@ local function readAutoExecChoice()
 	return nil
 end
 
+-- Le a escolha guardada sem exigir version (usada no arranque automatico)
+local function readAutoExecChoiceSaved()
+	if type(readfile) ~= "function" or type(isfile) ~= "function" then return nil end
+	local ok, exists = pcall(isfile, AUTOEXEC_CHOICE_FILE)
+	if not ok or not exists then return nil end
+	local ok2, content = pcall(readfile, AUTOEXEC_CHOICE_FILE)
+	if not ok2 or not content then return nil end
+	local value = tostring(content):match("^%s*(.-)%s*$")
+	local _, choice = value:match("^([^|]+)|([^|]+)$")
+	choice = choice or value
+	if choice == "yes" then return true end
+	if choice == "no" then return false end
+	return nil
+end
+
 local pendingAutoExecChoice = readAutoExecChoice()
 
 function applyAutoExecChoice(enabled)
@@ -5894,8 +5909,18 @@ local function showAutoExecPrompt()
 	noBtn.MouseButton1Click:Connect(function() close(false) end)
 end
 
--- Pergunta uma vez em cada execucao do script
-showAutoExecPrompt()
+-- Arranque automatico (teleporte/autoexec): nao pergunta, aplica a escolha guardada e abre logo
+if _G.NIGHT_MENU_AUTO_LAUNCH then
+	_G.NIGHT_MENU_AUTO_LAUNCH = nil
+	autoExecChoicePending = false
+	autoExecuteEnabled = (readAutoExecChoiceSaved() ~= false)
+	task.defer(function()
+		if autoExecuteEnabled then pcall(setupAutoExecute) end
+		pcall(revealNightMenu)
+	end)
+else
+	showAutoExecPrompt()
+end
 
 gui = Instance.new("ScreenGui")
 gui.Name = "NightModMenu"
@@ -20480,10 +20505,12 @@ end
 
 function getAutoExecuteLoaderSource()
 	return 'pcall(function()\n'
+		.. '_G.NIGHT_MENU_AUTO_LAUNCH = true\n'
 		.. 'local loader = loadstring or load\n'
 		.. 'if not loader then return end\n'
-		.. 'local ok, src = pcall(game.HttpGet, game, "' .. NIGHT_MENU_AUTO_URL .. '")\n'
+		.. 'local ok, src = pcall(game.HttpGet, game, "' .. NIGHT_MENU_AUTO_URL .. '?cb=" .. tostring(os.time()))\n'
 		.. 'if ok and src and src ~= "" then\n'
+		.. 'if src:sub(1,1) == string.char(239) then src = src:sub(4) end\n'
 		.. 'local fn = loader(src)\n'
 		.. 'if fn then fn() end\n'
 		.. 'end\n'
