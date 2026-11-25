@@ -469,16 +469,39 @@ local function showLoadingScreen()
 		pcall(function() gui:Destroy() end)
 		task.wait(0.25)
 
+		local loadError = nil
 		pcall(function()
 			local loader = loadstring or load
 			local okHttp, src = pcall(game.HttpGet, game, SCRIPT_URL)
-			if okHttp and src and src ~= "" and loader then
-				local fn = loader(src)
-				if fn then pcall(fn) end
-			else
-				warn("[Night Loader] Falha ao carregar o menu.")
+			if not okHttp or not src or src == "" or not loader then
+				loadError = "Falha no HttpGet do menu."
+				return
 			end
+			local fn, compileErr = loader(src)
+			if not fn then
+				loadError = "Erro ao compilar: " .. tostring(compileErr)
+				return
+			end
+			local okRun, runErr = pcall(fn)
+			if not okRun then loadError = "Erro ao executar: " .. tostring(runErr) end
 		end)
+		if loadError then
+			pcall(function()
+				local errGui = New("ScreenGui", {Name = "NightLoaderError", IgnoreGuiInset = true})
+				errGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+				local box = New("TextLabel", {
+					BackgroundColor3 = C.Card,
+					Position = UDim2.new(0.5, -200, 0.5, -40),
+					Size = UDim2.new(0, 400, 0, 80),
+					Text = loadError,
+					TextSize = 12,
+					TextWrapped = true,
+					TextColor3 = C.Text,
+				}, errGui)
+				Corner(8, box)
+			end)
+			warn("[Night Loader] " .. tostring(loadError))
+		end
 	end)
 end
 
