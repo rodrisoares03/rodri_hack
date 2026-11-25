@@ -21,6 +21,17 @@ TextChatService = game:GetService("TextChatService")
 -- BUILD MARKER: se esta linha NAO aparecer no console (F9), o executor carregou uma copia antiga/truncada
 print("[NIGHT MENU] BUILD LAG-SERVER BRUTAL v6 | " .. os.date("%d/%m/%Y %H:%M"))
 
+-- =========================================================
+-- GUARDA CONTRA EXECUCOES SEGUIDAS (evita duplicar loops/hooks e crash do executor)
+-- =========================================================
+local NIGHT_RUN_KEY = "_NightMenuActiveInstance"
+local previousInstance = _G[NIGHT_RUN_KEY]
+if type(previousInstance) == "table" and type(previousInstance.Cleanup) == "function" then
+	pcall(function() previousInstance.Cleanup() end)
+	task.wait(0.2)
+end
+_G[NIGHT_RUN_KEY] = { Active = true, Cleanup = nil }
+
 -- Limpar logs F9 a cada 5 segundos
 task.spawn(function()
 	while true do
@@ -19721,6 +19732,10 @@ function unloadNightMenu()
 	menuIsMinimized = false
 
 	_G.nightMenuUnloaded = true
+	if type(_G[NIGHT_RUN_KEY]) == "table" then
+		_G[NIGHT_RUN_KEY].Active = false
+		_G[NIGHT_RUN_KEY].Cleanup = nil
+	end
 	if gui and gui.Parent then
 		gui:Destroy()
 	end
@@ -20657,7 +20672,11 @@ function applyStoredMenuSettings()
 end
 
 
-applyStoredMenuSettings()
+-- regista a funcao de limpeza para a proxima execucao
+_G[NIGHT_RUN_KEY].Cleanup = unloadNightMenu
+
+-- arranque diferido: devolve o controlo ao executor antes de montar a UI pesada
+task.defer(applyStoredMenuSettings)
 
 
 
