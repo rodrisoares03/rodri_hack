@@ -32,6 +32,25 @@ pcall(function()
 	end
 end)
 
+-- Launcher isolado: corre o menu num thread limpo, sem prender a UI do loader
+local function launchNightMenu()
+	pcall(collectgarbage, "collect")
+	local ok, src = pcall(game.HttpGet, game, SCRIPT_URL .. "?cb=" .. tostring(os.time()))
+	if not ok or not src or src == "" then
+		warn("[Night Loader] Falha no HttpGet do menu.")
+		return
+	end
+	if src:sub(1, 1) == string.char(239) then src = src:sub(4) end
+	local loader = loadstring or load
+	local fn = loader(src)
+	src = nil
+	pcall(collectgarbage, "collect")
+	if fn then
+		local okRun, err = pcall(fn)
+		if not okRun then warn("[Night Loader] " .. tostring(err)) end
+	end
+end
+
 -- Cores (mesma paleta Astrix Dark do Night Menu)
 local C = {
 	Bg      = Color3.fromRGB(15, 15, 20),
@@ -469,42 +488,8 @@ local function showLoadingScreen()
 		pcall(function() gui:Destroy() end)
 		task.wait(0.25)
 
-		-- compilar noutro thread e libertar a string antes de executar (menos memoria)
-		task.defer(function()
-			local loadError = nil
-			local okHttp, src = pcall(game.HttpGet, game, SCRIPT_URL)
-			if not okHttp or not src or src == "" then
-				loadError = "Falha no HttpGet do menu."
-			else
-				if src:sub(1, 3) == "\239\187\191" then src = src:sub(4) end
-				local loader = loadstring or load
-				local fn, compileErr = loader(src)
-				src = nil
-				if not fn then
-					loadError = "Erro ao compilar: " .. tostring(compileErr)
-				else
-					local okRun, runErr = pcall(fn)
-					if not okRun then loadError = "Erro ao executar: " .. tostring(runErr) end
-				end
-			end
-			if loadError then
-				pcall(function()
-					local errGui = New("ScreenGui", {Name = "NightLoaderError", IgnoreGuiInset = true})
-					errGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-					local box = New("TextLabel", {
-						BackgroundColor3 = C.Card,
-						Position = UDim2.new(0.5, -200, 0.5, -40),
-						Size = UDim2.new(0, 400, 0, 80),
-						Text = loadError,
-						TextSize = 12,
-						TextWrapped = true,
-						TextColor3 = C.Text,
-					}, errGui)
-					Corner(8, box)
-				end)
-				warn("[Night Loader] " .. tostring(loadError))
-			end
-		end)
+		-- Launcher isolado (thread limpo + garbage collector antes/depois)
+		task.spawn(launchNightMenu)
 	end)
 end
 
