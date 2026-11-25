@@ -20702,6 +20702,27 @@ function getAutoExecuteLoaderSource()
 end
 
 function getTeleportQueueFunction()
+	local found = nil
+	local function scan(t)
+		if type(t) ~= "table" then return end
+		local okIter, err = pcall(function()
+			for k, v in pairs(t) do
+				if type(v) == "function" then
+					local name = tostring(k):lower()
+					if name:find("queue", 1, true) and name:find("teleport", 1, true) then
+						found = v
+						return
+					end
+				end
+			end
+		end)
+	end
+	pcall(scan, type(getfenv) == "function" and getfenv(0) or nil)
+	pcall(scan, type(getgenv) == "function" and getgenv() or nil)
+	pcall(scan, shared)
+	pcall(scan, _G)
+	if found then return found end
+
 	local g = (type(getgenv) == "function" and getgenv()) or _G
 	local env = (type(getfenv) == "function" and getfenv(0)) or {}
 	return g.queue_on_teleport or g.queueonteleport
