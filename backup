@@ -5859,7 +5859,22 @@ function applyAutoExecChoice(enabled)
 		elseif _G.NIGHT_AUTOEXEC_ERROR then
 			showMenuToast("Auto Execute", "Falha ao agendar: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 60), Color3.fromRGB(255, 180, 80))
 		else
-			showMenuToast("Auto Execute", "Ativado | abre sozinho ao entrar no jogo.", Color3.fromRGB(170, 255, 170))
+			local names = {}
+			pcall(function()
+				local function scan(t)
+					if type(t) ~= "table" then return end
+					for k, v in pairs(t) do
+						local n = tostring(k):lower()
+						if n:find("queue", 1, true) or n:find("teleport", 1, true) then
+							names[#names + 1] = tostring(k) .. "=" .. type(v)
+						end
+					end
+				end
+				scan(_G)
+				scan(type(getgenv) == "function" and getgenv() or nil)
+				scan(type(getfenv) == "function" and getfenv(0) or nil)
+			end)
+			showMenuToast("Auto Execute", "Sem queue. Globals: " .. (table.concat(names, ",") ~= "" and table.concat(names, ",") or "nenhum"), Color3.fromRGB(255, 180, 80))
 		end
 	else
 		showMenuToast("Auto Execute", "Desativado", Color3.fromRGB(255, 170, 170))
