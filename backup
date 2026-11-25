@@ -5850,7 +5850,10 @@ function applyAutoExecChoice(enabled)
 	autoExecuteEnabled = enabled and true or false
 	writeAutoExecChoice(autoExecuteEnabled)
 	if autoExecuteEnabled then
-		pcall(setupAutoExecute)
+		local okSetup, setupErr = pcall(setupAutoExecute)
+		if not okSetup and not _G.NIGHT_AUTOEXEC_ERROR then
+			_G.NIGHT_AUTOEXEC_ERROR = tostring(setupErr)
+		end
 		if _G.NIGHT_AUTOEXEC_QUEUED then
 			showMenuToast("Auto Execute", "Ativado | abre sozinho no proximo teleporte.", Color3.fromRGB(170, 255, 170))
 		elseif _G.NIGHT_AUTOEXEC_ERROR then
@@ -20687,15 +20690,22 @@ function getAutoExecuteLoaderSource()
 		.. 'end)'
 	-- A copia embutida usa delimitador de nivel superior; se nao, o "]="]" interior
 	-- fechava a string externa e o loadstring falhava com "Expected identifier ... ']'"
-	local embed = template:gsub("%[==%[__NIGHT_SELF__%]==%]", function()
-		return "[===[__NIGHT_SELF__]===]"
+	local ok, source = pcall(function()
+		local embed = template:gsub("%[==%[__NIGHT_SELF__%]==%]", function()
+			return "[===[__NIGHT_SELF__]===]"
+		end)
+		return (template:gsub("__NIGHT_SELF__", function() return embed end))
 	end)
-	return (template:gsub("__NIGHT_SELF__", function() return embed end))
+	if ok and type(source) == "string" and source ~= "" then return source end
+	-- fallback simples: pelo menos o auto-exec continua a agendar-se
+	return template:gsub("__NIGHT_SELF__", "")
 end
 
 function getTeleportQueueFunction()
 	local g = (type(getgenv) == "function" and getgenv()) or _G
+	local env = (type(getfenv) == "function" and getfenv(0)) or {}
 	return g.queue_on_teleport or g.queueonteleport
+		or env.queue_on_teleport or env.queueonteleport
 		or queue_on_teleport or queueonteleport
 		or (syn and syn.queue_on_teleport)
 		or (fluxus and fluxus.queue_on_teleport)
