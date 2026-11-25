@@ -469,43 +469,42 @@ local function showLoadingScreen()
 		pcall(function() gui:Destroy() end)
 		task.wait(0.25)
 
-		local loadError = nil
-		pcall(function()
-			local loader = loadstring or load
+		-- compilar noutro thread e libertar a string antes de executar (menos memoria)
+		task.defer(function()
+			local loadError = nil
 			local okHttp, src = pcall(game.HttpGet, game, SCRIPT_URL)
-			if not okHttp or not src or src == "" or not loader then
+			if not okHttp or not src or src == "" then
 				loadError = "Falha no HttpGet do menu."
-				return
+			else
+				if src:sub(1, 3) == "\239\187\191" then src = src:sub(4) end
+				local loader = loadstring or load
+				local fn, compileErr = loader(src)
+				src = nil
+				if not fn then
+					loadError = "Erro ao compilar: " .. tostring(compileErr)
+				else
+					local okRun, runErr = pcall(fn)
+					if not okRun then loadError = "Erro ao executar: " .. tostring(runErr) end
+				end
 			end
-			-- remover BOM (U+FEFF) que alguns hosts/executors metem no inicio
-			if src:sub(1, 3) == "\239\187\191" then
-				src = src:sub(4)
+			if loadError then
+				pcall(function()
+					local errGui = New("ScreenGui", {Name = "NightLoaderError", IgnoreGuiInset = true})
+					errGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+					local box = New("TextLabel", {
+						BackgroundColor3 = C.Card,
+						Position = UDim2.new(0.5, -200, 0.5, -40),
+						Size = UDim2.new(0, 400, 0, 80),
+						Text = loadError,
+						TextSize = 12,
+						TextWrapped = true,
+						TextColor3 = C.Text,
+					}, errGui)
+					Corner(8, box)
+				end)
+				warn("[Night Loader] " .. tostring(loadError))
 			end
-			local fn, compileErr = loader(src)
-			if not fn then
-				loadError = "Erro ao compilar: " .. tostring(compileErr)
-				return
-			end
-			local okRun, runErr = pcall(fn)
-			if not okRun then loadError = "Erro ao executar: " .. tostring(runErr) end
 		end)
-		if loadError then
-			pcall(function()
-				local errGui = New("ScreenGui", {Name = "NightLoaderError", IgnoreGuiInset = true})
-				errGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
-				local box = New("TextLabel", {
-					BackgroundColor3 = C.Card,
-					Position = UDim2.new(0.5, -200, 0.5, -40),
-					Size = UDim2.new(0, 400, 0, 80),
-					Text = loadError,
-					TextSize = 12,
-					TextWrapped = true,
-					TextColor3 = C.Text,
-				}, errGui)
-				Corner(8, box)
-			end)
-			warn("[Night Loader] " .. tostring(loadError))
-		end
 	end)
 end
 
