@@ -5746,6 +5746,20 @@ local function writeAutoExecChoice(enabled)
 	pcall(function() writefile(AUTOEXEC_CHOICE_FILE, enabled and "yes" or "no") end)
 end
 
+local function readAutoExecChoice()
+	if type(readfile) ~= "function" or type(isfile) ~= "function" then return nil end
+	local ok, exists = pcall(isfile, AUTOEXEC_CHOICE_FILE)
+	if not ok or not exists then return nil end
+	local ok2, content = pcall(readfile, AUTOEXEC_CHOICE_FILE)
+	if not ok2 or not content then return nil end
+	local value = tostring(content):match("^%s*(.-)%s*$")
+	if value == "yes" then return true end
+	if value == "no" then return false end
+	return nil
+end
+
+local pendingAutoExecChoice = readAutoExecChoice()
+
 function applyAutoExecChoice(enabled)
 	autoExecuteEnabled = enabled and true or false
 	writeAutoExecChoice(autoExecuteEnabled)
@@ -5870,7 +5884,10 @@ local function showAutoExecPrompt()
 	noBtn.MouseButton1Click:Connect(function() close(false) end)
 end
 
-showAutoExecPrompt()
+-- Só pergunta na primeira vez; se já houver escolha guardada, aplica no fim
+if pendingAutoExecChoice == nil then
+	showAutoExecPrompt()
+end
 
 gui = Instance.new("ScreenGui")
 gui.Name = "NightModMenu"
@@ -20725,7 +20742,14 @@ end
 _G[NIGHT_RUN_KEY].Cleanup = unloadNightMenu
 
 -- arranque diferido: devolve o controlo ao executor antes de montar a UI pesada
-task.defer(applyStoredMenuSettings)
+task.defer(function()
+	applyStoredMenuSettings()
+	if pendingAutoExecChoice ~= nil then
+		autoExecuteEnabled = pendingAutoExecChoice
+		if autoExecuteEnabled then pcall(setupAutoExecute) end
+		pcall(revealNightMenu)
+	end
+end)
 
 
 
