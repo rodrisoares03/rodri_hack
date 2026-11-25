@@ -18535,8 +18535,8 @@ end
 
 function updateSilentStatus()
 	if not silentStatusLabel then return end
-	local supported = type(getrawmetatable) == "function" and type(setreadonly) == "function"
-		and type(newcclosure) == "function" and type(getnamecallmethod) == "function"
+	local supported = (type(getrawmetatable) == "function" or type(getmetatable) == "function")
+		and (type(hookmetamethod) == "function" or type(getnamecallmethod) == "function")
 	local hookText = silentHookInstalled and "HOOK ATIVO" or (supported and "HOOK PRONTO" or "SEM SUPORTE")
 	local function tag(on) return on and "ON" or "OFF" end
 	silentStatusLabel.Text = string.format("SILENT %s | NPC %s | RECOIL %s | SPREAD %s | %s",
@@ -18558,8 +18558,15 @@ function ensureSilentHooks()
 	end
 	if silentHookInstalled then return true end
 
-	if type(getrawmetatable) ~= "function" or type(setreadonly) ~= "function"
-		or type(newcclosure) ~= "function" or type(getnamecallmethod) ~= "function" then
+	-- Fallbacks para executores (Xeno) que nao expoem todas as funcoes
+	local rawMtFn = (type(getrawmetatable) == "function" and getrawmetatable)
+		or (type(getmetatable) == "function" and getmetatable)
+	local setRoFn = (type(setreadonly) == "function" and setreadonly) or function() end
+	local newClFn = (type(newcclosure) == "function" and newcclosure) or function(f) return f end
+	local getNmFn = (type(getnamecallmethod) == "function" and getnamecallmethod) or nil
+	local hookMmFn = (type(hookmetamethod) == "function" and hookmetamethod) or nil
+
+	if not rawMtFn or (not hookMmFn and not getNmFn) then
 		updateSilentStatus()
 		pcall(function()
 			showMenuToast("Silent/Bypass", "Executor sem suporte a hook de metatable.", Color3.fromRGB(255, 170, 70))
@@ -18568,11 +18575,10 @@ function ensureSilentHooks()
 	end
 
 	local ok, err = pcall(function()
-		local mt = getrawmetatable(game)
+		local mt = rawMtFn(game)
 		if not mt then error("metatable indisponivel") end
 		local originalNamecall = mt.__namecall
 		local hasCheckCaller = type(checkcaller) == "function"
-		setreadonly(mt, false)
 
 		local function lower(v) return tostring(v or ""):lower() end
 		local function contains(hay, needle) return lower(hay):find(needle, 1, true) ~= nil end
@@ -18639,23 +18645,17 @@ function ensureSilentHooks()
 			return value
 		end
 
-		mt.__namecall = newcclosure(function(self, ...)
-			local method = getnamecallmethod()
-			local count = select("#", ...)
-			local args = { ... }
-
+		local function handleNamecall(self, method, args, count)
 			local skipSelf = false
 			if hasCheckCaller and silentBypassEnabled then
 				local okCc, cc = pcall(checkcaller)
 				skipSelf = okCc and cc == true
 			end
 
-			-- NO RECOIL: bloqueia remotos exclusivos de recuo/view-kick
 			if not skipSelf and noRecoilEnabled and isRecoilRemote(self, method) then
 				return nil
 			end
 
-			-- SILENT: redireciona raycasts do proprio workflow de armas
 			if silentAimEnabled and method == "Raycast" and self == workspace then
 				local target = getSilentTarget()
 				local origin = args[1]
@@ -18667,10 +18667,9 @@ function ensureSilentHooks()
 				end
 			end
 
-			-- SILENT: redireciona raios vindos da camera (ScreenPointToRay / ViewportPointToRay)
 			if silentAimEnabled and typeof(self) == "Instance" and self:IsA("Camera")
 				and (method == "ScreenPointToRay" or method == "ViewportPointToRay") then
-				local ray = originalNamecall(self, ...)
+				local ray = originalNamecall(self, table.unpack(args, 1, count))
 				local target = getSilentTarget()
 				if ray and target then
 					local dir = target.position - ray.Origin
@@ -18681,8 +18680,6 @@ function ensureSilentHooks()
 				return ray
 			end
 
-			-- SILENT + NO SPREAD: reescreve argumentos de QUALQUER remoto de tiro
-			-- (o nome do remote varia por jogo: RemoteEvent, MainEvent, etc.)
 			local weaponRemote = remoteIsWeapon(self)
 				or (typeof(self) == "Instance" and (self:IsA("RemoteEvent") or self:IsA("RemoteFunction")))
 			if (silentAimEnabled or noSpreadEnabled) and isFireMethod(method)
@@ -18704,7 +18701,6 @@ function ensureSilentHooks()
 					args[i] = rewriteArg(args[i], origin, targetPos, lower(self and self.Name), 0)
 				end
 
-				-- Bypass agressivo: neutraliza math.random apenas durante o disparo
 				if silentAggressiveBypass and type(math.random) == "function" then
 					local originalRandom = math.random
 					math.random = function(a, b)
@@ -18720,16 +18716,30 @@ function ensureSilentHooks()
 				return originalNamecall(self, table.unpack(args, 1, count))
 			end
 
-			return originalNamecall(self, ...)
-		end)
-
-		silentHookCleanup = function()
-			pcall(function()
-				setreadonly(mt, false)
-				mt.__namecall = originalNamecall
-				setreadonly(mt, true)
-			end)
+			return originalNamecall(self, table.unpack(args, 1, count))
 		end
+
+		if hookMmFn then
+			local previous = hookMmFn(game, "__namecall", function(self, m, ...)
+				return handleNamecall(self, m or (getNmFn and getNmFn()) or "", { ... }, select("#", ...))
+			end)
+			silentHookCleanup = function()
+				pcall(function() hookMmFn(game, "__namecall", previous) end)
+			end
+		else
+			setRoFn(mt, false)
+			mt.__namecall = newClFn(function(self, ...)
+				return handleNamecall(self, (getNmFn and getNmFn()) or "", { ... }, select("#", ...))
+			end)
+			silentHookCleanup = function()
+				pcall(function()
+					setRoFn(mt, false)
+					mt.__namecall = originalNamecall
+					setRoFn(mt, true)
+				end)
+			end
+		end
+
 		nightRegisterCleanup(function()
 			if silentHookCleanup then silentHookCleanup() end
 		end)
