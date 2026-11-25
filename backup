@@ -20510,14 +20510,15 @@ function applyThemeSize(sizeIndex)
 end
 
 function getAutoExecuteLoaderSource()
-	return 'pcall(function()\n'
+	-- Codigo auto-reprodutivel: nao depende de readfile/writefile.
+	-- O proprio codigo e queueado de novo antes de carregar o menu.
+	local template = 'pcall(function()\n'
 		.. '_G.NIGHT_MENU_AUTO_LAUNCH = true\n'
-		.. '-- re-armar a si proprio para o proximo teleporte (sempre)\n'
+		.. 'local SELF = [=[__NIGHT_SELF__]=]\n'
 		.. 'local q = queue_on_teleport or queueonteleport\n'
 		.. 'or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)\n'
 		.. 'or (xeno and xeno.queue_on_teleport) or (xenon and xenon.queue_on_teleport)\n'
-		.. 'local selfSrc = readfile and readfile("autoexec/night_menu_auto.lua")\n'
-		.. 'if q and selfSrc then pcall(q, selfSrc) end\n'
+		.. 'if q then pcall(q, SELF) end\n'
 		.. 'local loader = loadstring or load\n'
 		.. 'if not loader then return end\n'
 		.. 'local src\n'
@@ -20532,6 +20533,7 @@ function getAutoExecuteLoaderSource()
 		.. 'if fn then fn() end\n'
 		.. 'end\n'
 		.. 'end)'
+	return (template:gsub("__NIGHT_SELF__", function() return template end))
 end
 
 function getTeleportQueueFunction()
