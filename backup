@@ -5805,7 +5805,7 @@ end)
 -- AUTO EXECUTE: pergunta ANTES da interface principal
 -- =========================================================
 local AUTOEXEC_CHOICE_FILE = "night_autoexec_choice.txt"
-local NIGHT_MENU_VERSION = "v6.1-2026-11-25"
+local NIGHT_MENU_VERSION = "v6.2-2026-11-27"
 
 local function writeAutoExecChoice(enabled)
 	if type(writefile) ~= "function" then return end
@@ -21336,6 +21336,10 @@ end)
 -- Player join tracking REMOVED (user requested no notifications)
 
 task.defer(function()
+	-- Marcador visivel: confirma que esta e a versao corrigida (v6.2).
+	pcall(function()
+		showMenuToast("Night Menu", NIGHT_MENU_VERSION .. " carregado", Color3.fromRGB(120, 220, 255))
+	end)
 	refreshLocalizedMenuText()
 	updateThemeStatus()
 	nmRefreshProfiles()
