@@ -4752,13 +4752,14 @@ function ensureHealthBar(character)
 	local barX = centerX - boxWidth/2 - barWidth - gap
 	local barY = math.min(topScreen.Y, bottomScreen.Y)
 
-	healthBars[character].bg.Size = Vector2.new(barWidth, barHeight)
-	healthBars[character].bg.Position = Vector2.new(barX, barY)
-	healthBars[character].bg.Visible = true
+	-- Sem fundo/contorno escuro: alguns executores tratam Transparency ao
+	-- contrario e o retangulo preto aparecia a volta da barra. Mostramos so
+	-- o preenchimento colorido (a barra continua com a mesma posicao/tamanho).
+	healthBars[character].bg.Visible = false
 
 	local fillHeight = barHeight * healthPercent
-	healthBars[character].fill.Size = Vector2.new(math.max(1, barWidth - 2), fillHeight)
-	healthBars[character].fill.Position = Vector2.new(barX + 1, barY + barHeight - fillHeight)
+	healthBars[character].fill.Size = Vector2.new(math.max(1, barWidth - 1), fillHeight)
+	healthBars[character].fill.Position = Vector2.new(barX + 0.5, barY + barHeight - fillHeight)
 
 	if healthPercent > 0.5 then
 		healthBars[character].fill.Color = Color3.fromRGB(0, 255, 0)
@@ -5311,13 +5312,12 @@ function ensureNpcHealthBar(model)
 	local barX = centerX - boxWidth/2 - barWidth - 6
 	local barY = topScreen.Y
 
-	npcHealthBars[model].bg.Size = Vector2.new(barWidth, barHeight)
-	npcHealthBars[model].bg.Position = Vector2.new(barX, barY)
-	npcHealthBars[model].bg.Visible = true
+	-- Mesmo ajuste dos players: sem fundo escuro, so a barra colorida.
+	npcHealthBars[model].bg.Visible = false
 
 	local fillHeight = barHeight * healthPercent
-	npcHealthBars[model].fill.Size = Vector2.new(barWidth - 2, fillHeight)
-	npcHealthBars[model].fill.Position = Vector2.new(barX + 1, barY + barHeight - fillHeight)
+	npcHealthBars[model].fill.Size = Vector2.new(barWidth - 1, fillHeight)
+	npcHealthBars[model].fill.Position = Vector2.new(barX + 0.5, barY + barHeight - fillHeight)
 
 	if healthPercent > 0.5 then
 		npcHealthBars[model].fill.Color = Color3.fromRGB(0, 255, 0)
@@ -5861,7 +5861,9 @@ function applyAutoExecChoice(enabled)
 			-- autoexec ja foi gravado, entao o auto-execute esta ativo na mesma.
 			showMenuToast("Auto Execute", "Ativado | autoexec por ficheiro.", Color3.fromRGB(170, 255, 170))
 		elseif _G.NIGHT_AUTOEXEC_ERROR then
-			showMenuToast("Auto Execute", "Queue indisponivel: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 48), Color3.fromRGB(255, 180, 80))
+			-- Nao mostramos o erro bruto do executor (ex: NetworkPing): para o
+			-- utilizador so interessa que nao ha queue nem ficheiro disponivel.
+			showMenuToast("Auto Execute", "Sem queue neste executor | usa o Loader manual.", Color3.fromRGB(255, 180, 80))
 		else
 			local names = {}
 			pcall(function()
@@ -20761,6 +20763,7 @@ end
 local AUTOEXEC_QUEUE_NAMES = {
 	"queue_on_teleport", "queueonteleport", "queue_teleport",
 	"queueTeleport", "queue_on_teleport_event",
+	"requestqueue_on_teleport", "queue_on_teleport_async",
 }
 local AUTOEXEC_EXECUTOR_TABLES = { "syn", "fluxus", "xeno", "xenon", "console" }
 
@@ -20801,6 +20804,58 @@ end
 function getTeleportQueueFunction()
 	local candidates = getTeleportQueueCandidates()
 	return candidates[1]
+end
+
+-- =========================================================
+-- WORKAROUND NetworkPing
+-- Varios executores chamam NetworkPing() DENTRO de queue_on_teleport.
+-- Se essa global/upvalue nao existir, o agendamento falha com
+-- "attempt to call a nil value NetworkPing" (foi exatamente o erro visto).
+-- Colocamos um stub so durante a chamada e repomos tudo a seguir.
+-- =========================================================
+local function callTeleportQueue(fn, source)
+	local restored = {}
+	local stub = function() return 0 end
+
+	pcall(function()
+		-- 1) upvalue do closure interno do executor
+		if type(debug) == "table" and type(debug.getupvalue) == "function"
+			and type(debug.setupvalue) == "function" then
+			local i = 1
+			while true do
+				local name, value = debug.getupvalue(fn, i)
+				if not name then break end
+				if name == "NetworkPing" then
+					table.insert(restored, { index = i, value = value })
+					debug.setupvalue(fn, i, stub)
+				end
+				i += 1
+			end
+		end
+		-- 2) global no ambiente do executor e no _G
+		local envs = { _G }
+		if type(getgenv) == "function" then table.insert(envs, getgenv()) end
+		for _, env in ipairs(envs) do
+			if type(env) == "table" and rawget(env, "NetworkPing") == nil then
+				table.insert(restored, { env = env })
+				env.NetworkPing = stub
+			end
+		end
+	end)
+
+	local ok, err = pcall(fn, source)
+
+	pcall(function()
+		for _, item in ipairs(restored) do
+			if item.env then
+				item.env.NetworkPing = nil
+			elseif type(debug) == "table" and type(debug.setupvalue) == "function" then
+				debug.setupvalue(fn, item.index, item.value)
+			end
+		end
+	end)
+
+	return ok, err
 end
 
 function setupAutoExecute()
@@ -20851,8 +20906,9 @@ function setupAutoExecute()
 	_G.NIGHT_AUTOEXEC_QUEUED = false
 	_G.NIGHT_AUTOEXEC_ERROR = nil
 	for _, queueFn in ipairs(getTeleportQueueCandidates()) do
-		-- Alguns executores so aceitam o agendamento a partir da thread principal
-		local ok, err = pcall(queueFn, loaderSource)
+		-- Alguns executores so aceitam o agendamento a partir da thread principal.
+		-- callTeleportQueue aplica o workaround do NetworkPing enquanto agenda.
+		local ok, err = callTeleportQueue(queueFn, loaderSource)
 		if ok then
 			_G.NIGHT_AUTOEXEC_QUEUED = true
 			_G.NIGHT_AUTOEXEC_ERROR = nil
