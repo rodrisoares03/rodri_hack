@@ -31,12 +31,45 @@ if type(previousInstance) == "table" and type(previousInstance.Cleanup) == "func
 	task.wait(0.2)
 end
 _G[NIGHT_RUN_KEY] = { Active = true, Cleanup = nil }
+-- Referencia desta instancia: os loops infinitos param quando uma reinjecao
+-- desativa a instancia anterior (evita dezenas de loops a correr ao mesmo tempo).
+local NIGHT_INSTANCE = _G[NIGHT_RUN_KEY]
 
 -- Registo central de limpezas (conexoes/hooks registam-se aqui)
 NightCleanups = {}
 function nightRegisterCleanup(fn)
 	if type(fn) == "function" then table.insert(NightCleanups, fn) end
 	return fn
+end
+
+-- Toda a conexao criada pelo menu passa por aqui e e desligada no Unload /
+-- proxima injecao. Antes ficavam todas vivas e acumulavam -> crash do executor.
+local rawRenderConnect = RunService.RenderStepped.Connect
+local rawHeartbeatConnect = RunService.Heartbeat.Connect
+local rawSteppedConnect = RunService.Stepped.Connect
+
+local function nightRenderConnect(fn)
+	local conn = rawRenderConnect(RunService.RenderStepped, fn)
+	nightRegisterCleanup(function()
+		if conn and conn.Connected then conn:Disconnect() end
+	end)
+	return conn
+end
+
+local function nightHeartbeatConnect(fn)
+	local conn = rawHeartbeatConnect(RunService.Heartbeat, fn)
+	nightRegisterCleanup(function()
+		if conn and conn.Connected then conn:Disconnect() end
+	end)
+	return conn
+end
+
+local function nightSteppedConnect(fn)
+	local conn = rawSteppedConnect(RunService.Stepped, fn)
+	nightRegisterCleanup(function()
+		if conn and conn.Connected then conn:Disconnect() end
+	end)
+	return conn
 end
 
 -- Debug: por defeito NAO escondemos erros do F9 (muda para true se quiseres)
@@ -727,7 +760,7 @@ end
 
 function ensureMultiWaypointMarkerLoop()
 	if multiWaypointMarkerConn then return end
-	multiWaypointMarkerConn = RunService.Heartbeat:Connect(function(dt)
+	multiWaypointMarkerConn = nightHeartbeatConnect(function(dt)
 		local clockNow = os.clock()
 
 		-- Barras de redemoinho internas
@@ -1171,7 +1204,7 @@ function spawnMultiWaypointPortal(position)
 	local lifetime = 1.7
 	local elapsed = 0
 	local heartbeatConn
-	heartbeatConn = RunService.Heartbeat:Connect(function(dt)
+	heartbeatConn = nightHeartbeatConnect(function(dt)
 		elapsed = elapsed + dt
 		local remaining = lifetime - elapsed
 
@@ -2455,7 +2488,7 @@ function killPlayer(targetPlayer)
 	killCycleTimer = 0
 	local killAttackStage = 0
 	
-	killConnection = RunService.Heartbeat:Connect(function(dt)
+	killConnection = nightHeartbeatConnect(function(dt)
 		if not killingPlayer or not killTargetPlayer then
 			stopKilling()
 			return
@@ -2531,7 +2564,7 @@ function magnetPlayer(targetPlayer, autoKillAfter)
     magnetActive = true
     magnetTarget = targetPlayer
     
-    magnetConnection = RunService.Heartbeat:Connect(function()
+    magnetConnection = nightHeartbeatConnect(function()
         if not magnetActive or not magnetTarget then
             stopMagnet()
             return
@@ -2800,7 +2833,7 @@ function performKickPush(targetPlayer)
 
 	local flingStart = tick()
 	local flingConnection
-	flingConnection = RunService.Heartbeat:Connect(function()
+	flingConnection = nightHeartbeatConnect(function()
 		local elapsed = tick() - flingStart
 		if elapsed >= kickPushFlingTime then
 			if flingConnection then
@@ -2961,7 +2994,7 @@ local function startAntiFlying()
 	antiFlyingAirOrigin = nil
 	antiFlyingFlingTime = 0
 
-	antiFlyingConnection = RunService.Heartbeat:Connect(function(dt)
+	antiFlyingConnection = nightHeartbeatConnect(function(dt)
 		if not antiFlyingEnabled then
 			return
 		end
@@ -3909,7 +3942,7 @@ end
 
 -- Loop principal de Fly
 function FlySystem:startLoop()
-    RunService.RenderStepped:Connect(function()
+    nightRenderConnect(function()
         local character = LocalPlayer.Character
         if not character then return end
 
@@ -5440,7 +5473,7 @@ end
 -- Inicial + eventos de players (DESABILITADO - usar sistema manual)
 -- Sistema de atualização automática do ESP sincronizado com lista
 task.spawn(function()
-	while true do
+	while NIGHT_INSTANCE.Active do
 		task.wait(2) -- Atualizar a cada 2 segundos
 		
 		if not espEnabled then
@@ -5646,7 +5679,7 @@ Players.PlayerAdded:Connect(function(p)
 end)
 
 -- Sistema de verificação contínua do spectate
-RunService.RenderStepped:Connect(function()
+nightRenderConnect(function()
 	if spectating and spectating.Parent and not freecamEnabled then
 		local targetChar = spectating.Character
 		if not targetChar then
@@ -5892,7 +5925,7 @@ function applyAutoExecChoice(enabled)
 end
 
 autoExecChoicePending = true
-local autoExecHideConn = RunService.RenderStepped:Connect(function()
+local autoExecHideConn = nightRenderConnect(function()
 	if autoExecChoicePending and mainFrame then
 		mainFrame.Visible = false
 	end
@@ -11048,7 +11081,7 @@ function setRadarEnabled(enabled)
 			end)
 		end
 		if not radarRenderConn then
-			radarRenderConn = RunService.RenderStepped:Connect(updateRadar)
+			radarRenderConn = nightRenderConnect(updateRadar)
 		end
 	else
 		if radarRenderConn then radarRenderConn:Disconnect() radarRenderConn = nil end
@@ -12987,7 +13020,7 @@ createToggle(npcAimbotContent, "NPC Hitbox", function(enabled)
 	npcHitboxEnabled = enabled
 	if enabled then
 		if _G.npcHitboxLoop then _G.npcHitboxLoop:Disconnect() end
-		_G.npcHitboxLoop = RunService.RenderStepped:Connect(function()
+		_G.npcHitboxLoop = nightRenderConnect(function()
 			for _, info in ipairs(npcEspCachedModels) do
 				pcall(function()
 					local npcModel = info.model
@@ -13170,7 +13203,7 @@ end
 
 hitboxToggle = createToggle(combatContent, "Hitbox Expander", function(enabled)
 	if enabled then
-		_G.hitboxLoop = RunService.RenderStepped:Connect(function()
+		_G.hitboxLoop = nightRenderConnect(function()
 			for _, player in pairs(Players:GetPlayers()) do
 				pcall(function()
 					if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
@@ -13728,7 +13761,7 @@ function betaPureSpinStart()
 	-- Referencias e anti-aim em cache: antes eram 4 pcall + FindFirstChild por frame
 	local cachedChar, cachedHum, cachedRoot = nil, nil, nil
 	local lookDownChar = nil
-	betaNoJumpSpinLoop = RunService.RenderStepped:Connect(function()
+	betaNoJumpSpinLoop = nightRenderConnect(function()
 		if not betaNoJumpSpinEnabled or betaNoSpinEnabled then return end
 		local char = LocalPlayer.Character
 		if char ~= cachedChar then
@@ -13792,7 +13825,7 @@ function betaStartLoop()
 			if betaOwnsThirdPerson then tpEntry.setState(true, "force") end
 		end
 	end)
-	betaSpinLoop = RunService.RenderStepped:Connect(function()
+	betaSpinLoop = nightRenderConnect(function()
 		if not betaSpinTriggerEnabled or panelVisible then return end
 		local char = LocalPlayer.Character
 		local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -14107,7 +14140,7 @@ function betaNoSpinStartLoop()
 	end)
 	betaNoSpinFrame = 0
 	local nsChar, nsHum, nsRoot = nil, nil, nil
-	betaNoSpinLoop = RunService.RenderStepped:Connect(function()
+	betaNoSpinLoop = nightRenderConnect(function()
 		betaNoSpinFrame += 1
 		local now = tick()
 
@@ -14161,7 +14194,7 @@ autofireToggle = createToggle(combatContent, "Autofire (Triggerbot)", function(e
 	autofireEnabled = enabled
 	if enabled then
 		lastAutofireShot = 0
-		_G.autofireLoop = RunService.RenderStepped:Connect(function()
+		_G.autofireLoop = nightRenderConnect(function()
 			if panelVisible or not autofireEnabled then autofireCandidateSince = 0 return end
 			if autofireMode == "Hold" and not autofireKeyHeld then autofireCandidateSince = 0 return end
 
@@ -14385,7 +14418,7 @@ thirdPersonToggle = createToggle(combatContent, "Third Person", function(enabled
 			end
 		end)
 
-		_G._nightThirdPersonStepped = RunService.RenderStepped:Connect(function()
+		_G._nightThirdPersonStepped = nightRenderConnect(function()
 			if not _G._nightThirdPersonActive then return end
 			pcall(function()
 				LocalPlayer.CameraMode = Enum.CameraMode.Classic
@@ -14476,7 +14509,7 @@ spinbotToggle = createToggle(combatContent, "Spinbot (Anti-Aim)", function(enabl
 	if enabled then
 		_G.spinAngle = 0
 		local spinLookChar = nil
-		_G.spinLoop = RunService.RenderStepped:Connect(function()
+		_G.spinLoop = nightRenderConnect(function()
 			local char = LocalPlayer.Character
 			if char and char:FindFirstChild("HumanoidRootPart") then
 				local hum = char:FindFirstChild("Humanoid")
@@ -14666,7 +14699,7 @@ _G.magnetOriginalStats = {}
 magnetToggle = createToggle(combatContent, "Magnet Player", function(enabled)
 	magnetEnabled = enabled
 	if enabled then
-		_G.magnetLoop = RunService.Heartbeat:Connect(function()
+		_G.magnetLoop = nightHeartbeatConnect(function()
 			if not magnetEnabled or not LocalPlayer.Character then return end
 			
 			local myChar = LocalPlayer.Character
@@ -14789,7 +14822,7 @@ magnetSliderInput:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 -- Loop para atualizar FOV móvel
-RunService.RenderStepped:Connect(function()
+nightRenderConnect(function()
 	if aimbotShowFOV and aimbotMobile then
 		local fovCircle = gui:FindFirstChild("FOVCircle")
 		if fovCircle then
@@ -14901,7 +14934,7 @@ end)
 
 -- Atualizar toggle visual baseado no estado do fly
 task.spawn(function()
-	while true do
+	while NIGHT_INSTANCE.Active do
 		task.wait(0.1)
 		if flyToggle and not noclipSoloEnabled then
 			local track = flyToggle:FindFirstChild("ToggleTrack")
@@ -14927,7 +14960,7 @@ do
 	local function setNoclip(enabled)
 		if enabled then
 			if not noclipConn then
-				noclipConn = RunService.RenderStepped:Connect(function()
+				noclipConn = nightRenderConnect(function()
 					local char = LocalPlayer.Character
 					if not char then return end
 					for _, v in pairs(char:GetDescendants()) do
@@ -15210,7 +15243,7 @@ cframeMultiplicador = 1.5
 
 cframeSpeedToggle = createToggle(movementContent, "CFrame Speed (Bypass)", function(enabled)
 	if enabled then
-		_G.cframeSpeedLoop = RunService.RenderStepped:Connect(function()
+		_G.cframeSpeedLoop = nightRenderConnect(function()
 			local char = LocalPlayer.Character
 			if char and char:FindFirstChild("Humanoid") and char:FindFirstChild("HumanoidRootPart") then
 				local hum = char.Humanoid
@@ -15326,7 +15359,7 @@ jumpToggle = createToggle(boostsContent, "Jump Boost", function(enabled)
 end, "Raises your jump height.")
 
 -- Sistema de Persistência Implacável: Boosts e Noclip
-RunService.Stepped:Connect(function()
+nightSteppedConnect(function()
 	local character = LocalPlayer.Character
 	if not character then return end
 	local humanoid = character:FindFirstChildOfClass("Humanoid")
@@ -15628,7 +15661,7 @@ instantInteractToggle = createToggle(utilsContent, "Instant Interact", function(
 			end
 		end)
 
-		instantInteractLoop = RunService.Heartbeat:Connect(function()
+		instantInteractLoop = nightHeartbeatConnect(function()
 			if not instantInteractEnabled or instantInteractBusy then return end
 			local bestPrompt = getBestInstantInteractPrompt()
 			if bestPrompt then
@@ -16488,7 +16521,7 @@ freecamToggle = createToggle(trollCategory, "Freecam", function(enabled)
 		UserInputService.MouseIconEnabled = false
 
 		if _G._freecamConn then _G._freecamConn:Disconnect() end
-		_G._freecamConn = RunService.RenderStepped:Connect(function(dt)
+		_G._freecamConn = nightRenderConnect(function(dt)
 			if not freecamEnabled then return end
 
 			-- Skip camera control when spectating (let Roblox handle it)
@@ -17282,7 +17315,7 @@ function soloDimEnable()
 			soloDimLoopConn:Disconnect()
 			soloDimLoopConn = nil
 		end
-		soloDimLoopConn = RunService.RenderStepped:Connect(function(dt)
+		soloDimLoopConn = nightRenderConnect(function(dt)
 			if not soloDimensionEnabled then return end
 			local cam2 = workspace.CurrentCamera
 			local charNow = LocalPlayer.Character
@@ -18148,7 +18181,7 @@ xpcall(function()
 
 		-- Atualização (FPS medido no RenderStepped, ping a cada 0.5s)
 		local frames, last = 0, os.clock()
-		statsConn = RunService.RenderStepped:Connect(function()
+		statsConn = nightRenderConnect(function()
 			frames += 1
 			local now = os.clock()
 			if now - last >= 0.5 then
@@ -18413,7 +18446,7 @@ function showPanel(show)
 				if type(updateCursorPos) == "function" then updateCursorPos() end
 			end)
 		end)
-		_G._nightCursorStepped = RunService.Stepped:Connect(function()
+		_G._nightCursorStepped = nightSteppedConnect(function()
 			if not panelVisible then
 				if _G._nightCursorStepped then _G._nightCursorStepped:Disconnect() _G._nightCursorStepped = nil end
 				return
@@ -18422,7 +18455,7 @@ function showPanel(show)
 			UserInputService.MouseBehavior = Enum.MouseBehavior.Default
 			pcall(function() LocalPlayer:GetMouse().Icon = "" end)
 		end)
-		_G._nightCursorHeartbeat = RunService.Heartbeat:Connect(function()
+		_G._nightCursorHeartbeat = nightHeartbeatConnect(function()
 			if not panelVisible then
 				if _G._nightCursorHeartbeat then _G._nightCursorHeartbeat:Disconnect() _G._nightCursorHeartbeat = nil end
 				return
@@ -19992,6 +20025,8 @@ function unloadNightMenu()
 	menuIsMinimized = false
 
 	_G.nightMenuUnloaded = true
+	NIGHT_INSTANCE.Active = false
+	NIGHT_INSTANCE.Cleanup = nil
 	if type(_G[NIGHT_RUN_KEY]) == "table" then
 		_G[NIGHT_RUN_KEY].Active = false
 		_G[NIGHT_RUN_KEY].Cleanup = nil
@@ -20023,7 +20058,7 @@ local function npcEspVisualsActive()
 		or next(npcHealthBars) ~= nil or (npcTracers and next(npcTracers) ~= nil)
 end
 
-RunService.RenderStepped:Connect(function(dt)
+nightRenderConnect(function(dt)
 	espVisualAcc = (espVisualAcc or 0) + (dt or 0)
 	local espTick = espVisualAcc >= (1 / 45)
 	if espTick then espVisualAcc = 0 end
