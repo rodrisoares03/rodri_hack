@@ -36,7 +36,10 @@ local function nightQueueAutoExec()
 	if type(queueFn) ~= "function" then
 		return false, "queue_on_teleport indisponivel"
 	end
-	local payload = 'loadstring(game:HttpGet("' .. NIGHT_MENU_AUTO_URL .. '?cb=" .. tostring(os.time())))()'
+	-- O flag distingue arranque por teleporte de injecao manual:
+	-- teleporte -> nao perguntar; inject manual -> perguntar sempre.
+	local payload = '_G.NIGHT_MENU_AUTO_LAUNCH=true;loadstring(game:HttpGet("'
+		.. NIGHT_MENU_AUTO_URL .. '?cb=" .. tostring(os.time())))()'
 	return pcall(queueFn, payload)
 end
 
@@ -6071,26 +6074,12 @@ if _G.NIGHT_MENU_AUTO_LAUNCH then
 		if ok then _G.NIGHT_AUTOEXEC_QUEUED = true end
 	end
 else
-	-- Escolha guardada (sim OU nao): respeitar sem voltar a perguntar.
-	-- Isto cobre o teleporte para outra experiencia sem sair do Roblox.
-	-- so perguntar quando NAO ha escolha guardada PARA ESTA VERSAO.
-	-- readAutoExecChoiceSaved ignora a versao e apanhava escolhas antigas,
-	-- por isso a primeira execucao depois de uma atualizacao pulava o prompt.
+	-- Injecao manual: SEMPRE perguntar (mesmo havendo escolha guardada).
+	-- O caminho sem perguntar e o de cima (_G.NIGHT_MENU_AUTO_LAUNCH),
+	-- usado apenas quando o proprio auto-execute reabre o menu no teleporte.
 	local savedChoice = readAutoExecChoice()
-	autoExecChoicePending = false
-	if autoExecHideConn then autoExecHideConn:Disconnect() end
 	autoExecuteEnabled = (savedChoice == true)
-	if savedChoice ~= nil then
-		autoLaunchPendingReveal = true
-		if autoExecuteEnabled then
-			-- Reagendar no arranque (antes que a global desapareca)
-			local ok = nightQueueAutoExec()
-			if ok then _G.NIGHT_AUTOEXEC_QUEUED = true end
-		end
-	else
-		-- Primeira vez: ainda nao ha escolha guardada
-		showAutoExecPrompt()
-	end
+	showAutoExecPrompt()
 end
 
 gui = Instance.new("ScreenGui")
