@@ -6073,7 +6073,10 @@ if _G.NIGHT_MENU_AUTO_LAUNCH then
 else
 	-- Escolha guardada (sim OU nao): respeitar sem voltar a perguntar.
 	-- Isto cobre o teleporte para outra experiencia sem sair do Roblox.
-	local savedChoice = readAutoExecChoiceSaved()
+	-- so perguntar quando NAO ha escolha guardada PARA ESTA VERSAO.
+	-- readAutoExecChoiceSaved ignora a versao e apanhava escolhas antigas,
+	-- por isso a primeira execucao depois de uma atualizacao pulava o prompt.
+	local savedChoice = readAutoExecChoice()
 	autoExecChoicePending = false
 	if autoExecHideConn then autoExecHideConn:Disconnect() end
 	autoExecuteEnabled = (savedChoice == true)
