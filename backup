@@ -4724,11 +4724,12 @@ function ensureHealthBar(character)
 	end
 
 	if not healthBars[character] then
+		-- Fundo completamente inerte: sem preenchimento, sem espessura e invisivel.
+		-- Assim nunca aparece a borda preta mesmo em executores com Transparency invertida.
 		local bg = Drawing.new("Square")
-		bg.Thickness = 1
+		bg.Thickness = 0
 		bg.Filled = false
-		bg.Color = Color3.fromRGB(0, 0, 0)
-		bg.Transparency = 1
+		bg.Visible = false
 
 		local fill = Drawing.new("Square")
 		fill.Thickness = 0
@@ -5297,11 +5298,13 @@ function ensureNpcHealthBar(model)
 			bg = Drawing.new("Square"),
 			fill = Drawing.new("Square"),
 		}
-		npcHealthBars[model].bg.Filled = true
-		npcHealthBars[model].bg.Color = Color3.fromRGB(40, 0, 0)
-		npcHealthBars[model].bg.Transparency = 0.6
+		-- Sem fundo escuro (mesmo motivo dos players)
+		npcHealthBars[model].bg.Thickness = 0
+		npcHealthBars[model].bg.Filled = false
+		npcHealthBars[model].bg.Visible = false
+		npcHealthBars[model].fill.Thickness = 0
 		npcHealthBars[model].fill.Filled = true
-		npcHealthBars[model].fill.Transparency = 0.3
+		npcHealthBars[model].fill.Transparency = 1
 	end
 
 	local healthPercent = math.clamp(humanoid.Health / math.max(humanoid.MaxHealth, 1), 0, 1)
@@ -20719,203 +20722,38 @@ function applyThemeSize(sizeIndex)
 	return true
 end
 
-function getAutoExecuteLoaderSource()
-	-- Codigo auto-reprodutivel: nao depende de readfile/writefile.
-	-- O proprio codigo e queueado de novo antes de carregar o menu.
-	local template = 'pcall(function()\n'
-		.. '_G.NIGHT_MENU_AUTO_LAUNCH = true\n'
-		.. 'local SELF = [==[__NIGHT_SELF__]==]\n'
-		.. 'local q = queue_on_teleport or queueonteleport\n'
-		.. 'or (syn and syn.queue_on_teleport) or (fluxus and fluxus.queue_on_teleport)\n'
-		.. 'or (xeno and xeno.queue_on_teleport) or (xenon and xenon.queue_on_teleport)\n'
-		.. 'if q then pcall(q, SELF) end\n'
-		.. 'local loader = loadstring or load\n'
-		.. 'if not loader then return end\n'
-		.. 'local src\n'
-		.. 'for i = 1, 20 do\n'
-		.. 'local ok, s = pcall(game.HttpGet, game, "' .. NIGHT_MENU_AUTO_URL .. '?cb=" .. tostring(os.time()))\n'
-		.. 'if ok and s and s ~= "" then src = s break end\n'
-		.. 'task.wait(0.5)\n'
-		.. 'end\n'
-		.. 'if src then\n'
-		.. 'if src:sub(1,1) == string.char(239) then src = src:sub(4) end\n'
-		.. 'local fn = loader(src)\n'
-		.. 'if fn then fn() end\n'
-		.. 'end\n'
-		.. 'end)'
-	-- A copia embutida usa delimitador de nivel superior; se nao, o "]="]" interior
-	-- fechava a string externa e o loadstring falhava com "Expected identifier ... ']'"
-	local ok, source = pcall(function()
-		local embed = template:gsub("%[==%[__NIGHT_SELF__%]==%]", function()
-			return "[===[__NIGHT_SELF__]===]"
-		end)
-		return (template:gsub("__NIGHT_SELF__", function() return embed end))
-	end)
-	if ok and type(source) == "string" and source ~= "" then return source end
-	-- fallback simples: pelo menos o auto-exec continua a agendar-se
-	return template:gsub("__NIGHT_SELF__", "")
-end
-
--- Nomes CONHECIDOS de queue_on_teleport. Nunca procurar funcoes "que contenham
--- queue+teleport" em tabelas aleatorias: isso ja apanhou funcoes internas do
--- executor (ex: NetworkPing) e gerou "Falha ao agendar: attempt to call a nil
--- value NetworkPing" ao agendar o auto-execute.
-local AUTOEXEC_QUEUE_NAMES = {
-	"queue_on_teleport", "queueonteleport", "queue_teleport",
-	"queueTeleport", "queue_on_teleport_event",
-	"requestqueue_on_teleport", "queue_on_teleport_async",
-}
-local AUTOEXEC_EXECUTOR_TABLES = { "syn", "fluxus", "xeno", "xenon", "console" }
-
-function getTeleportQueueCandidates()
-	local candidates, seen = {}, {}
-	local function add(fn)
-		if type(fn) == "function" and not seen[fn] then
-			seen[fn] = true
-			candidates[#candidates + 1] = fn
-		end
-	end
-	local function scan(t)
-		if type(t) ~= "table" then return end
-		for _, name in ipairs(AUTOEXEC_QUEUE_NAMES) do
-			add(t[name])
-		end
-		for _, execName in ipairs(AUTOEXEC_EXECUTOR_TABLES) do
-			local exec = t[execName]
-			if type(exec) == "table" then
-				for _, name in ipairs(AUTOEXEC_QUEUE_NAMES) do
-					add(exec[name])
-				end
-			end
-		end
-	end
-	local roots = {
-		_G,
-		shared,
-		type(getgenv) == "function" and getgenv() or nil,
-		type(getfenv) == "function" and getfenv(0) or nil,
-	}
-	for _, root in ipairs(roots) do
-		pcall(scan, root)
-	end
-	return candidates
-end
-
-function getTeleportQueueFunction()
-	local candidates = getTeleportQueueCandidates()
-	return candidates[1]
-end
-
 -- =========================================================
--- WORKAROUND NetworkPing
--- Varios executores chamam NetworkPing() DENTRO de queue_on_teleport.
--- Se essa global/upvalue nao existir, o agendamento falha com
--- "attempt to call a nil value NetworkPing" (foi exatamente o erro visto).
--- Colocamos um stub so durante a chamada e repomos tudo a seguir.
+-- AUTO-EXECUTE POR LINK RAW (mesmo sistema do Night Hub Dungeon Quest)
+-- Usa APENAS a global queue_on_teleport com um codigo CURTO:
+--   loadstring(game:HttpGet("URL?cb=os.time()"))()
+-- Sem copia embutida, sem writefile, sem debug/upvalue stubs: foi esse
+-- caminho que causava o erro "attempt to call a nil value NetworkPing".
 -- =========================================================
-local function callTeleportQueue(fn, source)
-	local restored = {}
-	local stub = function() return 0 end
-
-	pcall(function()
-		-- 1) upvalue do closure interno do executor
-		if type(debug) == "table" and type(debug.getupvalue) == "function"
-			and type(debug.setupvalue) == "function" then
-			local i = 1
-			while true do
-				local name, value = debug.getupvalue(fn, i)
-				if not name then break end
-				if name == "NetworkPing" then
-					table.insert(restored, { index = i, value = value })
-					debug.setupvalue(fn, i, stub)
-				end
-				i += 1
-			end
-		end
-		-- 2) global no ambiente do executor e no _G
-		local envs = { _G }
-		if type(getgenv) == "function" then table.insert(envs, getgenv()) end
-		for _, env in ipairs(envs) do
-			if type(env) == "table" and rawget(env, "NetworkPing") == nil then
-				table.insert(restored, { env = env })
-				env.NetworkPing = stub
-			end
-		end
-	end)
-
-	local ok, err = pcall(fn, source)
-
-	pcall(function()
-		for _, item in ipairs(restored) do
-			if item.env then
-				item.env.NetworkPing = nil
-			elseif type(debug) == "table" and type(debug.setupvalue) == "function" then
-				debug.setupvalue(fn, item.index, item.value)
-			end
-		end
-	end)
-
-	return ok, err
-end
-
 function setupAutoExecute()
 	if not autoExecuteEnabled then
 		return false
 	end
 
-	local loaderSource = getAutoExecuteLoaderSource()
-	local fileWritten = false
-	if writefile then
-		-- Gravar em TODOS os caminhos de autoexec conhecidos (o Xeno apaga/consome
-		-- o ficheiro de queue_on_teleport depois de o executar uma vez)
-		local paths = {
-			"autoexec/night_menu_autoexec.lua",
-			"xeno/autoexec/night_menu_autoexec.lua",
-			"Xeno/autoexec/night_menu_autoexec.lua",
-			"../Xeno/autoexec/night_menu_autoexec.lua",
-		}
-		pcall(function()
-			if os and os.getenv then
-				local env = os.getenv("LOCALAPPDATA")
-				if env and env ~= "" then
-					table.insert(paths, env .. "\\Xeno\\autoexec\\night_menu_autoexec.lua")
-					table.insert(paths, env .. "/Xeno/autoexec/night_menu_autoexec.lua")
-				end
-			end
-		end)
-		for _, path in ipairs(paths) do
-			local okWrite = pcall(function()
-				local dir = path:match("^(.*)[\\/][^\\/]+$")
-				if dir and makefolder and isfolder and not isfolder(dir) then makefolder(dir) end
-				writefile(path, loaderSource)
-			end)
-			if okWrite then fileWritten = true end
-		end
-		-- copia que o proprio auto-exec le para se re-armar no proximo teleporte
-		local okMain = pcall(function()
-			if makefolder and isfolder and not isfolder("autoexec") then makefolder("autoexec") end
-			writefile("autoexec/night_menu_auto.lua", loaderSource)
-		end)
-		if okMain then fileWritten = true end
-	end
-
-	-- queue_on_teleport e opcional: o loader ja foi gravado na pasta autoexec
-	-- acima. Se o executor nao agendar (ou a funcao interna dele falhar), o
-	-- auto-execute continua a funcionar no proximo arranque pelo ficheiro.
-	_G.NIGHT_AUTOEXEC_FILE_OK = fileWritten
 	_G.NIGHT_AUTOEXEC_QUEUED = false
 	_G.NIGHT_AUTOEXEC_ERROR = nil
-	for _, queueFn in ipairs(getTeleportQueueCandidates()) do
-		-- Alguns executores so aceitam o agendamento a partir da thread principal.
-		-- callTeleportQueue aplica o workaround do NetworkPing enquanto agenda.
-		local ok, err = callTeleportQueue(queueFn, loaderSource)
-		if ok then
+	_G.NIGHT_AUTOEXEC_FILE_OK = false
+
+	local payload = 'loadstring(game:HttpGet("' .. NIGHT_MENU_AUTO_URL
+		.. '?cb=" .. tostring(os.time())))()'
+
+	local ok, err = pcall(function()
+		if queue_on_teleport ~= nil then
+			queue_on_teleport(payload)
 			_G.NIGHT_AUTOEXEC_QUEUED = true
-			_G.NIGHT_AUTOEXEC_ERROR = nil
-			break
+			print("[Night Menu] Auto-execute por link raw configurado no teleporte.")
 		else
-			_G.NIGHT_AUTOEXEC_ERROR = tostring(err)
+			error("queue_on_teleport indisponivel")
 		end
+	end)
+
+	if not ok then
+		_G.NIGHT_AUTOEXEC_ERROR = tostring(err)
+		print("[Night Menu] Auto-execute indisponivel: " .. tostring(err))
 	end
 
 	return true
