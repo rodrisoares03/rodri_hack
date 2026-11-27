@@ -6071,13 +6071,23 @@ if _G.NIGHT_MENU_AUTO_LAUNCH then
 		if ok then _G.NIGHT_AUTOEXEC_QUEUED = true end
 	end
 else
-	-- Reagendar no arranque se a escolha guardada era "sim"
-	if readAutoExecChoiceSaved() == true then
-		autoExecuteEnabled = true
-		local ok = nightQueueAutoExec()
-		if ok then _G.NIGHT_AUTOEXEC_QUEUED = true end
+	-- Escolha guardada (sim OU nao): respeitar sem voltar a perguntar.
+	-- Isto cobre o teleporte para outra experiencia sem sair do Roblox.
+	local savedChoice = readAutoExecChoiceSaved()
+	autoExecChoicePending = false
+	if autoExecHideConn then autoExecHideConn:Disconnect() end
+	autoExecuteEnabled = (savedChoice == true)
+	if savedChoice ~= nil then
+		autoLaunchPendingReveal = true
+		if autoExecuteEnabled then
+			-- Reagendar no arranque (antes que a global desapareca)
+			local ok = nightQueueAutoExec()
+			if ok then _G.NIGHT_AUTOEXEC_QUEUED = true end
+		end
+	else
+		-- Primeira vez: ainda nao ha escolha guardada
+		showAutoExecPrompt()
 	end
-	showAutoExecPrompt()
 end
 
 gui = Instance.new("ScreenGui")
