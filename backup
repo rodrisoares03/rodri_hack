@@ -5856,8 +5856,12 @@ function applyAutoExecChoice(enabled)
 		end
 		if _G.NIGHT_AUTOEXEC_QUEUED then
 			showMenuToast("Auto Execute", "Ativado | abre sozinho no proximo teleporte.", Color3.fromRGB(170, 255, 170))
+		elseif _G.NIGHT_AUTOEXEC_FILE_OK then
+			-- Sem queue (ou queue com bug interno, ex: NetworkPing): o ficheiro
+			-- autoexec ja foi gravado, entao o auto-execute esta ativo na mesma.
+			showMenuToast("Auto Execute", "Ativado | autoexec por ficheiro.", Color3.fromRGB(170, 255, 170))
 		elseif _G.NIGHT_AUTOEXEC_ERROR then
-			showMenuToast("Auto Execute", "Falha ao agendar: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 60), Color3.fromRGB(255, 180, 80))
+			showMenuToast("Auto Execute", "Queue indisponivel: " .. tostring(_G.NIGHT_AUTOEXEC_ERROR):sub(1, 48), Color3.fromRGB(255, 180, 80))
 		else
 			local names = {}
 			pcall(function()
@@ -10489,7 +10493,10 @@ distFrame.BackgroundTransparency = 1
 distFrame.Parent = espBoxesContent
 
 espDistToggle = createToggle(distFrame, "Distance (m)", function(enabled)
+	-- showDistance e o nome antigo da configuracao; manter os dois em sincroniza
+	-- para nao ficar um toggle "ligado" sem o outro (labels nunca criados).
 	showEspDistance = enabled
+	showDistance = enabled
 	if not enabled then
 		for char, label in pairs(distanceLabels) do
 			if label then pcall(function() label:Remove() end) end
@@ -19994,7 +20001,28 @@ end
 local validCharsReuse = {}
 local validNpcsReuse = {}
 
-RunService.RenderStepped:Connect(function()
+-- Visuais de ESP nao precisam de 60 atualizacoes por segundo. Limitar a ~45 Hz
+-- corta quase metade do trabalho por frame (Drawing/Billboard/FindFirstChild)
+-- sem percepcao visual. Aimbot/trigger continuam a correr em todos os frames.
+local espVisualAcc = 0
+
+local function espVisualsActive()
+	return next(highlights) ~= nil or next(boxes) ~= nil or next(tracers) ~= nil
+		or next(distanceLabels) ~= nil or next(nameLabels) ~= nil
+		or next(weaponLabels) ~= nil or next(healthBars) ~= nil
+end
+
+local function npcEspVisualsActive()
+	return next(npcHighlights) ~= nil or next(npcBoxes) ~= nil or next(npcNameLabels) ~= nil
+		or next(npcWeaponLabels) ~= nil or next(npcDistanceLabels) ~= nil
+		or next(npcHealthBars) ~= nil or (npcTracers and next(npcTracers) ~= nil)
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	espVisualAcc = (espVisualAcc or 0) + (dt or 0)
+	local espTick = espVisualAcc >= (1 / 45)
+	if espTick then espVisualAcc = 0 end
+
 	-- NPC Aimbot
 	if npcAimbotEnabled then
 		if tick() - lastNpcTargetUpdateTime >= 0.15 then
@@ -20100,8 +20128,12 @@ RunService.RenderStepped:Connect(function()
 
 	-- ESP with automatic cleanup (esconde os visuais com o menu aberto)
 	if espEnabled and not panelVisible then
+		-- frames intermediarios: nao mexer nos visuais (evita piscar)
+		if espTick then
 		for k in pairs(validCharsReuse) do validCharsReuse[k] = nil end
 		local validChars = validCharsReuse
+		-- Root do jogador e o mesmo para todos: calcular uma vez por tick.
+		local myRootNow = LocalPlayer.Character and getPrimaryPart(LocalPlayer.Character)
 		for _, player in ipairs(Players:GetPlayers()) do
 			local data = syncPlayerCharacter(player)
 			if player ~= LocalPlayer and isEnemy(player) then
@@ -20109,15 +20141,10 @@ RunService.RenderStepped:Connect(function()
 				if character then
 					local humanoid = data and data.humanoid or character:FindFirstChildOfClass("Humanoid")
 					local root = data and data.root or character:FindFirstChild("HumanoidRootPart")
-					local stateOk = true
-					if humanoid then
-						pcall(function()
-							stateOk = humanoid:GetState() ~= Enum.HumanoidStateType.Dead
-						end)
-					end
+					-- Sem closure pcall por jogador por frame (custava caro quando ha muitos players)
+					local stateOk = humanoid and humanoid:GetState() ~= Enum.HumanoidStateType.Dead or false
 					-- trigger/auto-kill pode deixar o character "fantasma" no ar
 					local heightOk = true
-					local myRootNow = LocalPlayer.Character and getPrimaryPart(LocalPlayer.Character)
 					if root and myRootNow then
 						heightOk = math.abs(root.Position.Y - myRootNow.Position.Y) <= 150
 					end
@@ -20153,8 +20180,12 @@ RunService.RenderStepped:Connect(function()
 			end
 		end
 		for char, label in pairs(nameLabels) do
-			local orphan = not validChars[char] or not label or not label.Parent
-			if not orphan and label:IsA("BillboardGui") and label.Adornee then
+			-- Drawing.Text NAO e um Instance: nao tem Parent nem IsA.
+			-- Usar label.Parent aqui fazia o label ser apagado a CADA FRAME:
+			-- o nome piscava/nunca aparecia e um Drawing novo era criado
+			-- constantemente (queda forte de FPS). So Instances tem Parent.
+			local orphan = not validChars[char] or not label
+			if not orphan and typeof(label) == "Instance" and label.Adornee then
 				orphan = label.Adornee.Parent ~= char
 			end
 			if orphan then
@@ -20169,8 +20200,9 @@ RunService.RenderStepped:Connect(function()
 			end
 		end
 		for char, label in pairs(distanceLabels) do
-			local orphan = not validChars[char] or not label or not label.Parent
-			if not orphan and label:IsA("BillboardGui") and label.Adornee then
+			-- Mesmo problema do nome: Drawing.Text nao tem Parent/IsA.
+			local orphan = not validChars[char] or not label
+			if not orphan and typeof(label) == "Instance" and label.Adornee then
 				orphan = label.Adornee.Parent ~= char
 			end
 			if orphan then
@@ -20193,12 +20225,17 @@ RunService.RenderStepped:Connect(function()
 				healthBars[char] = nil
 			end
 		end
-		else
+		end
+	elseif espVisualsActive() then
+		-- Antes isto corria TODOS os frames com o menu aberto/ESP off (pcall por
+		-- visual). Agora limpa uma vez e fica parado enquanto nao ha visuais.
 		clearAllESPVisuals()
 	end
 
 	-- NPC ESP (throttled scan) — also scan when aimbot needs targets or any sub-feature is active
 	if (npcEspEnabled or npcShowSkeleton or npcShowBox or npcShowTracers or npcShowDistance or npcShowName or npcShowHealth or npcShowWeapon or npcAimbotEnabled or npcTriggerEnabled or npcHitboxEnabled or (silentAimEnabled and silentIncludeNPCs)) then
+		-- Aimbot/trigger correm em todos os frames; so atualizacao dos visuais e limitada
+		if espTick then
 		local now = tick()
 		if now - npcEspLastScanTime >= npcEspScanInterval then
 			npcEspLastScanTime = now
@@ -20277,9 +20314,10 @@ RunService.RenderStepped:Connect(function()
 				npcHealthBars[m] = nil
 			end
 		end
+		end
 	else
-		clearAllNpcESP()
-		npcEspCachedModels = {}
+		if npcEspVisualsActive() then clearAllNpcESP() end
+		if espTick then npcEspCachedModels = {} end
 	end
 end)
 
@@ -20716,38 +20754,53 @@ function getAutoExecuteLoaderSource()
 	return template:gsub("__NIGHT_SELF__", "")
 end
 
-function getTeleportQueueFunction()
-	local found = nil
+-- Nomes CONHECIDOS de queue_on_teleport. Nunca procurar funcoes "que contenham
+-- queue+teleport" em tabelas aleatorias: isso ja apanhou funcoes internas do
+-- executor (ex: NetworkPing) e gerou "Falha ao agendar: attempt to call a nil
+-- value NetworkPing" ao agendar o auto-execute.
+local AUTOEXEC_QUEUE_NAMES = {
+	"queue_on_teleport", "queueonteleport", "queue_teleport",
+	"queueTeleport", "queue_on_teleport_event",
+}
+local AUTOEXEC_EXECUTOR_TABLES = { "syn", "fluxus", "xeno", "xenon", "console" }
+
+function getTeleportQueueCandidates()
+	local candidates, seen = {}, {}
+	local function add(fn)
+		if type(fn) == "function" and not seen[fn] then
+			seen[fn] = true
+			candidates[#candidates + 1] = fn
+		end
+	end
 	local function scan(t)
 		if type(t) ~= "table" then return end
-		local okIter, err = pcall(function()
-			for k, v in pairs(t) do
-				if type(v) == "function" then
-					local name = tostring(k):lower()
-					if name:find("queue", 1, true) and name:find("teleport", 1, true) then
-						found = v
-						return
-					end
+		for _, name in ipairs(AUTOEXEC_QUEUE_NAMES) do
+			add(t[name])
+		end
+		for _, execName in ipairs(AUTOEXEC_EXECUTOR_TABLES) do
+			local exec = t[execName]
+			if type(exec) == "table" then
+				for _, name in ipairs(AUTOEXEC_QUEUE_NAMES) do
+					add(exec[name])
 				end
 			end
-		end)
+		end
 	end
-	pcall(scan, type(getfenv) == "function" and getfenv(0) or nil)
-	pcall(scan, type(getgenv) == "function" and getgenv() or nil)
-	pcall(scan, shared)
-	pcall(scan, _G)
-	if found then return found end
+	local roots = {
+		_G,
+		shared,
+		type(getgenv) == "function" and getgenv() or nil,
+		type(getfenv) == "function" and getfenv(0) or nil,
+	}
+	for _, root in ipairs(roots) do
+		pcall(scan, root)
+	end
+	return candidates
+end
 
-	local g = (type(getgenv) == "function" and getgenv()) or _G
-	local env = (type(getfenv) == "function" and getfenv(0)) or {}
-	return g.queue_on_teleport or g.queueonteleport
-		or env.queue_on_teleport or env.queueonteleport
-		or queue_on_teleport or queueonteleport
-		or (syn and syn.queue_on_teleport)
-		or (fluxus and fluxus.queue_on_teleport)
-		or (xeno and xeno.queue_on_teleport)
-		or (xenon and xenon.queue_on_teleport)
-		or g.queue_teleport or queue_teleport
+function getTeleportQueueFunction()
+	local candidates = getTeleportQueueCandidates()
+	return candidates[1]
 end
 
 function setupAutoExecute()
@@ -20756,6 +20809,7 @@ function setupAutoExecute()
 	end
 
 	local loaderSource = getAutoExecuteLoaderSource()
+	local fileWritten = false
 	if writefile then
 		-- Gravar em TODOS os caminhos de autoexec conhecidos (o Xeno apaga/consome
 		-- o ficheiro de queue_on_teleport depois de o executar uma vez)
@@ -20775,38 +20829,36 @@ function setupAutoExecute()
 			end
 		end)
 		for _, path in ipairs(paths) do
-			pcall(function()
+			local okWrite = pcall(function()
 				local dir = path:match("^(.*)[\\/][^\\/]+$")
 				if dir and makefolder and isfolder and not isfolder(dir) then makefolder(dir) end
 				writefile(path, loaderSource)
 			end)
+			if okWrite then fileWritten = true end
 		end
 		-- copia que o proprio auto-exec le para se re-armar no proximo teleporte
-		pcall(function()
+		local okMain = pcall(function()
 			if makefolder and isfolder and not isfolder("autoexec") then makefolder("autoexec") end
 			writefile("autoexec/night_menu_auto.lua", loaderSource)
 		end)
+		if okMain then fileWritten = true end
 	end
 
-	local queueFn = getTeleportQueueFunction()
+	-- queue_on_teleport e opcional: o loader ja foi gravado na pasta autoexec
+	-- acima. Se o executor nao agendar (ou a funcao interna dele falhar), o
+	-- auto-execute continua a funcionar no proximo arranque pelo ficheiro.
+	_G.NIGHT_AUTOEXEC_FILE_OK = fileWritten
 	_G.NIGHT_AUTOEXEC_QUEUED = false
 	_G.NIGHT_AUTOEXEC_ERROR = nil
-	if queueFn then
+	for _, queueFn in ipairs(getTeleportQueueCandidates()) do
 		-- Alguns executores so aceitam o agendamento a partir da thread principal
 		local ok, err = pcall(queueFn, loaderSource)
 		if ok then
 			_G.NIGHT_AUTOEXEC_QUEUED = true
+			_G.NIGHT_AUTOEXEC_ERROR = nil
+			break
 		else
 			_G.NIGHT_AUTOEXEC_ERROR = tostring(err)
-			task.defer(function()
-				local ok2, err2 = pcall(queueFn, loaderSource)
-				if ok2 then
-					_G.NIGHT_AUTOEXEC_QUEUED = true
-					_G.NIGHT_AUTOEXEC_ERROR = nil
-				else
-					_G.NIGHT_AUTOEXEC_ERROR = tostring(err2)
-				end
-			end)
 		end
 	end
 
