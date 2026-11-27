@@ -21,12 +21,18 @@ TextChatService = game:GetService("TextChatService")
 -- Capturada no arranque, tal como o script de Dungeon Quest faz.
 -- Alguns executores so expoem queue_on_teleport DURANTE a injecao:
 -- guardar a referencia aqui evita o "Sem queue" quando se clica no toggle depois.
-local NIGHT_QUEUE_ON_TELEPORT = queue_on_teleport
+-- Preferir a referencia capturada pelo Loader no thread principal (ver Loader).
+local NIGHT_QUEUE_ON_TELEPORT = _G.NIGHT_QUEUE_ON_TELEPORT or queue_on_teleport
 NIGHT_MENU_AUTO_URL = NIGHT_MENU_AUTO_URL or "https://raw.githubusercontent.com/rodrisoares03/rodri_hack/refs/heads/main/backup"
 
 -- Agendamento identico ao do Night Hub DQ: uma linha curta por link raw.
 local function nightQueueAutoExec()
 	local queueFn = NIGHT_QUEUE_ON_TELEPORT or queue_on_teleport
+		or (type(syn) == "table" and syn.queue_on_teleport)
+		or (type(fluxus) == "table" and fluxus.queue_on_teleport)
+		or (type(xeno) == "table" and xeno.queue_on_teleport)
+		or (type(xenon) == "table" and xenon.queue_on_teleport)
+		or (type(getgenv) == "function" and getgenv().queue_on_teleport)
 	if type(queueFn) ~= "function" then
 		return false, "queue_on_teleport indisponivel"
 	end

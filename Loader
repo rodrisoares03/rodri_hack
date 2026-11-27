@@ -20,6 +20,18 @@ local LOAD_TIME = 2.8
 
 local HttpService = game:GetService("HttpService")
 
+-- Executores so expoem queue_on_teleport no thread PRINCIPAL da injecao.
+-- O menu e carregado dentro de task.spawn, onde a global ja nao existe.
+-- Capturamos aqui e passamos ao menu via _G (foi o que fez o auto-execute
+-- falhar com "Sem queue neste executor" mesmo com o codigo identico ao DQ).
+_G.NIGHT_QUEUE_ON_TELEPORT = queue_on_teleport
+	or (type(syn) == "table" and syn.queue_on_teleport)
+	or (type(fluxus) == "table" and fluxus.queue_on_teleport)
+	or (type(xeno) == "table" and xeno.queue_on_teleport)
+	or (type(xenon) == "table" and xenon.queue_on_teleport)
+	or (type(getgenv) == "function" and type(getgenv().queue_on_teleport) == "function" and getgenv().queue_on_teleport)
+	or nil
+
 -- Apagar loaders de injects anteriores (senao ficam versoes velhas por cima)
 pcall(function()
 	local cg = game:GetService("CoreGui")
